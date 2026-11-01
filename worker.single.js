@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.1";
+const VERSION = "1.21.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -126,7 +126,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
 .proto:hover{border-color:#9db7e0}
 .proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
-.proto.off{color:#94a3b8;border-style:dashed;background:#fcfcfd;text-decoration:line-through}
+.proto.off{color:#64748b;border-style:dashed;background:#fff}
+.proto.sel{box-shadow:inset 0 -2px 0 #bfdbfe}
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
 .sub-list{display:grid;gap:6px;margin-top:10px}
@@ -205,6 +206,7 @@ body.locked .wrap{display:none}
 </div>
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
+<div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
 <div class="hint" style="margin-top:8px">搜索和上面的协议 / 机器筛选只影响「看到哪些」，不改变勾选状态；「全选 / 反选 / 只选 / 全不选」作用于当前筛出来的那些节点。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
@@ -582,13 +584,15 @@ body.locked .wrap{display:none}
     });
     return out;
   }
-  function subVisible() {
+  /* 分面筛选：ignore 用来算「某个芯片自己的候选数量」——统计它时不算它自己那一维。 */
+  function subVisible(ignore) {
+    ignore = ignore || {};
     var q = String(state.sub.search || "").trim().toLowerCase();
     var protos = state.sub.protos || [];
     var machines = state.sub.machinesF || [];
     return subRows().filter(function (item) {
-      if (protos.length && protos.indexOf(item.node.kind) === -1) return false;
-      if (machines.length && machines.indexOf(item.machine) === -1) return false;
+      if (!ignore.proto && protos.length && protos.indexOf(item.node.kind) === -1) return false;
+      if (!ignore.machine && machines.length && machines.indexOf(item.machine) === -1) return false;
       if (!q) return true;
       var hay = (item.node.name || "") + " " + (item.node.link || "") + " " + item.machine;
       return hay.toLowerCase().indexOf(q) !== -1;
@@ -598,15 +602,26 @@ body.locked .wrap{display:none}
     var protoBox = $("sub-protos"); var machineBox = $("sub-machine-chips");
     if (protoBox) {
       protoBox.innerHTML = "";
-      var protos = (state.sub.stats && state.sub.stats.protocols) || [];
-      if (!protos.length) {
+      // 芯片的计数 = 在「其它筛选条件」下这个协议还有多少个节点，和下面列表对得上
+      var pool = subVisible({ proto: true });
+      var seen = [];
+      pool.forEach(function (item) {
+        var hit = seen.filter(function (x) { return x.kind === item.node.kind; })[0];
+        if (hit) hit.count += 1;
+        else seen.push({ kind: item.node.kind, label: item.node.label, count: 1 });
+      });
+      (state.sub.stats && state.sub.stats.protocols || []).forEach(function (item) {
+        if (!seen.some(function (x) { return x.kind === item.kind; })) seen.push({ kind: item.kind, label: item.label, count: 0 });
+      });
+      seen.sort(function (a, b) { return b.count - a.count || (a.label < b.label ? -1 : 1); });
+      if (!seen.length) {
         var e = document.createElement("span"); e.className = "tip"; e.textContent = "还没有节点"; protoBox.appendChild(e);
       }
-      protos.forEach(function (item) {
+      seen.forEach(function (item) {
         var on = (state.sub.protos || []).indexOf(item.kind) !== -1;
         var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto " + (on ? "on" : "");
-        chip.textContent = item.label + " · " + item.count + " 个";
+        chip.type = "button"; chip.className = "proto " + (on ? "on" : "off");
+        chip.textContent = (on ? "✓ " : "") + item.label + " · " + item.count + " 个";
         chip.title = on ? "取消这个筛选" : "只看这个协议";
         chip.onclick = function () {
           var list = (state.sub.protos || []).slice();
@@ -619,11 +634,13 @@ body.locked .wrap{display:none}
     }
     if (machineBox) {
       machineBox.innerHTML = "";
+      var poolM = subVisible({ machine: true });
       (state.sub.machines || []).forEach(function (machine) {
         var on = (state.sub.machinesF || []).indexOf(machine.machine) !== -1;
+        var count = poolM.filter(function (item) { return item.machine === machine.machine; }).length;
         var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto " + (on ? "on" : "");
-        chip.textContent = machine.machine + " · " + machine.total + " 个";
+        chip.type = "button"; chip.className = "proto " + (on ? "on" : "off");
+        chip.textContent = (on ? "✓ " : "") + machine.machine + " · " + count + " 个";
         chip.title = on ? "取消这个筛选" : "只看这台机器";
         chip.onclick = function () {
           var list = (state.sub.machinesF || []).slice();
@@ -646,6 +663,21 @@ body.locked .wrap{display:none}
     renderSubChips();
     box.innerHTML = "";
     var visible = subVisible();
+    var shown = $("sub-shown");
+    if (shown) {
+      var totalRows = subRows().length;
+      var picked = [];
+      if ((state.sub.protos || []).length) {
+        var known = (state.sub.stats && state.sub.stats.protocols) || [];
+        picked.push("协议 " + state.sub.protos.map(function (kind) {
+          var hit = known.filter(function (p) { return p.kind === kind; })[0];
+          return hit ? hit.label : kind;
+        }).join("/"));
+      }
+      if ((state.sub.machinesF || []).length) picked.push("机器 " + state.sub.machinesF.join("、"));
+      if (state.sub.search) picked.push("搜索「" + state.sub.search + "」");
+      shown.textContent = visible.length + " / " + totalRows + " 个节点" + (picked.length ? "（" + picked.join(" + ") + "）" : "（没有筛选）");
+    }
     if (!visible.length) {
       var empty = document.createElement("div"); empty.className = "empty";
       empty.textContent = subRows().length ? "没有匹配的节点（改一下搜索或筛选）" : "还没有任何节点，先在上面添加或上报";
