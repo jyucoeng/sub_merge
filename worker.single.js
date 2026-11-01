@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.8.1";
+const VERSION = "1.8.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -305,7 +305,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true;
       var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转为手动";
       keep.onclick = function () {
-        if (state.nodes.some(function (x) { return x.link === n.link; })) return;
+        if (state.nodes.some(function (x) { return x.link.split("#")[0] === n.link.split("#")[0]; })) return;
         state.nodes.push({ link: n.link, name: n.name || "" });
         render();
         setStatus("已加入手动节点，点「保存配置」生效", true);
@@ -796,8 +796,10 @@ async function aggregateReports(env, machine) {
   for (const report of reports.slice().sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0))) {
     sources.push({ source: report.source, nodes: report.nodes.length, updated_at: report.updated_at });
     for (const node of report.nodes) {
-      if (!node || !node.link || seen.has(node.link)) continue;
-      seen.add(node.link);
+      if (!node || !node.link) continue;
+      const id = linkIdentity(node.link);
+      if (seen.has(id)) continue;
+      seen.add(id);
       merged.push(node);
     }
   }
@@ -943,7 +945,7 @@ async function report(request, env, machine) {
     // 同一个上报源内容没变：不写库，也不动别的源
     const state = await aggregateReports(env, machine);
     const manualNodes = old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [];
-    const manualLinks = new Set(manualNodes.map((n) => n && n.link));
+    const manualIds = new Set(manualNodes.map((n) => linkIdentity(n && n.link)));
     return json({
       ok: true,
       changed: false,
@@ -951,7 +953,7 @@ async function report(request, env, machine) {
       source,
       bytes: content.length,
       hash,
-      nodes: manualNodes.length + state.nodes.filter((n) => !manualLinks.has(n.link)).length,
+      nodes: manualNodes.length + state.nodes.filter((n) => !manualIds.has(linkIdentity(n.link))).length,
       auto_nodes: state.nodes.length,
       manual_nodes: manualNodes.length,
       sources: state.sources,
@@ -977,8 +979,8 @@ async function report(request, env, machine) {
     auto_content: null,
   };
   await saveRecord(env, record);
-  const manualLinks = new Set(manualNodes.map((n) => n && n.link));
-  const total = manualNodes.length + reported.nodes.filter((n) => !manualLinks.has(n.link)).length;
+  const manualIds = new Set(manualNodes.map((n) => linkIdentity(n && n.link)));
+  const total = manualNodes.length + reported.nodes.filter((n) => !manualIds.has(linkIdentity(n.link))).length;
   return json({
     ok: true,
     changed: true,
@@ -1291,6 +1293,14 @@ async function autoNodesOf(record) {
   return [];
 }
 
+/* 同一条节点的「身份」：去掉 #名字 之后的部分。
+ * 手动节点和上报节点只要身份相同就算同一条，名字以手动的为准。 */
+function linkIdentity(link) {
+  const text = String(link || "");
+  const cut = text.indexOf("#");
+  return cut >= 0 ? text.slice(0, cut) : text;
+}
+
 function sortNodes(nodes, useRank) {
   const decorated = nodes.map((node) => ({
     node,
@@ -1309,14 +1319,18 @@ async function nodesOf(record) {
   const seen = new Set();
   const manualPart = [];
   for (const node of manual) {
-    if (!node || !node.link || seen.has(node.link)) continue;
-    seen.add(node.link);
+    if (!node || !node.link) continue;
+    const id = linkIdentity(node.link);
+    if (seen.has(id)) continue;
+    seen.add(id);
     manualPart.push(node);
   }
   const autoPart = [];
   for (const node of auto) {
-    if (!node || !node.link || seen.has(node.link)) continue;
-    seen.add(node.link);
+    if (!node || !node.link) continue;
+    const id = linkIdentity(node.link);
+    if (seen.has(id)) continue;
+    seen.add(id);
     autoPart.push(node);
   }
   return [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)].map((node, i) => ({ ...node, _sort: i }));

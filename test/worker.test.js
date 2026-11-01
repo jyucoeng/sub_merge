@@ -639,6 +639,45 @@ test("manual machines and reporting machines share one merged subscription", asy
   assert.ok(ordered.indexOf(SAMPLE_LINKS[1]) < ordered.indexOf(SAMPLE_LINKS[0]));
 });
 
+test("a node pinned by hand wins over the same node in a later report", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const base = "vless://11111111-2222-4333-8444-555555555555@203.0.113.7:443?security=reality&sni=pypi.org&pbk=deadbeef&sid=dead#";
+  const reported = (name) => base + name;
+
+  // 上报 -> 转为手动（同一条节点，只换显示名）
+  await call(env, "POST", "/api/v1/report/pin", b64(reported("上报的名字")), auth);
+  let res = await call(env, "PUT", "/api/v1/nodes/pin", JSON.stringify({ nodes: [{ link: reported("我起的名字") }] }), { ...auth, "content-type": "application/json" });
+  let data = await res.json();
+  assert.equal(data.manual_nodes.length, 1);
+  assert.equal(data.auto_nodes.length, 1);
+  assert.equal(data.nodes.length, 1, "同一条节点只出一条: " + JSON.stringify(data.nodes.map((n)=>[n.name, n.link.slice(0, 30)])));
+  assert.equal(data.nodes[0].name, "我起的名字");
+
+  // 再用另一个名字上报同一条节点：仍然只出一条，名字还是手动的
+  res = await call(env, "POST", "/api/v1/report/pin", b64(reported("第三次改名")), auth);
+  data = await res.json();
+  assert.equal(data.changed, true);
+  assert.equal(data.nodes, 1);
+  res = await call(env, "GET", "/api/v1/nodes/pin", null, auth);
+  data = await res.json();
+  assert.equal(data.auto_nodes.length, 1);
+  assert.equal(data.auto_nodes[0].name, "第三次改名", "上报那份自己也在更新");
+  assert.equal(data.nodes.length, 1);
+  assert.equal(data.nodes[0].name, "我起的名字", "订阅里用手动的名字");
+
+  // 上报换了端口 = 另一条节点：手动那条留在原位，新的自动节点排后面
+  res = await call(env, "POST", "/api/v1/report/pin", b64(reported("换端口").replace(":443?", ":8443?")), auth);
+  res = await call(env, "GET", "/api/v1/nodes/pin", null, auth);
+  data = await res.json();
+  assert.equal(data.nodes.length, 2);
+  assert.equal(data.nodes[0].name, "我起的名字");
+
+  // 合并订阅里也只有两条
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  assert.equal(unb64(await res.text()).split("\n").length, 2);
+});
+
 test("two boxes reporting under one machine name no longer overwrite each other", async () => {
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}` };
@@ -977,9 +1016,9 @@ test("clash config carries ACL4SSR groups and rule-providers that resolve", asyn
 test("subscription output is cached until the content changes", async () => {
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}` };
-  const link = (name) => `vless://11111111-2222-4333-8444-555555555555@203.0.113.7:443?security=reality&sni=pypi.org&pbk=deadbeef&sid=dead#${name}`;
+  const link = (name, port = 443) => `vless://11111111-2222-4333-8444-555555555555@203.0.113.7:${port}?security=reality&sni=pypi.org&pbk=deadbeef&sid=dead#${name}`;
 
-  let res = await call(env, "PUT", "/api/v1/nodes/cache-a", JSON.stringify({ nodes: [{ link: link("缓存-A1") }, { link: link("缓存-A2") }] }), { ...auth, "content-type": "application/json" });
+  let res = await call(env, "PUT", "/api/v1/nodes/cache-a", JSON.stringify({ nodes: [{ link: link("缓存-A1") }, { link: link("缓存-A2", 8443) }] }), { ...auth, "content-type": "application/json" });
   assert.equal(res.status, 200);
 
   const clashUrl = `/sub/cache-a/${TOKEN}?format=clash`;
