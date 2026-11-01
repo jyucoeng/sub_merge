@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.0";
+const VERSION = "1.9.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1875,12 +1875,12 @@ const DEFAULT_CLASH_GROUPS = [
   { name: "🤖 OpenAi", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇺🇸 美国节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇳🇱 荷兰节点", "🇮🇪 爱尔兰节点", "🇫🇮 芬兰节点", "🇸🇪 瑞典节点", "DIRECT"] },
   { name: "🛸 Antigravity", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇷🇺 俄罗斯节点", "🇮🇳 印度节点", "🇹🇷 土耳其节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇫🇮 芬兰节点", "🇸🇪 瑞典节点", "🇨🇭 瑞士节点", "DIRECT"] },
   { name: "Ⓜ️ 微软服务", type: "select", proxies: ["🎯 全球直连", "🚀 节点选择", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇳🇱 荷兰节点", "🇮🇪 爱尔兰节点", "DIRECT"] },
-  { name: "🍎 苹果服务", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "DIRECT"] },
-  { name: "📢 谷歌FCM", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇮🇳 印度节点", "DIRECT"] },
+  { name: "🍎 苹果服务", type: "select", proxies: ["DIRECT", "🚀 节点选择", "🎯 全球直连", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点"] },
+  { name: "📢 谷歌FCM", type: "select", proxies: ["DIRECT", "🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇮🇳 印度节点"] },
   { name: "🎯 全球直连", type: "select", proxies: ["DIRECT", "🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换"] },
   { name: "🛑 全球拦截", type: "select", proxies: ["REJECT", "DIRECT"] },
   { name: "🍃 应用净化", type: "select", proxies: ["REJECT", "DIRECT"] },
-  { name: "🐟 漏网之鱼", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇮🇳 印度节点", "🇫🇮 芬兰节点", "DIRECT"] },
+  { name: "🐟 漏网之鱼", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "DIRECT", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇮🇳 印度节点", "🇫🇮 芬兰节点", "DIRECT"] },
   { name: "🇭🇰 香港节点", type: "select", filter: "(港|HK|hk|Hong Kong|HongKong|hongkong|HKG)" },
   { name: "🇲🇴 澳门节点", type: "select", filter: "(澳门|MO|Macau|macao)" },
   { name: "🇹🇼 台湾节点", type: "select", filter: "(台|新北|彰化|TW|Taiwan|taipei)" },
@@ -1925,8 +1925,6 @@ const DEFAULT_CLASH_RULESETS = [
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/UnBan.list" },
   { group: "🛑 全球拦截", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list" },
   { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanProgramAD.list" },
-  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/adobe.list" },
-  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/IDM.list" },
   { group: "📢 谷歌FCM", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/GoogleFCM.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/GoogleCN.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/SteamCN.list" },
@@ -1948,6 +1946,8 @@ const DEFAULT_CLASH_RULESETS = [
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ChinaDomain.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ChinaCompanyIp.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ryty1/ACL4SSR/master/Clash/zdy.list" },
+  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/adobe.list" },
+  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/IDM.list" },
 ];
 
 const CLASH_GEOX = {
