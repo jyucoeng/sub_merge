@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.13.4";
+const VERSION = "1.13.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1133,8 +1133,10 @@ async function handleRequest(request, env) {
     return getOne(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
   }
 
-  // 非接口路径给一张 404 页面；/api 下仍然回 JSON
+  // 非接口路径：浏览器直接打开的一律进界面（域名后面随便带什么都行），
+  // 只有 /api 下的未知接口、以及不带 text/html 的请求才回 404。
   if (path === "/api" || path.startsWith("/api/")) return json({ ok: false, error: "not found" }, 404);
+  if (request.method === "GET" && (request.headers.get("accept") || "").includes("text/html")) return html(UI_HTML);
   return html(NOT_FOUND_HTML(), 404);
 }
 

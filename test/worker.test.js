@@ -1259,7 +1259,10 @@ test("login failure says so when no admin password is configured", async () => {
 test("unknown paths get a 404 page, /api still answers JSON", async () => {
   const env = makeEnv();
   const page = await call(env, "GET", "/nope/whatever");
-  assert.equal(page.status, 404);
+  assert.equal(page.status, 404, "non-browser requests still get 404");
+  const nav = await call(env, "GET", "/nope/whatever", null, { accept: "text/html" });
+  assert.equal(nav.status, 200, "browser navigation falls back to the UI");
+  assert.ok((await nav.text()).includes('id="login-password"'));
   const body = await page.text();
   assert.ok(body.includes("404"), "404 page must show the code");
   assert.ok(!body.includes("<script>"), "404 page must not run scripts");
