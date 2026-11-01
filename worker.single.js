@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.7";
+const VERSION = "1.21.8";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -219,7 +219,7 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
 <div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
-<div class="hint" style="margin-top:8px">搜索和上面的协议 / 机器筛选只影响「看到哪些」，不改变勾选状态；「全选 / 反选 / 只选 / 全不选」作用于当前筛出来的那些节点。</div>
+<div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 列出来的 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 反选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
 </section>
