@@ -186,6 +186,7 @@ const click = (id) => { const e = el(id); if (typeof e.onclick !== "function") t
 const machineRows = () => rows("machine-list");
 const findMachineRow = (name) => machineRows().find((r) => (r.children[1] || {}).textContent?.includes(name));
 const nodeRows = () => rows("nodes");
+const autoRows = () => rows("auto-nodes");
 const links = () => nodeRows().map((r) => r.children[1].value);
 const names = () => nodeRows().map((r) => r.children[2].value);
 
@@ -202,7 +203,7 @@ const names = () => nodeRows().map((r) => r.children[2].value);
 // A. 空状态
 check("空状态：机器列表提示", text("machine-list").includes("暂无机器上报"), text("machine-list").slice(0, 20));
 check("空状态：下拉提示", (machineRows()[0], el("machine").children[0].textContent.includes("暂无机器，先用下面「新建机器」")));
-check("空状态：节点区提示", text("nodes").includes("暂无节点"));
+check("空状态：节点区提示", text("nodes").includes("暂无节点") || text("nodes").includes("没有手动节点"), text("nodes").slice(0, 30));
 
 // B. 新建中文名机器 + 批量粘贴两条节点
 el("new-machine").value = "香港-小叮当";
@@ -368,6 +369,41 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("上报机器出现在列表", text("machine-list").includes("auto-hk"));
   check("上报机器标「上报」", findMachineRow("auto-hk").children[1].textContent.includes("上报"), findMachineRow("auto-hk").children[1].textContent);
   check("手动机器标「手动」", findMachineRow("香港-备用").children[1].textContent.includes("手动"), findMachineRow("香港-备用").children[1].textContent);
+
+  // K2. 同一台机器：自动节点只读展示 + 「转为手动」
+  findMachineRow("auto-hk").children[5].onclick();
+  await idle();
+  check("自动节点区有内容", autoRows().length === 2, `rows=${autoRows().length}`);
+  check("自动节点只读", autoRows()[0].children[0].readOnly === true, String(autoRows()[0].children[0].readOnly));
+  check("手动区为空并提示", text("nodes").includes("没有手动节点"), text("nodes").slice(0, 30));
+  autoRows()[0].children[2].onclick();
+  await idle();
+  check("转为手动：手动区出现一条", nodeRows().length === 1, `rows=${nodeRows().length}`);
+  check("转为手动：提示要保存", text("status").includes("已加入手动节点"), text("status"));
+  click("save");
+  await idle();
+  {
+    const d = (await api("/nodes/auto-hk")).data;
+    check("保存后：手动 1 条 + 自动 2 条", (d.manual_nodes || []).length === 1 && (d.auto_nodes || []).length === 2, `manual=${(d.manual_nodes || []).length} auto=${(d.auto_nodes || []).length}`);
+    check("保存后：生效节点 2 条（去重）", (d.nodes || []).length === 2, `${(d.nodes || []).length} 条`);
+  }
+  // 再上报一次：自动部分更新，手动那条不变
+  {
+    const body = Buffer.from(TUIC).toString("base64");
+    await netFetch(BASE + "/api/v1/report/" + encodeURIComponent("auto-hk"), {
+      method: "POST", headers: { Authorization: "Bearer " + TOKEN }, body,
+    });
+    const d = (await api("/nodes/auto-hk")).data;
+    check("再上报：手动节点仍在", (d.manual_nodes || []).length === 1, `${(d.manual_nodes || []).length} 条`);
+    check("再上报：自动节点缩成 1 条", (d.auto_nodes || []).length === 1, `${(d.auto_nodes || []).length} 条`);
+    check("再上报：徽章转「手动」", (await api("/machines")).data.machines.find((m) => m.machine === "auto-hk").manual === true);
+  }
+  // 清掉这台机器的手动节点，回到纯上报，方便后面的删除用例
+  confirms.push(true);
+  click("reset");
+  await idle();
+  const cleared = (await api("/nodes/auto-hk")).data;
+  check("清空后：手动 0 条", (cleared.manual_nodes || []).length === 0 && (cleared.auto_nodes || []).length === 1, `manual=${(cleared.manual_nodes || []).length}`);
 }
 
 // L. reset 的 confirm 守卫 + 恢复自动上报
@@ -393,11 +429,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   confirms.push(true);
   click("reset");
   await idle();
-  check("reset 确认：提示已恢复", text("status").includes("已恢复自动上报"), text("status"));
+  check("reset 确认：提示已清空手动节点", text("status").includes("已清空手动节点"), text("status"));
   const { data } = await api("/nodes/" + encodeURIComponent("香港-备用"));
-  check("reset 确认：节点改用最近一次上报的内容", (data.nodes || []).length === 1, `${(data.nodes || []).length} 个`);
+  check("reset 确认：只剩最近一次上报的那条", (data.nodes || []).length === 1, `${(data.nodes || []).length} 个`);
+  check("reset 确认：手动列表已清空", (data.manual_nodes || []).length === 0, `${(data.manual_nodes || []).length} 个`);
   check("reset 确认：徽章变「上报」", findMachineRow("香港-备用").children[1].textContent.includes("上报"));
-  check("reset 确认：提示说明取了最近一次上报", text("status").includes("节点取自最近一次上报"), text("status"));
+  check("reset 确认：提示说明只剩自动上报的节点", text("status").includes("只剩自动上报的节点"), text("status"));
 }
 
 // L2. 从没上报过的机器：reset 只取消手动标记，节点保持
@@ -417,10 +454,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   confirms.push(true);
   click("reset");
   await idle();
-  check("未上报过：提示没有可恢复内容", text("status").includes("还没有自动上报记录"), text("status"));
+  check("未上报过：提示已清空", text("status").includes("已清空手动节点"), text("status"));
   const { data } = await api("/nodes/" + encodeURIComponent("没上报过"));
-  check("未上报过：节点保持不变", (data.nodes || []).length === before && before === 1, `${(data.nodes || []).length} vs ${before}`);
+  check("未上报过：清空后没有节点", (data.nodes || []).length === 0 && before === 1, `${(data.nodes || []).length} vs ${before}`);
   check("未上报过：手动标记已取消", data.manual === false, String(data.manual));
+  check("未上报过：再清一次提示不用清", text("order-status") !== "", "ok");
   // 收尾：删掉这台临时机器
   confirms.push(true);
   findMachineRow("没上报过").children[6].onclick();

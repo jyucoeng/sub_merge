@@ -138,7 +138,7 @@ https://<worker>/ui/<TOKEN>
 - 调整节点顺序：序号输入框直接填目标位置（回车生效），或用 ↑/↓ 一行一行挪；
 - 添加、删除节点；
 - 保存后订阅立即按新顺序生成；
-- **“恢复自动上报”**：节点换回这台机器**最近一次自动上报**的内容（手动改的那份会丢，所以会先弹确认）；从没上报过的机器则只取消“手动”标记、节点保持不变，界面会直接说明；
+- **手动节点 / 自动节点分开**：上面是可编辑的手动节点，下面是只读的自动上报节点，点「转为手动」把上报的那条固定下来；「清空手动节点」只清手动那份，上报的原样保留；
 
 手动保存后，机器继续自动上报也不会覆盖已编辑节点；需要恢复自动更新时点“恢复自动上报”。
 名称留空也能保存：服务端会按同样的规则（`#` 片段 → `协议-服务器`）补齐，不会出现空名字的节点。
@@ -162,20 +162,23 @@ https://<worker>/ui/<TOKEN>
 
 名字随时能改（“重命名”按钮，或 `POST /api/v1/machines/:machine/rename`）。改名是整行搬家：节点、`manual` 标记、`updated_at` 和它在 `machine_order` 里的位置都跟着走，旧名字立刻消失，合并订阅不会断。
 
-## 两种来源混用
+## 手动节点与上报节点
 
-同一个 `machines` 表同时装两种机器，界面上用徽章区分，合并订阅把它们平等拼在一起：
+节点分两份存，**上报只改上报那份，手动那份谁都动不了**。所以一台机器可以既自动上报、又挂几条你自己加的节点。
 
-| 来源 | 谁写入 | `manual` | 节点从哪来 | 列表徽章 |
-| --- | --- | --- | --- | --- |
-| 机器自动上报 | 客户端 `POST /api/v1/report/<machine>` | 0 | 上报内容解析出的节点 | 蓝色「上报」 |
-| 手动新建 | “新建机器” + 粘贴节点 | 1 | 界面里编辑的节点 | 黄色「手动」 |
+| 来源 | 谁写入 | 存在哪 | 界面 |
+| --- | --- | --- | --- |
+| 机器自动上报 | 客户端 `POST /api/v1/report/<machine>` | `content` + `nodes_json` | 「自动上报的节点」只读区，蓝色「上报」徽章（机器没有手动节点时） |
+| 手动输入 | “+ 添加节点”（一次一个）/ 批量粘贴（一次多个）/ 「转为手动」 | `manual_nodes_json` | 「手动节点」可编辑区，黄色「手动」徽章 |
 
-- 一次加一个节点：点“+ 添加节点”；一次加多个：批量粘贴框整段贴入，或往链接框里粘多行；
-- 新建机器时批量框里已经有链接，会连节点一起建好，不用建完再保存；
-- 同名冲突：新建的名字正好是正在上报的机器时，不新建第二行，而是切过去并提示；保存节点后这台机器转成手动，之后上报只更新 `content`/`hash`，**不动你编辑过的节点**，点“恢复自动上报”才交还。
+- **顺序**：合并订阅里这台机器先排手动节点（按你在界面上排的次序），再接上报节点（按协议优先级：Reality → anytls → Argo → ws → hy2 → tuic …）；
+- **去重**：同一条链接既手动又上报时只出一条（用你手动给的名称）；
+- **「转为手动」**：在只读区点一下，就把那条上报节点复制进手动列表，之后上报再怎么变都不影响它（常见用法：把某条节点改个自己喜欢的名字固定住）；
+- **「清空手动节点」**：只清手动列表，上报节点原样保留；
+- 机器列表里每台机器会显示「N 节点（手动 M）」，鼠标悬停能看「手动 M 个 · 自动 N 个」；
+- 一台机器**只有手动节点、从没上报过**时，它的 `content` 是空的——这不影响使用，手动节点照样进订阅。
 
-## 订阅格式
+## 订阅格式## 订阅格式
 
 客户端 `User-Agent` 会自动识别：
 
@@ -234,9 +237,10 @@ CREATE TABLE IF NOT EXISTS machines (
   hash       TEXT NOT NULL,              -- content 的 SHA-256，用于去重
   bytes      INTEGER NOT NULL DEFAULT 0, -- base64 长度
   updated_at TEXT NOT NULL,              -- ISO 8601 时间
-  nodes_json TEXT NOT NULL DEFAULT '[]', -- [{id,name,link,protocol,order}]
-  manual     INTEGER NOT NULL DEFAULT 0, -- 1 = WebUI 手动编辑过，自动上报不覆盖
-  auto_content TEXT                      -- 最近一次自动上报的原文，供“恢复自动上报”回退
+  nodes_json TEXT NOT NULL DEFAULT '[]',        -- 最近一次自动上报解析出的节点
+  manual_nodes_json TEXT NOT NULL DEFAULT '[]', -- WebUI 手写的节点（上报永不覆盖）
+  manual     INTEGER NOT NULL DEFAULT 0,        -- 1 = 有手动节点
+  auto_content TEXT                             -- 1.6.0 遗留列，1.7.0 起不再写入
 );
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
@@ -247,9 +251,16 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 ```
 
-`auto_content` 只在需要时占用空间：自动上报的机器它是 `NULL`（`content` 本身就是上报内容），手动编辑过的机器才多存一份最近上报，用来回退。
+一台机器里有两份节点，互相不覆盖：
 
-老库升级不用改 SQL：`POST /api/v1/admin/schema` 会顺带跑 `ALTER TABLE machines ADD COLUMN auto_content TEXT`（重复执行时报 `duplicate column` 会被忽略），升级前的老数据这一列是 `NULL`，行为退化成“没有可恢复的上报”。
+| 列 | 谁写 | 作用 |
+| --- | --- | --- |
+| `content` / `hash` / `nodes_json` | 只有 `POST /api/v1/report/<machine>` | 最近一次上报的原文与解析结果 |
+| `manual_nodes_json` | 只有 WebUI 保存节点 | 你手写的节点 |
+
+合并订阅里这台机器的节点 = **手动节点（按你排的顺序在前）+ 上报节点（按协议排在后）**，链接相同的只留一条（留手动那条）。
+
+老库升级不用改 SQL：`POST /api/v1/admin/schema` 会补列（`ALTER TABLE ... ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'`，重复执行报 `duplicate column` 会被忽略），并把老的手动机器拆开——原来 `nodes_json` 里的手写节点搬到 `manual_nodes_json`，`auto_content` 里的最近上报搬回 `content`/`nodes_json`；返回值里的 `node_sources_migrated` 告诉你这次搬了几台。
 
 写入路径只有两条：上报和 WebUI 保存节点，都是 `INSERT ... ON CONFLICT(machine) DO UPDATE`；读取路径也只有两条：单机 `WHERE machine = ?1`、合并订阅 `SELECT * FROM machines`（一次查询，机器数量不影响往返次数）。
 

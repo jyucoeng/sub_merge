@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.6.0";
+const VERSION = "1.7.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -40,6 +40,7 @@ export const SCHEMA_STATEMENTS = [
   bytes      INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   nodes_json TEXT NOT NULL DEFAULT '[]',
+  manual_nodes_json TEXT NOT NULL DEFAULT '[]',
   manual     INTEGER NOT NULL DEFAULT 0,
   auto_content TEXT
 )`,
@@ -53,7 +54,10 @@ export const SCHEMA_STATEMENTS = [
 /* 老库补列：D1 的 ALTER TABLE 没有 IF NOT EXISTS，重复执行会报 duplicate column，这里按幂等处理。
  * auto_content 保存「最近一次自动上报的原文」，手动编辑时不动它，恢复自动上报时用它。
  * 老库里这一列是 NULL，等价于「没有可恢复的上报」，行为退化成旧逻辑。 */
-export const MIGRATION_STATEMENTS = ["ALTER TABLE machines ADD COLUMN auto_content TEXT"];
+export const MIGRATION_STATEMENTS = [
+  "ALTER TABLE machines ADD COLUMN auto_content TEXT",
+  "ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'",
+];
 
 const UI_HTML = `<!doctype html>
 <html lang="zh-CN">
@@ -101,12 +105,15 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
-<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" type="button">重命名</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
+<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" type="button">重命名</button><button id="reset" class="danger" type="button">清空手动节点</button></div>
 <div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
+<div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
 <div id="nodes" class="nodes"></div>
 <div class="row" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
+<div class="hint" style="margin-top:16px"><b>自动上报的节点</b>（只读，来自最近一次上报；想长期保留就点「转为手动」）</div>
+<div id="auto-nodes" class="nodes"></div>
 <div id="status" class="status"></div>
 </section>
 
@@ -234,8 +241,37 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   }
   function render() {
     var box = $("nodes"); box.innerHTML = "";
-    if (!state.nodes.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = "暂无节点，点击下方添加"; box.appendChild(e); return; }
+    if (!state.nodes.length) {
+      var e = document.createElement("div"); e.className = "empty";
+      e.textContent = (state.autoNodes || []).length ? "没有手动节点，这台机器只用下面的自动上报节点" : "暂无节点，点击下方添加";
+      box.appendChild(e);
+      return;
+    }
     state.nodes.forEach(function (n, i) { box.appendChild(nodeRow(n, i)); });
+  }
+  function renderAutoNodes() {
+    var box = $("auto-nodes"); if (!box) return;
+    box.innerHTML = "";
+    if (!state.autoNodes.length) {
+      var e = document.createElement("div"); e.className = "empty";
+      e.textContent = "这台机器还没有自动上报";
+      box.appendChild(e);
+      return;
+    }
+    state.autoNodes.forEach(function (n) {
+      var row = document.createElement("div"); row.className = "node";
+      var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = "只读：来自自动上报";
+      var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true;
+      var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转为手动";
+      keep.onclick = function () {
+        if (state.nodes.some(function (x) { return x.link === n.link; })) return;
+        state.nodes.push({ link: n.link, name: n.name || "" });
+        render();
+        setStatus("已加入手动节点，点「保存配置」生效", true);
+      };
+      row.appendChild(link); row.appendChild(name); row.appendChild(keep);
+      box.appendChild(row);
+    });
   }
   function renderMachines() {
     var sel = $("machine"); sel.innerHTML = "";
@@ -263,7 +299,9 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       tag.textContent = m.manual ? "手动" : "上报";
       tag.title = m.manual ? "手动配置：自动上报不会覆盖这里编辑的节点" : "来自机器自动上报";
       name.appendChild(document.createTextNode(m.machine)); name.appendChild(tag);
-      var count = document.createElement("div"); count.className = "mcount"; count.textContent = (m.nodes || 0) + " 节点";
+      var count = document.createElement("div"); count.className = "mcount";
+      count.textContent = (m.nodes || 0) + " 节点" + (m.manual_nodes ? "（手动 " + m.manual_nodes + "）" : "");
+      count.title = "手动 " + (m.manual_nodes || 0) + " 个 · 自动 " + (m.auto_nodes || 0) + " 个";
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
       var edit = document.createElement("button"); edit.type = "button"; edit.className = "edit"; edit.textContent = "编辑节点";
@@ -293,8 +331,10 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     if (!state.current) { state.nodes = []; render(); return Promise.resolve(); }
     if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
-      state.nodes = (data.nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
-      render(); if (!quiet) setStatus("已加载 " + state.nodes.length + " 个节点");
+      state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
+      state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
+      render(); renderAutoNodes();
+      if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
   function loadMachines(quiet) {
@@ -322,6 +362,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);
+    // state.nodes 是手动节点列表，保存只写这一份，自动上报的部分服务端不动
     var nodes = state.nodes.filter(function (n) { return String(n.link || "").trim(); }).map(function (n, i) {
       return { link: String(n.link).trim(), name: String(n.name || "").trim(), order: i };
     });
@@ -389,12 +430,12 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
-    if (!state.current || !confirm("恢复自动上报？节点会换回这台机器最近一次自动上报的内容，手改的内容会丢，确定？")) return;
+    if (!state.current || !confirm("清空这台机器的手动节点？清空后只剩自动上报的节点，手写的内容会丢，确定？")) return;
     api("/machines/" + encodeURIComponent(state.current) + "/reset", { method: "POST" })
       .then(function (data) {
-        setStatus(data && data.restored === false
-          ? "这台机器还没有自动上报记录，已取消手动标记，节点保持不变"
-          : "已恢复自动上报，节点取自最近一次上报", true);
+        setStatus(data && data.cleared === false
+          ? "这台机器没有手动节点，不需要清空"
+          : "已清空手动节点，只剩自动上报的节点", true);
         return loadMachines(true);
       })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
@@ -552,19 +593,30 @@ function dbEnv(env) { return env && env.DB ? env.DB : null; }
 
 /* ---------------- storage: Cloudflare D1 ---------------- */
 
-const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content";
+const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json";
+
+function parseJsonArray(text) {
+  try {
+    const value = JSON.parse(text || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
 
 function rowToRecord(row) {
-  let nodes = [];
-  try { nodes = JSON.parse(row.nodes_json || "[]"); } catch { nodes = []; }
+  const nodes = parseJsonArray(row.nodes_json);
+  const manualNodes = parseJsonArray(row.manual_nodes_json);
   return {
     machine: row.machine,
     content: row.content,
     hash: row.hash,
     bytes: Number(row.bytes) || 0,
     updated_at: row.updated_at,
-    nodes: Array.isArray(nodes) ? nodes : [],
-    manual: Boolean(Number(row.manual)),
+    // nodes = 最近一次自动上报解析出来的节点；manual_nodes = WebUI 手写的节点，两者互不覆盖
+    nodes,
+    manual_nodes: manualNodes,
+    manual: manualNodes.length > 0,
     auto_content: row.auto_content == null ? null : String(row.auto_content),
   };
 }
@@ -577,8 +629,9 @@ function recordValues(record) {
     record.bytes,
     record.updated_at,
     JSON.stringify(record.nodes || []),
-    record.manual ? 1 : 0,
+    (record.manual_nodes && record.manual_nodes.length) ? 1 : 0,
     record.auto_content == null ? null : String(record.auto_content),
+    JSON.stringify(record.manual_nodes || []),
   ];
 }
 
@@ -601,8 +654,8 @@ async function saveRecord(env, record) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
   await db.prepare(
-    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
      ON CONFLICT(machine) DO UPDATE SET
        content = excluded.content,
        hash = excluded.hash,
@@ -610,7 +663,8 @@ async function saveRecord(env, record) {
        updated_at = excluded.updated_at,
        nodes_json = excluded.nodes_json,
        manual = excluded.manual,
-       auto_content = excluded.auto_content`,
+       auto_content = excluded.auto_content,
+       manual_nodes_json = excluded.manual_nodes_json`,
   ).bind(...recordValues(record)).run();
   return record;
 }
@@ -650,7 +704,36 @@ async function initSchema(env) {
       if (!/duplicate column|already exists/i.test(message)) throw error;
     }
   }
-  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length, migrations: migrated });
+  const converted = await migrateNodeSources(env);
+  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length, migrations: migrated, node_sources_migrated: converted });
+}
+
+/* 1.7.0 之前：手动编辑直接覆盖 nodes_json。这里把老的手动机器拆成
+ * 「手动节点 manual_nodes_json」+「最近一次上报 nodes_json」，可重复执行。 */
+async function migrateNodeSources(env) {
+  const db = dbEnv(env);
+  const result = await db.prepare("SELECT machine, nodes_json, manual, auto_content, manual_nodes_json FROM machines WHERE manual = 1").all();
+  const rows = (result && result.results) || [];
+  let converted = 0;
+  for (const row of rows) {
+    const current = parseJsonArray(row.nodes_json);
+    if (!current.length) continue;
+    if (parseJsonArray(row.manual_nodes_json).length) continue;
+    const autoContent = row.auto_content ? String(row.auto_content) : "";
+    await saveRecord(env, {
+      machine: row.machine,
+      content: autoContent,
+      hash: await sha256Hex(autoContent),
+      bytes: autoContent.length,
+      updated_at: new Date().toISOString(),
+      nodes: autoContent ? await normalizeNodes(splitLinks(decodeSafe(autoContent)), []) : [],
+      manual_nodes: current,
+      manual: true,
+      auto_content: null,
+    });
+    converted += 1;
+  }
+  return converted;
 }
 
 /* ---------------- handlers ---------------- */
@@ -674,24 +757,24 @@ async function report(request, env, machine) {
     return json({ ok: true, changed: false, machine, bytes: content.length, hash, updated_at: old.updated_at });
   }
   const links = splitLinks(decoded);
-  const nodes = old && old.manual && Array.isArray(old.nodes)
-    ? old.nodes
-    : await normalizeNodes(links, old && Array.isArray(old.nodes) ? old.nodes : []);
+  const autoNodes = await normalizeNodes(links, old && Array.isArray(old.nodes) ? old.nodes : []);
+  const manualNodes = old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [];
   const updatedAt = new Date().toISOString();
-  const manual = Boolean(old && old.manual);
   const record = {
     machine,
     content,
     hash,
     bytes: content.length,
     updated_at: updatedAt,
-    nodes,
-    manual,
-    // 自动上报永远是最新的「真实配置」：手动机器把它存进 auto_content，供“恢复自动上报”回退
-    auto_content: manual ? content : null,
+    nodes: autoNodes,
+    manual_nodes: manualNodes,
+    manual: manualNodes.length > 0,
+    auto_content: null,
   };
   await saveRecord(env, record);
-  return json({ ok: true, changed: true, machine, bytes: content.length, hash, nodes: nodes.length, manual: record.manual, updated_at: updatedAt });
+  const manualLinks = new Set(manualNodes.map((n) => n && n.link));
+  const total = manualNodes.length + autoNodes.filter((n) => !manualLinks.has(n.link)).length;
+  return json({ ok: true, changed: true, machine, bytes: content.length, hash, nodes: total, auto_nodes: autoNodes.length, manual_nodes: manualNodes.length, manual: record.manual, updated_at: updatedAt });
 }
 
 async function getOne(env, machine, token, request) {
@@ -740,8 +823,17 @@ async function getAll(env, token, request) {
 
 async function getNodeConfig(env, machine) {
   const record = await loadRecord(env, machine);
-  if (!record) return json({ ok: true, machine, nodes: [], manual: false });
-  return json({ ok: true, machine, manual: Boolean(record.manual), updated_at: record.updated_at, nodes: await nodesOf(record) });
+  if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [] });
+  return json({
+    ok: true,
+    machine,
+    manual: Boolean(record.manual),
+    updated_at: record.updated_at,
+    // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
+    nodes: await nodesOf(record),
+    manual_nodes: record.manual_nodes || [],
+    auto_nodes: await autoNodesOf(record),
+  });
 }
 
 async function putNodeConfig(request, env, machine) {
@@ -761,42 +853,36 @@ async function putNodeConfig(request, env, machine) {
     inputs.push({ link, name: typeof item.name === "string" ? item.name.trim().slice(0, 160) : "" });
   }
   const old = await loadRecord(env, machine);
-  const nodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.nodes) ? old.nodes : [], inputs);
-  const content = encodeBase64(nodes.map((n) => n.link).join("\n"));
-  const record = {
-    machine,
-    content,
-    hash: await sha256Hex(content),
-    bytes: content.length,
-    updated_at: new Date().toISOString(),
-    nodes,
-    manual: true,
-    // 第一次改成手动时，用编辑前的 content 当恢复点；之后保留已有的恢复点
-    auto_content: old ? old.auto_content || old.content : null,
-  };
+  const manualNodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [], inputs);
+  const updatedAt = new Date().toISOString();
+  // 手动节点写进 manual_nodes_json，上报内容（content/nodes_json）一个字都不动
+  const record = old
+    ? { ...old, manual_nodes: manualNodes, manual: manualNodes.length > 0, updated_at: updatedAt }
+    : {
+      machine,
+      content: "",
+      hash: await sha256Hex(""),
+      bytes: 0,
+      updated_at: updatedAt,
+      nodes: [],
+      manual_nodes: manualNodes,
+      manual: manualNodes.length > 0,
+      auto_content: null,
+    };
   await saveRecord(env, record);
-  return json({ ok: true, machine, manual: true, nodes });
+  const nodes = await nodesOf(record);
+  return json({ ok: true, machine, manual: record.manual, nodes, manual_nodes: manualNodes, auto_nodes: record.nodes || [] });
 }
 
 async function resetMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
-  const base = old.auto_content || old.content;
-  const nodes = await normalizeNodes(splitLinks(decodeSafe(base)), []);
-  const record = {
-    ...old,
-    content: base,
-    hash: await sha256Hex(base),
-    bytes: base.length,
-    nodes,
-    manual: false,
-    auto_content: null,
-    updated_at: new Date().toISOString(),
-  };
+  const cleared = Array.isArray(old.manual_nodes) && old.manual_nodes.length > 0;
+  const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
-  const restored = Boolean(old.auto_content);
-  return json({ ok: true, machine, manual: false, restored, nodes });
+  const nodes = await nodesOf(record);
+  return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });
 }
 
 async function renameMachine(request, env, machine) {
@@ -818,7 +904,8 @@ async function renameMachine(request, env, machine) {
     order[idx] = to;
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
-  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: (record.nodes || []).length, manual: Boolean(record.manual) });
+  const moved = await nodesOf(record);
+  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
 async function listMachines(env) {
@@ -828,7 +915,16 @@ async function listMachines(env) {
   const machines = [];
   for (const record of records) {
     const nodes = await nodesOf(record);
-    machines.push({ machine: record.machine, bytes: record.bytes, updated_at: record.updated_at, hash: record.hash, manual: Boolean(record.manual), nodes: nodes.length });
+    machines.push({
+      machine: record.machine,
+      bytes: record.bytes,
+      updated_at: record.updated_at,
+      hash: record.hash,
+      manual: Boolean(record.manual),
+      nodes: nodes.length,
+      manual_nodes: (record.manual_nodes || []).length,
+      auto_nodes: (record.nodes || []).length,
+    });
   }
   machines.sort((a, b) => {
     const ar = rank.has(a.machine) ? rank.get(a.machine) : defaultMachineRank(a.machine);
@@ -965,22 +1061,41 @@ function internalError(err) {
   return json(body, 500);
 }
 
-async function nodesOf(record) {
-  let nodes;
-  if (record && Array.isArray(record.nodes) && record.nodes.length) {
-    nodes = record.nodes.slice();
-  } else {
-    nodes = await normalizeNodes(splitLinks(record && record.content ? decodeSafe(record.content) : ""), []);
-  }
-  const manual = Boolean(record && record.manual);
+async function autoNodesOf(record) {
+  if (record && Array.isArray(record.nodes) && record.nodes.length) return record.nodes.slice();
+  if (record && record.content) return normalizeNodes(splitLinks(decodeSafe(record.content)), []);
+  return [];
+}
+
+function sortNodes(nodes, useRank) {
   const decorated = nodes.map((node) => ({
     node,
-    rank: manual ? 0 : protocolRank(node),
+    rank: useRank ? protocolRank(node) : 0,
     order: Number(node.order) || 0,
-    name: manual ? "" : String(node.name == null ? "" : node.name),
+    name: useRank ? String(node.name == null ? "" : node.name) : "",
   }));
   decorated.sort((a, b) => a.rank - b.rank || a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return decorated.map((item, i) => ({ ...item.node, _sort: i }));
+  return decorated.map((item) => item.node);
+}
+
+/* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */
+async function nodesOf(record) {
+  const manual = record && Array.isArray(record.manual_nodes) ? record.manual_nodes.slice() : [];
+  const auto = await autoNodesOf(record);
+  const seen = new Set();
+  const manualPart = [];
+  for (const node of manual) {
+    if (!node || !node.link || seen.has(node.link)) continue;
+    seen.add(node.link);
+    manualPart.push(node);
+  }
+  const autoPart = [];
+  for (const node of auto) {
+    if (!node || !node.link || seen.has(node.link)) continue;
+    seen.add(node.link);
+    autoPart.push(node);
+  }
+  return [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)].map((node, i) => ({ ...node, _sort: i }));
 }
 
 function protocolRank(node) {

@@ -36,6 +36,7 @@ function mockRow(args) {
     nodes_json: args[5],
     manual: args[6],
     auto_content: args[7] == null ? null : args[7],
+    manual_nodes_json: args[8] == null ? "[]" : args[8],
   };
 }
 
@@ -61,6 +62,10 @@ class MockStatement {
     if (/^SELECT .+ FROM machines$/i.test(this.sql)) {
       return { results: [...this.db.machines.values()], success: true, meta: { changes: 0 } };
     }
+    if (/^SELECT .+ FROM machines WHERE manual = 1$/i.test(this.sql)) {
+      const rows = [...this.db.machines.values()].filter((row) => Number(row.manual) === 1);
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
     throw new Error(`MockD1: unsupported all() -> ${this.sql}`);
   }
   async run() {
@@ -82,9 +87,10 @@ class MockStatement {
       return { success: true, meta: { changes: 1 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
-    if (/^ALTER TABLE machines ADD COLUMN auto_content TEXT$/i.test(this.sql)) {
-      if (this.db.hasAutoContent) throw new Error("duplicate column name: auto_content");
-      this.db.hasAutoContent = true;
+    if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json)/i.test(this.sql)) {
+      const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
+      if (this.db[column]) throw new Error("duplicate column name");
+      this.db[column] = true;
       return { success: true, meta: { changes: 0 } };
     }
     throw new Error(`MockD1: unsupported run() -> ${this.sql}`);
@@ -384,60 +390,58 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(JSON.parse(await res.text()).outbounds.length, 4);
 });
 
-test("webui can edit links/order and reports do not overwrite manual config", async () => {
+test("manual nodes sit next to reported nodes and reports never touch them", async () => {
   const env = makeEnv();
-  await call(env, "POST", "/api/v1/report/edit", b64("vless://original@example.com:443?sni=pypi.org#Original"), {
-    authorization: `Bearer ${TOKEN}`,
-  });
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const hand = "tuic://33333333-3333-4333-8333-333333333333:pw@example.dev:443?sni=deb.debian.org&allow_insecure=1#手写节点";
 
-  const body = JSON.stringify({
-    nodes: [
-      { link: SAMPLE_LINKS[1], name: "第二" },
-      { link: SAMPLE_LINKS[0], name: "第一" },
-    ],
-  });
-  let res = await call(env, "PUT", "/api/v1/nodes/edit", body, {
-    authorization: `Bearer ${TOKEN}`,
+  await call(env, "POST", "/api/v1/report/edit", b64(`${SAMPLE_LINKS[0]}\n${SAMPLE_LINKS[1]}`), auth);
+
+  let res = await call(env, "PUT", "/api/v1/nodes/edit", JSON.stringify({ nodes: [{ link: hand, name: "手写节点" }] }), {
+    ...auth,
     "content-type": "application/json",
   });
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.manual, true);
-  assert.equal(data.nodes[0].name, "第二");
+  assert.equal(data.manual_nodes.length, 1);
+  assert.equal(data.auto_nodes.length, 2);
+  assert.equal(data.nodes.length, 3);
+  assert.equal(data.nodes[0].link, hand, "手动节点排在这台机器最前面");
 
-  res = await call(env, "GET", "/api/v1/nodes/edit", null, { authorization: `Bearer ${TOKEN}` });
-  data = await res.json();
-  assert.equal(data.nodes.length, 2);
-  assert.equal(data.nodes[0].link, SAMPLE_LINKS[1]);
-
-  // 新的自动上报不应覆盖手动配置
-  res = await call(env, "POST", "/api/v1/report/edit", b64("vless://new@example.com:443?sni=deb.debian.org#New"), {
-    authorization: `Bearer ${TOKEN}`,
-  });
+  // 再上报一次：自动部分整体换新，手动部分一个字都不动
+  res = await call(env, "POST", "/api/v1/report/edit", b64("vless://new@example.com:443?sni=deb.debian.org#New"), auth);
   data = await res.json();
   assert.equal(data.manual, true);
-  res = await call(env, "GET", "/api/v1/nodes/edit", null, { authorization: `Bearer ${TOKEN}` });
-  data = await res.json();
-  assert.equal(data.nodes.length, 2);
-  assert.equal(data.nodes[0].link, SAMPLE_LINKS[1]);
+  assert.equal(data.auto_nodes, 1);
+  assert.equal(data.manual_nodes, 1);
 
-  // 合并订阅按保存顺序返回
+  res = await call(env, "GET", "/api/v1/nodes/edit", null, auth);
+  data = await res.json();
+  assert.equal(data.manual_nodes.length, 1);
+  assert.equal(data.manual_nodes[0].link, hand);
+  assert.equal(data.auto_nodes.length, 1);
+  assert.match(data.auto_nodes[0].link, /#New$/);
+  assert.equal(data.nodes.length, 2);
+  assert.equal(data.nodes[0].link, hand);
+
+  // 合并订阅里两种来源都在，手动在前
   res = await call(env, "GET", `/sub/all/${TOKEN}`);
   const merged = unb64(await res.text());
-  assert.ok(merged.indexOf(SAMPLE_LINKS[1]) < merged.indexOf(SAMPLE_LINKS[0]));
+  assert.ok(merged.includes(hand));
+  assert.ok(merged.indexOf(hand) < merged.indexOf("vless://new@example.com:443?sni=deb.debian.org#New"));
 
-  // reset 后恢复的是最近一次自动上报的内容（不是手改的那条）
-  res = await call(env, "POST", "/api/v1/machines/edit/reset", null, { authorization: `Bearer ${TOKEN}` });
+  // 清空手动节点 -> 只剩自动上报的那条
+  res = await call(env, "POST", "/api/v1/machines/edit/reset", null, auth);
   assert.equal(res.status, 200);
   data = await res.json();
+  assert.equal(data.cleared, true);
   assert.equal(data.manual, false);
-  assert.equal(data.restored, true);
   assert.equal(data.nodes.length, 1);
   assert.match(data.nodes[0].link, /#New$/);
-  assert.notEqual(data.nodes[0].link, SAMPLE_LINKS[1]);
 });
 
-test("restore keeps nodes when a manual machine never reported", async () => {
+test("clearing manual nodes on a never-reported machine leaves it empty", async () => {
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}` };
   const link = "vless://dddddddd-1111-4111-8111-444444444444@203.0.113.9:443?security=reality&sni=pypi.org&pbk=x&sid=y#手写节点";
@@ -448,9 +452,12 @@ test("restore keeps nodes when a manual machine never reported", async () => {
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.manual, false);
-  assert.equal(data.restored, false);
-  assert.equal(data.nodes.length, 1, "no report to restore, manual nodes stay");
-  assert.equal(data.nodes[0].link, link);
+  assert.equal(data.cleared, true);
+  assert.equal(data.nodes.length, 0, "没有上报也没有手动节点，就是空的");
+
+  // 再清一次：没有可清的了
+  res = await call(env, "POST", "/api/v1/machines/never-reported/reset", null, auth);
+  assert.equal((await res.json()).cleared, false);
 });
 
 test("a later report becomes the new restore point for a manual machine", async () => {
@@ -521,7 +528,7 @@ test("webui can create an empty machine and rejects invalid machine names", asyn
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.machine, "hk-node-1");
-  assert.equal(data.manual, true);
+  assert.equal(data.manual, false, "没有手动节点时 manual 为 false");
   assert.equal(data.nodes.length, 0);
 
   res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
@@ -587,10 +594,16 @@ test("manual machines and reporting machines share one merged subscription", asy
   });
   const reported = await res.json();
   assert.equal(reported.manual, true);
-  assert.equal(reported.nodes, 2);
+  assert.equal(reported.manual_nodes, 2);
+  assert.equal(reported.auto_nodes, 1);
+  assert.equal(reported.nodes, 3, "手动 2 条 + 自动 1 条共存");
   res = await call(env, "GET", "/api/v1/nodes/manual-jp", null, { authorization: `Bearer ${TOKEN}` });
   const pinned = await res.json();
-  assert.deepEqual(pinned.nodes.map((n) => n.link), [SAMPLE_LINKS[1], SAMPLE_LINKS[2]]);
+  assert.deepEqual(
+    pinned.nodes.map((n) => n.link),
+    [SAMPLE_LINKS[1], SAMPLE_LINKS[2], "vless://other@example.com:443?sni=pypi.org#Other"],
+    "手动两条在前，自动那条跟在后面",
+  );
 
   // 排序把手动机器放前面，合并订阅跟着变
   res = await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: ["manual-jp", "auto-hk"] }), {
