@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import test from "node:test";
 
 import worker, { SCHEMA_STATEMENTS } from "../src/index.js";
@@ -649,6 +650,21 @@ test("machine names can be Chinese, and Chinese regions drive default order", as
   assert.equal((await res.json()).machine, "香港-备用");
   res = await call(env, "GET", "/api/v1/machines/order", null, { authorization: `Bearer ${TOKEN}` });
   assert.deepEqual((await res.json()).machine_order, [de, la, "香港-备用"]);
+});
+
+test("the WebUI script is syntactically valid JavaScript", async () => {
+  const env = makeEnv();
+  const res = await call(env, "GET", `/ui/${TOKEN}`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(m, "inline script must be present");
+
+  // UI 写在模板字符串里，正则中的 \r \n \s \/ 必须在源码里写成 \\ 才会原样输出；
+  // 少写一个反斜杠，浏览器就会报 Uncaught SyntaxError: Unexpected token '?'。
+  assert.doesNotThrow(() => new vm.Script(m[1]), "inline script must parse");
+  assert.ok(m[1].includes("split(/\\r?\\n"), "line splitting regex must survive templating");
+  assert.ok(m[1].includes("[\\p{L}\\p{N}]"), "machine name regex must survive templating");
 });
 
 test("root reports d1 storage and advertises admin endpoints", async () => {

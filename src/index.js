@@ -189,12 +189,12 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       var frag = safeDecode(s.slice(hash + 1)).trim();
       if (frag) return frag;
     }
-    var m = s.match(/^([a-z0-9+.-]+):\/\/(?:[^@\/]*@)?([^\/?#:]+)/i);
+    var m = s.match(/^([a-z0-9+.-]+):\\/\\/(?:[^@\\/]*@)?([^\\/?#:]+)/i);
     return m ? (m[1].toUpperCase() + "-" + m[2]) : "";
   }
   function splitLinkText(text) {
     return String(text || "")
-      .split(/\r?\n|\s+(?=[a-z0-9+.-]+:\/\/)/i)
+      .split(/\\r?\\n|\\s+(?=[a-z0-9+.-]+:\\/\\/)/i)
       .map(function (x) { return x.trim(); })
       .filter(function (x) { return x.indexOf("://") > 0; });
   }
@@ -301,7 +301,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
-  var MACHINE_RE_UI = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
+  var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
   var MACHINE_HINT = "机器名可用中文、字母、数字、空格和 _ . -，首字符得是中文/字母/数字";
   function autoMachineName() {
     var have = {};
