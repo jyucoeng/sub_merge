@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.15.1";
+const VERSION = "1.16.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -126,6 +126,7 @@ body.locked .wrap{display:none}
 <div class="box">
 <h2>sub-worker 登录</h2>
 <div class="hint">只有管理员一种身份：输口令进来就能读写。口令在 Cloudflare 后台的 Variables and Secrets 里配。</div>
+<input id="login-username" type="text" autocomplete="username" placeholder="用户名" spellcheck="false" style="display:none">
 <input id="login-password" type="password" autocomplete="current-password" placeholder="管理员口令" spellcheck="false">
 <div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
 <div id="login-status" class="status"></div>
@@ -843,6 +844,16 @@ body.locked .wrap{display:none}
     var box = $("login");
     if (!box) return;
     box.style.display = show ? "flex" : "none";
+    if (show) refreshLoginMode();
+  }
+  function refreshLoginMode() {
+    fetch("/api/v1/auth/mode").then(function (r) { return r.json(); }).then(function (data) {
+      var field = $("login-username");
+      if (!field) return;
+      field.style.display = data && data.username_required ? "" : "none";
+      if (data && data.username_required) field.focus();
+      else $("login-password").focus();
+    }).catch(function () {});
   }
   function loginStatus(text, ok) {
     var el = $("login-status");
@@ -886,17 +897,21 @@ body.locked .wrap{display:none}
 
   $("login-submit").onclick = function () {
     var password = String($("login-password").value || "").trim();
-    if (!password) return loginStatus("请输入密码", false);
+    var userEl = $("login-username");
+    var username = userEl && userEl.style.display !== "none" ? String(userEl.value || "").trim() : "";
+    if (!password) return loginStatus("请输入口令", false);
+    if (userEl && userEl.style.display !== "none" && !username) return loginStatus("请输入用户名", false);
     loginStatus("登录中…");
     fetch("/api/v1/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: password }),
+      body: JSON.stringify({ username: username, password: password }),
     })
       .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
       .then(function (res) {
         if (!res.ok || !res.data.ok) throw new Error(res.data.error || "登录失败");
         $("login-password").value = "";
+        if ($("login-username")) $("login-username").value = "";
         storeToken(res.data.token);
         SUB_TOKEN = "";
         applyRole(res.data.role);
@@ -952,7 +967,7 @@ async function handleRequest(request, env) {
 
 
   // 会话先判：/api/v1/* 除登录和上报外，统一在这里校验管理员口令
-  const openApi = /^\/api\/v1\/(auth\/(login|session)|report\/)/.test(path);
+  const openApi = /^\/api\/v1\/(auth\/(login|session|mode)|report\/)/.test(path);
   let session = null;
   if (path.startsWith("/api/v1/") && !openApi) {
     if (!authToken(env)) return missingConfig("TOKEN");
@@ -1007,6 +1022,7 @@ async function handleRequest(request, env) {
     let data = {};
     try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
     const password = typeof data.password === "string" ? data.password.trim() : "";
+    const username = typeof data.username === "string" ? data.username.trim() : "";
     if (!password) return json({ ok: false, error: "password is required" }, 400);
     const ip = clientIp(request);
     const guard = await loginGuard(env, ip);
@@ -1017,7 +1033,9 @@ async function handleRequest(request, env) {
       });
     }
     if (!adminPassword(env)) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
-    if (checkToken(password, adminPassword(env))) {
+    const wantUser = adminUsername(env);
+    const userOk = wantUser ? checkToken(username, wantUser) : true;
+    if (userOk && checkToken(password, adminPassword(env))) {
       await clearLoginFails(env, ip);
       return json({ ok: true, role: "admin", token: await issueSessionToken(env), expires_in: Math.floor(SESSION_TTL_MS / 1000) });
     }
@@ -1026,6 +1044,16 @@ async function handleRequest(request, env) {
       return json({ ok: false, error: `too many attempts, try again in ${Math.ceil(verdict.retryAfter / 1000)}s`, fails: verdict.fails }, 429);
     }
     return json({ ok: false, error: "wrong password", fails: verdict.fails, left: verdict.left }, 401);
+  }
+
+  // 登录页自己要知道要不要显示用户名（不含任何秘密）
+  if (path === "/api/v1/auth/mode") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return json({
+      ok: true,
+      username_required: Boolean(adminUsername(env)),
+      lockout: { max_fails: LOGIN_MAX_FAILS, window_minutes: LOGIN_WINDOW_MS / 60000, block_hours: LOGIN_BLOCK_MS / 3600000 },
+    });
   }
 
   // 谁在猜口令：列出被锁 / 正在失败的来源 IP
@@ -1187,6 +1215,8 @@ function bearerOf(request) {
 // 管理员口令只从 Cloudflare 后台（环境变量）读，
 // 界面上不放“改密码”，免得拿到会话的人顺手把主人关在门外。
 function adminPassword(env) { return (env && env.ADMIN_PASSWORD) || ""; }
+// 可选：配了 ADMIN_USERNAME 就必须用户名 + 口令都对。用户名本身也是秘密，别用 admin/root 这种。
+function adminUsername(env) { return (env && env.ADMIN_USERNAME) || ""; }
 async function isAdminToken(env, token) {
   if (!token) return false;
   if (adminPassword(env) && checkToken(token, adminPassword(env))) return true;

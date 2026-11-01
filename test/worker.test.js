@@ -1384,3 +1384,22 @@ test("session tokens expire and die when the password changes", async () => {
   const changed = { ...env, ADMIN_PASSWORD: "pw-2" };
   assert.equal((await call(changed, "GET", "/api/v1/machines", null, { authorization: `Bearer ${token}` })).status, 401, "rotating the password kills old sessions");
 });
+
+test("optional ADMIN_USERNAME must match together with the password", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw-xyz-9", ADMIN_USERNAME: "yg-9f3k" });
+  const attempt = (body) => call(env, "POST", "/api/v1/auth/login", JSON.stringify(body), { "content-type": "application/json" });
+
+  assert.equal((await attempt({ password: "pw-xyz-9" })).status, 401, "username is required once configured");
+  assert.equal((await attempt({ username: "admin", password: "pw-xyz-9" })).status, 401, "wrong username must fail");
+  const ok = await attempt({ username: "yg-9f3k", password: "pw-xyz-9" });
+  assert.equal(ok.status, 200);
+  assert.match((await ok.json()).token, /^sk1\./);
+
+  const mode = await call(env, "GET", "/api/v1/auth/mode");
+  assert.deepEqual((await mode.json()).username_required, true);
+
+  const plain = makeEnv({ ADMIN_PASSWORD: "pw-xyz-9" });
+  const loose = await call(plain, "POST", "/api/v1/auth/login", JSON.stringify({ password: "pw-xyz-9" }), { "content-type": "application/json" });
+  assert.equal(loose.status, 200, "without ADMIN_USERNAME the username field is ignored");
+  assert.equal((await (await call(plain, "GET", "/api/v1/auth/mode")).json()).username_required, false);
+});
