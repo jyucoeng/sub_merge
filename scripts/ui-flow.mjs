@@ -771,7 +771,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 芯片计数必须跟着「其它筛选」走，和下面列出的行对得上
   const protoChips = () => Array.from(el("sub-protos").children);
-  const parseCount = (chip) => Number((chip.textContent.match(/·\s*(\d+)\s*个/) || [0, "0"])[1]);
+  const parseCount = (chip) => Number((chip.textContent.match(/·\s*(\d+)\/(\d+)/) || [0, "0", "0"])[1]);
+  const parseTotal = (chip) => Number((chip.textContent.match(/·\s*(\d+)\/(\d+)/) || [0, "0", "0"])[2]);
   const mineChip = () => Array.from(el("sub-machine-chips").children).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
   // 默认（没有任何筛选）时芯片是中性样式，不是「划掉」的样子
   check("订阅清单：没筛选时芯片不显示为排除态", protoChips().every((chip) => chip.className.indexOf("off") === -1), protoChips().map((c) => c.className).join(","));
@@ -780,6 +781,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   const chipSumMine = protoChips().reduce((sum, chip) => sum + parseCount(chip), 0);
   check("订阅清单：芯片计数只算筛出来的机器", chipSumMine === 2, `${chipSumMine} 个（该机器 2 个节点）`);
+  check("订阅清单：芯片「列出来的/全部」跟行数一致", protoChips().reduce((sum, chip) => sum + parseCount(chip), 0) === nodeRows().length, protoChips().map((c) => c.textContent).join(" , "));
+  check("订阅清单：芯片总数不随筛选变化", protoChips().reduce((sum, chip) => sum + parseTotal(chip), 0) === 4, protoChips().map((c) => c.textContent).join(" , "));
   const zeroOrHidden = protoChips().filter((chip) => parseCount(chip) === 0);
   check("订阅清单：其它协议计数归零而不是消失", protoChips().length >= 3 && zeroOrHidden.length >= 1, `芯片 ${protoChips().length} 个，0 个的有 ${zeroOrHidden.length}`);
 

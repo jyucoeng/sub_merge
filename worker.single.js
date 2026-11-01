@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.4";
+const VERSION = "1.21.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -611,64 +611,70 @@ body.locked .wrap{display:none}
   }
   function renderSubChips() {
     var protoBox = $("sub-protos"); var machineBox = $("sub-machine-chips");
+    var rows = subRows();
+    var visible = subVisible();
+    var shownSet = {};
+    var rowKey = function (item) { return item.machine + "|" + item.node.id; };
+    visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
+    var filtering = Boolean((state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.search);
+    function tally(keyOf) {
+      var map = [];
+      rows.forEach(function (item) {
+        var key = keyOf(item);
+        var hit = map.filter(function (x) { return x.key === key; })[0];
+        if (!hit) { hit = { key: key, total: 0, shown: 0, label: "", machine: item.machine }; map.push(hit); }
+        hit.total += 1;
+        if (shownSet[rowKey(item)]) hit.shown += 1;
+        if (!hit.label && item.node.label) hit.label = item.node.label;
+      });
+      return map;
+    }
+    function chip(kind, label, shown, total, on, onClick, hint) {
+      var el = document.createElement("button");
+      el.type = "button";
+      var cls = "proto";
+      if (on) cls += " on";
+      else if (filtering) cls += " off";
+      el.className = cls;
+      el.textContent = (on ? "✓ " : "") + label + " · " + shown + "/" + total;
+      el.title = (on ? "取消这个筛选" : hint) + "（" + shown + " 个列出来了，共 " + total + " 个）";
+      el.onclick = onClick;
+      return el;
+    }
     if (protoBox) {
       protoBox.innerHTML = "";
-      // 芯片的计数 = 在「其它筛选条件」下这个协议还有多少个节点，和下面列表对得上
-      var pool = subVisible({ proto: true });
-      var seen = [];
-      pool.forEach(function (item) {
-        var hit = seen.filter(function (x) { return x.kind === item.node.kind; })[0];
-        if (hit) hit.count += 1;
-        else seen.push({ kind: item.node.kind, label: item.node.label, count: 1 });
-      });
-      (state.sub.stats && state.sub.stats.protocols || []).forEach(function (item) {
-        if (!seen.some(function (x) { return x.kind === item.kind; })) seen.push({ kind: item.kind, label: item.label, count: 0 });
-      });
+      var byProto = tally(function (item) { return item.node.kind; });
       var order = [];
-      subRows().forEach(function (item) {
-        if (order.indexOf(item.node.kind) === -1) order.push(item.node.kind);
-      });
-      seen.sort(function (a, b) {
-        var ia = order.indexOf(a.kind), ib = order.indexOf(b.kind);
-        if (ia === -1) ia = 999; if (ib === -1) ib = 999;
-        return ia - ib || b.count - a.count || (a.label < b.label ? -1 : 1);
-      });
-      if (!seen.length) {
-        var e = document.createElement("span"); e.className = "tip"; e.textContent = "还没有节点"; protoBox.appendChild(e);
+      byProto.forEach(function (x) { if (order.indexOf(x.key) === -1) order.push(x.key); });
+      byProto.sort(function (a, b) { return order.indexOf(a.key) - order.indexOf(b.key); });
+      if (!byProto.length) {
+        var none = document.createElement("span"); none.className = "tip"; none.textContent = "还没有节点"; protoBox.appendChild(none);
       }
-      var filtering = Boolean((state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.search);
-      seen.forEach(function (item) {
-        var on = (state.sub.protos || []).indexOf(item.kind) !== -1;
-        var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto" + (on ? " on" : (filtering ? " off" : ""));
-        chip.textContent = (on ? "✓ " : "") + item.label + " · " + item.count + " 个";
-        chip.title = on ? "取消这个筛选" : "只看这个协议";
-        chip.onclick = function () {
+      byProto.forEach(function (item) {
+        var on = (state.sub.protos || []).indexOf(item.key) !== -1;
+        protoBox.appendChild(chip(item.key, item.label || item.key, item.shown, item.total, on, function () {
           var list = (state.sub.protos || []).slice();
-          var at = list.indexOf(item.kind);
-          if (at === -1) list.push(item.kind); else list.splice(at, 1);
+          var at = list.indexOf(item.key);
+          if (at === -1) list.push(item.key); else list.splice(at, 1);
           state.sub.protos = list; renderSub();
-        };
-        protoBox.appendChild(chip);
+        }, "只看这个协议"));
       });
     }
     if (machineBox) {
       machineBox.innerHTML = "";
-      var poolM = subVisible({ machine: true });
+      var byMachine = [];
       (state.sub.machines || []).forEach(function (machine) {
-        var on = (state.sub.machinesF || []).indexOf(machine.machine) !== -1;
-        var count = poolM.filter(function (item) { return item.machine === machine.machine; }).length;
-        var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto" + (on ? " on" : (filtering ? " off" : ""));
-        chip.textContent = (on ? "✓ " : "") + machine.machine + " · " + count + " 个";
-        chip.title = on ? "取消这个筛选" : "只看这台机器";
-        chip.onclick = function () {
+        var hit = tally(function (item) { return item.machine; }).filter(function (x) { return x.key === machine.machine; })[0];
+        byMachine.push({ key: machine.machine, label: machine.machine, shown: hit ? hit.shown : 0, total: hit ? hit.total : 0 });
+      });
+      byMachine.forEach(function (item) {
+        var on = (state.sub.machinesF || []).indexOf(item.key) !== -1;
+        machineBox.appendChild(chip(item.key, item.label, item.shown, item.total, on, function () {
           var list = (state.sub.machinesF || []).slice();
-          var at = list.indexOf(machine.machine);
-          if (at === -1) list.push(machine.machine); else list.splice(at, 1);
+          var at = list.indexOf(item.key);
+          if (at === -1) list.push(item.key); else list.splice(at, 1);
           state.sub.machinesF = list; renderSub();
-        };
-        machineBox.appendChild(chip);
+        }, "只看这台机器"));
       });
     }
   }
