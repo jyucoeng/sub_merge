@@ -74,8 +74,11 @@ select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1p
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:34px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .node .idx{color:var(--sub);font:12px ui-monospace,Consolas,monospace;text-align:center}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
-.node input.name{font-size:13px}.node button{padding:6px 8px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:34px 1fr 90px 34px 34px 70px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+.node input.name{font-size:13px}.node button{padding:6px 8px}
+textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
+textarea:focus{border-color:var(--acc)}
+.bulk{margin-top:12px}.bulk .tip{margin-left:6px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:34px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
 .machine .idx{color:var(--sub);font:12px ui-monospace,Consolas,monospace;text-align:center}.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
@@ -84,7 +87,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 </head>
 <body>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。</div></div><span class="ver" id="version">v1.1.3</span></div>
+<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。</div></div><span class="ver" id="version">v${VERSION}</span></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">这里决定合并订阅里机器出现的先后顺序</span></h2>
@@ -96,6 +99,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
 <div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
+<div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
+<div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
 <div class="row" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
 <div id="status" class="status"></div>
@@ -134,7 +139,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   function nodeRow(node, index) {
     var row = document.createElement("div"); row.className = "node";
     var idx = document.createElement("div"); idx.className = "idx"; idx.textContent = String(index + 1);
-    var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / tuic://... / anytls://...";
+    var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
@@ -143,9 +148,71 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; render(); } };
     del.onclick = function () { state.nodes.splice(index, 1); render(); };
     link.oninput = function () { state.nodes[index].link = link.value; };
+    link.onpaste = function (ev) {
+      var text = ev.clipboardData && ev.clipboardData.getData("text");
+      if (!text || splitLinkText(text).length < 2) return;
+      ev.preventDefault();
+      if (!link.value.trim()) { state.nodes.splice(index, 1); render(); }
+      var r = addLinks(text);
+      var tip = $("bulk-status");
+      if (tip) tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "");
+    };
+    link.onblur = function () {
+      if (String(state.nodes[index].name || "").trim()) return;
+      var auto = nameFromLink(link.value);
+      if (auto) { state.nodes[index].name = auto; name.value = auto; }
+    };
     name.oninput = function () { state.nodes[index].name = name.value; };
     row.appendChild(idx); row.appendChild(link); row.appendChild(name); row.appendChild(up); row.appendChild(down); row.appendChild(del);
     return row;
+  }
+  function safeDecode(text) {
+    try { return decodeURIComponent(text); } catch (e) { return text; }
+  }
+  function vmessName(link) {
+    try {
+      var raw = atob(link.slice(8).trim());
+      var utf8 = decodeURIComponent(escape(raw));
+      var obj = JSON.parse(utf8);
+      if (obj && obj.ps) return String(obj.ps);
+      if (obj && obj.add) return "VMESS-" + obj.add;
+    } catch (e) {}
+    return "";
+  }
+  function nameFromLink(link) {
+    var s = String(link || "").trim();
+    if (!s) return "";
+    if (s.indexOf("vmess://") === 0) {
+      var vm = vmessName(s);
+      if (vm) return vm;
+    }
+    var hash = s.indexOf("#");
+    if (hash >= 0) {
+      var frag = safeDecode(s.slice(hash + 1)).trim();
+      if (frag) return frag;
+    }
+    var m = s.match(/^([a-z0-9+.-]+):\/\/(?:[^@\/]*@)?([^\/?#:]+)/i);
+    return m ? (m[1].toUpperCase() + "-" + m[2]) : "";
+  }
+  function splitLinkText(text) {
+    return String(text || "")
+      .split(/\r?\n|\s+(?=[a-z0-9+.-]+:\/\/)/i)
+      .map(function (x) { return x.trim(); })
+      .filter(function (x) { return x.indexOf("://") > 0; });
+  }
+  function addLinks(text) {
+    var list = splitLinkText(text);
+    var have = {};
+    state.nodes.forEach(function (n) { if (n.link) have[n.link] = 1; });
+    var added = 0, dup = 0;
+    list.forEach(function (link) {
+      if (have[link]) { dup++; return; }
+      have[link] = 1;
+      state.nodes.push({ link: link, name: nameFromLink(link) });
+      added++;
+    });
+    if (added) render();
+    return { added: added, dup: dup };
   }
   function render() {
     var box = $("nodes"); box.innerHTML = "";
@@ -172,8 +239,16 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       var edit = document.createElement("button"); edit.type = "button"; edit.className = "edit"; edit.textContent = "编辑节点";
       up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
       down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
+      var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger"; delM.textContent = "×"; delM.title = "删除该机器";
+      delM.onclick = function () {
+        if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
+        api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function () {
+          var tip = $("order-status"); tip.textContent = "已删除 " + m.machine; tip.className = "status ok";
+          return loadMachines();
+        }).catch(function (e) { var tip = $("order-status"); tip.textContent = "删除失败：" + e.message; tip.className = "status err"; });
+      };
       edit.onclick = function () { state.current = m.machine; $("machine").value = m.machine; loadNodes(); };
-      row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(up); row.appendChild(down); row.appendChild(edit);
+      row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(up); row.appendChild(down); row.appendChild(edit); row.appendChild(delM);
       box.appendChild(row);
     });
   }
@@ -206,6 +281,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   };
   $("reload").onclick = loadMachines;
   $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); render(); };
+  $("bulk-add").onclick = function () {
+    var box = $("bulk"), tip = $("bulk-status");
+    var text = box.value;
+    if (!splitLinkText(text).length) { tip.textContent = "没识别到节点链接"; return; }
+    var r = addLinks(text);
+    box.value = "";
+    tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点保存配置";
+  };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);
     var nodes = state.nodes.filter(function (n) { return String(n.link || "").trim(); }).map(function (n, i) {
@@ -533,7 +616,8 @@ async function putNodeConfig(request, env, machine) {
   for (const item of data.nodes) {
     if (!item || typeof item.link !== "string") return json({ ok: false, error: "each node needs link" }, 400);
     const link = item.link.trim();
-    if (!link || link.length > 8192 || !parseLink(link)) return json({ ok: false, error: "invalid node link" }, 400);
+    if (!link) continue; // 批量粘贴常见的空行直接跳过
+    if (link.length > 8192 || !parseLink(link)) return json({ ok: false, error: `invalid node link: ${link.slice(0, 80)}` }, 400);
     inputs.push({ link, name: typeof item.name === "string" ? item.name.trim().slice(0, 160) : "" });
   }
   const old = await loadRecord(env, machine);

@@ -413,6 +413,39 @@ test("webui can edit links/order and reports do not overwrite manual config", as
   assert.equal(data.nodes.length, 1);
 });
 
+test("link fragments become node names, duplicates and blanks are dropped", async () => {
+  const env = makeEnv();
+  const hy2 = "hysteria2://0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31004/?sni=www.apple.com&insecure=1&alpn=h3&obfs=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-hy2-localhost";
+  const tuic = "tuic://0631a7f3-09f8-4144-acf2-a4f5bd9ed281:0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31005?sni=www.apple.com&congestion_control=bbr&security=tls&udp_relay_mode=native&alpn=h3&allow_insecure=1#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-tuic-localhost";
+  const reality = "vless://0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.apple.com&fp=chrome&pbk=EIMEMs9sFeUPYOqNYjZgv9Vx6H8V-s2X-EM_4ycXA3Q&sid=169a2c42&type=tcp&headerType=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-vless-reality-localhost";
+
+  // 名字留空 + 重复链接 + 空行，模拟前端整段粘贴
+  const body = JSON.stringify({
+    nodes: [{ link: hy2 }, { link: tuic }, { link: reality }, { link: hy2 }, { link: "  " }],
+  });
+  let res = await call(env, "PUT", "/api/v1/nodes/paste", body, {
+    authorization: `Bearer ${TOKEN}`,
+    "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.nodes.length, 3);
+  assert.deepEqual(data.nodes.map((n) => n.protocol), ["hy2", "tuic", "vless"]);
+  assert.deepEqual(data.nodes.map((n) => n.name), [
+    "小叮当-洛杉矶-cloudnium-hy2-localhost",
+    "小叮当-洛杉矶-cloudnium-tuic-localhost",
+    "小叮当-洛杉矶-cloudnium-vless-reality-localhost",
+  ]);
+  assert.deepEqual(data.nodes.map((n) => n.order), [0, 1, 2]);
+
+  // 订阅内容按粘贴顺序输出，且去重后只有 3 条
+  res = await call(env, "GET", `/sub/paste/${TOKEN}`);
+  const merged = unb64(await res.text());
+  assert.equal(merged.split("\n").length, 3);
+  assert.ok(merged.indexOf(hy2) < merged.indexOf(tuic));
+  assert.ok(merged.indexOf(tuic) < merged.indexOf(reality));
+});
+
 test("root reports d1 storage and advertises admin endpoints", async () => {
   const res = await call(makeEnv(), "GET", "/");
   assert.equal(res.status, 200);
