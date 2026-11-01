@@ -1,6 +1,6 @@
 # Workers 部署用这个文件；Pages 部署不用它（Pages 走 dist-pages/_worker.js，绑定和变量在 Dashboard 配，见 README「部署 B」）。
 # 改成你自己的 Worker 名称
-name = "sub-worker"
+name = "sub-merge"
 main = "src/index.js"
 compatibility_date = "2026-10-21"
 workers_dev = true
@@ -16,11 +16,11 @@ keep_vars = true
 # ]
 
 # D1 数据库绑定：变量名必须是 DB
-# 运行 `wrangler d1 create sub-worker-db` 后，把输出的 database_id 填到这里
+# 运行 `wrangler d1 create sub-merge-db` 后，把输出的 database_id 填到这里
 [[d1_databases]]
 binding = "DB"
-database_name = "sub-worker-db"
-database_id = "a74a3457-d486-414b-b5e2-89efc3cbf543"
+database_name = "sub-merge-db"
+database_id = "7c22a3f0-dd5b-4e2e-99dc-4cd658e47246"
 
 # 口令都放后台变量，不要写进代码或 D1：
 #   pnpm exec wrangler secret put TOKEN            # 订阅/上报用的 token
