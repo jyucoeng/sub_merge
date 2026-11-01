@@ -162,6 +162,26 @@ https://<worker>/ui/<TOKEN>
 
 名字随时能改（“重命名”按钮，或 `POST /api/v1/machines/:machine/rename`）。改名是整行搬家：节点、`manual` 标记、`updated_at` 和它在 `machine_order` 里的位置都跟着走，旧名字立刻消失，合并订阅不会断。
 
+## 同名机器：一台机器可以有多个上报来源
+
+机器名是**分组**，不是身份。两块机器都叫 `vps` 时，用 `source` 区分它们，谁也不会覆盖谁：
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY" \
+  "https://<worker>/api/v1/report/vps?source=box-a"
+curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
+  "https://<worker>/api/v1/report/vps?source=box-b"
+```
+
+- `source` 也可以放在请求头 `X-Source` 里；不写就是 `default`；
+- 格式同机器名：`[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,63}`，非法返回 `400 invalid source name`；
+- 每个来源单独一行存在 `reports` 表，`machine + source` 是主键：同一台机器（同一个 source）重报只换自己那份，别的来源原样保留；
+- 合并订阅里这台机器的自动节点 = **所有来源的并集**（链接相同的只留一条），顺序按协议优先级排；
+- 来源删掉一个不影响其它：`DELETE /api/v1/machines/:machine/sources/:source`，界面上就是来源 chip 后面的 ×；
+- 只上报、什么都不改的话，来源名建议用主机名：`scripts/report.py --url ...` 默认 `--source` 就取本机主机名（`SUB_SOURCE` 环境变量或 `--source` 可覆盖）。
+
+这样两种常见撞车都解决：两块机器都按 hostname 自动命名（可能同名）→ source 不同；一台机器改过名字 → 新名字新来源，旧来源在界面上一键删掉。
+
 ## 手动节点与上报节点
 
 节点分两份存，**上报只改上报那份，手动那份谁都动不了**。所以一台机器可以既自动上报、又挂几条你自己加的节点。
@@ -178,7 +198,7 @@ https://<worker>/ui/<TOKEN>
 - 机器列表里每台机器会显示「N 节点（手动 M）」，鼠标悬停能看「手动 M 个 · 自动 N 个」；
 - 一台机器**只有手动节点、从没上报过**时，它的 `content` 是空的——这不影响使用，手动节点照样进订阅。
 
-## 订阅格式## 订阅格式
+## 订阅格式
 
 客户端 `User-Agent` 会自动识别：
 
@@ -228,7 +248,7 @@ vmess://
 
 ## 数据表（D1）
 
-只有两张表，`scripts/schema.sql` 就是完整定义：
+三张表，`scripts/schema.sql` 就是完整定义：
 
 ```sql
 CREATE TABLE IF NOT EXISTS machines (
@@ -245,6 +265,19 @@ CREATE TABLE IF NOT EXISTS machines (
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS reports (
+  machine    TEXT NOT NULL,              -- 机器名
+  source     TEXT NOT NULL,              -- 上报来源，默认 default，?source= 或 X-Source 指定
+  content    TEXT NOT NULL,              -- 这个来源最近一次上报的 base64 原文
+  hash       TEXT NOT NULL,              -- 内容 SHA-256（同一来源重复上报时去重）
+  bytes      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  nodes_json TEXT NOT NULL DEFAULT '[]', -- 这个来源解析出的节点
+  PRIMARY KEY (machine, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,                -- 目前只有 machine_order
   value TEXT NOT NULL                    -- JSON 文本
@@ -255,14 +288,16 @@ CREATE TABLE IF NOT EXISTS settings (
 
 | 列 | 谁写 | 作用 |
 | --- | --- | --- |
-| `content` / `hash` / `nodes_json` | 只有 `POST /api/v1/report/<machine>` | 最近一次上报的原文与解析结果 |
+| `content` / `hash` / `nodes_json` | 只有 `POST /api/v1/report/<machine>` | 最近一次上报的原文 + **所有来源合并后**的节点（冗余一份，让读取永远只有一次查询） |
 | `manual_nodes_json` | 只有 WebUI 保存节点 | 你手写的节点 |
 
 合并订阅里这台机器的节点 = **手动节点（按你排的顺序在前）+ 上报节点（按协议排在后）**，链接相同的只留一条（留手动那条）。
 
-老库升级不用改 SQL：`POST /api/v1/admin/schema` 会补列（`ALTER TABLE ... ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'`，重复执行报 `duplicate column` 会被忽略），并把老的手动机器拆开——原来 `nodes_json` 里的手写节点搬到 `manual_nodes_json`，`auto_content` 里的最近上报搬回 `content`/`nodes_json`；返回值里的 `node_sources_migrated` 告诉你这次搬了几台。
+`reports` 是真正的上报数据：一个来源一行，`machines.nodes_json` 只是它们的合并结果。所以两块同名机器（`?source=` 不同）各写各的行，合并订阅里两条都在；删掉一个来源只删那一行，再重算一次合并。
 
-写入路径只有两条：上报和 WebUI 保存节点，都是 `INSERT ... ON CONFLICT(machine) DO UPDATE`；读取路径也只有两条：单机 `WHERE machine = ?1`、合并订阅 `SELECT * FROM machines`（一次查询，机器数量不影响往返次数）。
+老库升级不用改 SQL：`POST /api/v1/admin/schema` 会建 `reports` 表、把老的 `machines.content` 补成 `source=default` 的一行（返回值 `report_sources_migrated`），并补列（`ALTER TABLE ... ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'`，重复执行报 `duplicate column` 会被忽略），并把老的手动机器拆开——原来 `nodes_json` 里的手写节点搬到 `manual_nodes_json`，`auto_content` 里的最近上报搬回 `content`/`nodes_json`；返回值里的 `node_sources_migrated` 告诉你这次搬了几台。
+
+写入路径：上报 = `reports` 表一次 UPSERT + `machines` 一次 UPSERT；WebUI 保存节点 = `machines` 一次 UPSERT。读取路径只有两条：单机 `WHERE machine = ?1`、合并订阅 `SELECT * FROM machines`（一次查询，机器数量不影响往返次数，合并结果已经摊在 `nodes_json` 里）。
 
 查看数据：
 
@@ -517,11 +552,13 @@ URL 路径：  /sub/abc%2Bdef%3Dghi
 ### 上报
 
 ```http
-POST /api/v1/report/:machine
+POST /api/v1/report/:machine?source=box-a
 Authorization: Bearer <TOKEN>
 Content-Type: text/plain
 Body: base64 编码的订阅内容
 ```
+
+`source` 也可以放在 `X-Source` 请求头里，省略即 `default`；一块机器一个来源，同名机器互不覆盖（见上文「同名机器」）。
 
 `machine` 只允许：
 
@@ -555,7 +592,8 @@ curl -X POST \
 | `GET` | `/api/v1/machines/order` | 读取机器顺序（也可从 machines 响应获取） |
 | `PUT` | `/api/v1/machines/order` | 保存机器顺序，Bearer `TOKEN` |
 | `POST` | `/api/v1/machines/:machine/rename` | body `{"to":"新名字"}`，整行搬家（节点/`manual`/排序位置），重名 409，非法名字 400 |
-| `POST` | `/api/v1/machines/:machine/reset` | 恢复自动上报，Bearer `TOKEN` |
+| `POST` | `/api/v1/machines/:machine/reset` | 清空这台机器的手动节点（自动上报的节点保留），Bearer `TOKEN` |
+| `DELETE` | `/api/v1/machines/:machine/sources/:source` | 删掉一个上报来源的节点，别的来源和手动节点不动，Bearer `TOKEN` |
 | `GET` | `/api/v1/machines` | 查看已上报机器，Bearer `TOKEN` |
 | `DELETE` | `/api/v1/machines/:machine` | 删除机器，Bearer `TOKEN` |
 | `POST` | `/api/v1/admin/schema` | 建表（幂等），Bearer `TOKEN` |
@@ -647,12 +685,13 @@ Worker 端**没有生成规则**：名字就是上报 URL 路径里那一段（`
 | `scripts/report.py --url --from-hostname` | 本机主机名 slug 化 | `HK-Node_1.local` → `hk-node-1-local` |
 | `scripts/report.py --url --name 中文名` | 显式中文名，原样发送（路径自动编码） | `--name 香港-小叮当` |
 | `scripts/report.py --url --name` | 显式给的 `--name` | `--name hk-1` |
+| `scripts/report.py --source` | 上报来源（默认本机主机名） | `--source box-a` |
 | singbox-manager | `sub_machine='...'` 配置值 | `sub_machine='sgw-1'` |
 | 自己写的客户端 | 自己拼的路径 | `curl .../api/v1/report/us-la` |
 
 `--from-hostname` 的转换规则：小写、非字母数字替换成 `-`、去掉首尾 `-`、截断到 63 字符；结果为空或首字符不是字母数字时补前缀 `machine-`。
 
-同一个名字重复上报 = 覆盖同一行（内容 hash 不变则跳过写入），所以名字在多机部署里要唯一，建议 `地区-用途-序号` 这种可读又不会撞的写法。
+同一个名字 + 同一个 `source` 重复上报 = 覆盖那一份（内容 hash 不变则跳过写入）。名字在多机部署里建议写成 `地区-用途-序号`；万一两块机器同名，用 `?source=` 区分即可，不会互相覆盖。
 
 ## 与 singbox-manager 集成
 

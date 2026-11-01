@@ -39,6 +39,9 @@ def slugify(text, fallback="machine"):
     return out or fallback
 
 
+SOURCE_RE = re.compile(r"^[\w\u4e00-\u9fff][\w\u4e00-\u9fff ._:-]{0,63}$")
+
+
 def is_valid_machine(name):
     """与 Worker 的 MACHINE_RE 对齐：字母（含中文）/数字/空格/_ . -，首字符字母或数字，≤64 字符。"""
     if not 1 <= len(name) <= 64:
@@ -61,6 +64,11 @@ def main():
     ap.add_argument("--url", help="单机上报：订阅 URL，名字由 --name 或主机名决定")
     ap.add_argument("--name", help="配合 --url 指定机器名（留空则需 --from-hostname）")
     ap.add_argument("--from-hostname", action="store_true", help="机器名取本机主机名并 slug 化")
+    ap.add_argument(
+        "--source",
+        default=os.environ.get("SUB_SOURCE", ""),
+        help="上报来源名（同名机器多台写入时用它区分，默认取本机主机名；省略则用 default）",
+    )
     ap.add_argument("--dry-run", action="store_true", help="只打印要上报的机器名和 URL，不发请求")
     args = ap.parse_args()
 
@@ -87,9 +95,13 @@ def main():
     if not machines:
         sys.exit("没有要上报的机器")
 
+    source = (args.source or slugify(socket.gethostname()) or "default").strip()
+    if source and not SOURCE_RE.match(source):
+        sys.exit(f"来源名不合法（字母/中文/数字/空格/_ . : -，首字符需字母或数字，≤64）：{source}")
+
     if args.dry_run:
         for name, url in machines.items():
-            print(f"{name} <- {url}")
+            print(f"{name} (source={source}) <- {url}")
         print(f"dry-run: {len(machines)} 台，未发请求")
         return
 
@@ -107,11 +119,15 @@ def main():
                     f"Authorization: Bearer {args.token}",
                     "--data-binary",
                     body.decode("ascii"),
-                    f"{args.base.rstrip('/')}/api/v1/report/{urllib.parse.quote(name, safe='')}",
+                    f"{args.base.rstrip('/')}/api/v1/report/{urllib.parse.quote(name, safe='')}"
+                    f"?source={urllib.parse.quote(source, safe='')}",
                 ]
             )
         )
-        print(f"{name}: changed={result.get('changed')} bytes={result.get('bytes')} updated_at={result.get('updated_at')}")
+        print(
+            f"{name}: source={result.get('source')} changed={result.get('changed')} "
+            f"nodes={result.get('nodes')} bytes={result.get('bytes')} updated_at={result.get('updated_at')}"
+        )
         ok += 1
     print(f"done: {ok}/{len(machines)}")
 

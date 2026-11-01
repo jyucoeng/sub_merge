@@ -398,6 +398,34 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     check("再上报：自动节点缩成 1 条", (d.auto_nodes || []).length === 1, `${(d.auto_nodes || []).length} 条`);
     check("再上报：徽章转「手动」", (await api("/machines")).data.machines.find((m) => m.machine === "auto-hk").manual === true);
   }
+  // K3. 同一台机器多个上报来源（同名机器不再互相覆盖）
+  {
+    const other = "vless://99999999-9999-4999-8999-999999999999@203.0.113.77:443?security=reality&sni=pypi.org&pbk=x&sid=y#另一台";
+    const body = Buffer.from(other).toString("base64");
+    const r = await netFetch(BASE + "/api/v1/report/" + encodeURIComponent("auto-hk") + "?source=box-b", {
+      method: "POST", headers: { Authorization: "Bearer " + TOKEN }, body,
+    });
+    check("第二来源：写入成功", (await r.json()).source === "box-b");
+    click("reload");
+    await idle();
+    findMachineRow("auto-hk").children[5].onclick();
+    await idle();
+    const chips = el("auto-sources").children;
+    check("来源 chip 两个", chips.length === 2, `chips=${chips.length}`);
+    check("来源 chip 带条数", text("auto-sources").includes("box-b") && /box-b · 1 条/.test(text("auto-sources")), text("auto-sources"));
+    check("两个来源的节点合在一起", autoRows().length === 2, `rows=${autoRows().length}`);
+    confirms.push(false);
+    chips[1].children[1].onclick();
+    await idle();
+    check("删来源取消：还在", el("auto-sources").children.length === 2, `chips=${el("auto-sources").children.length}`);
+    confirms.push(true);
+    el("auto-sources").children[1].children[1].onclick();
+    await idle();
+    check("删来源确认：chip 只剩一个", el("auto-sources").children.length === 1, `chips=${el("auto-sources").children.length}`);
+    check("删来源确认：节点只剩本源的", autoRows().length === 1, `rows=${autoRows().length}`);
+    check("删来源确认：提示文案", text("status").includes("已删掉来源"), text("status"));
+  }
+
   // 清掉这台机器的手动节点，回到纯上报，方便后面的删除用例
   confirms.push(true);
   click("reset");

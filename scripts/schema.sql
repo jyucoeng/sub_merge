@@ -12,6 +12,20 @@
 -- machines.nodes_json 最近一次自动上报解析出的节点
 -- machines.manual_nodes_json WebUI 手写的节点；上报只改 nodes_json，两者互不覆盖
 -- machines.auto_content 1.6.0 的遗留列，1.7.0 起由 manual_nodes_json 取代（老库由 admin/schema 自动补列并迁移）
+-- reports.machine/source 上报来源：一台机器可以被多个上报源写入（?source= 或 X-Source 头），互不覆盖
+CREATE TABLE IF NOT EXISTS reports (
+  machine    TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  hash       TEXT NOT NULL,
+  bytes      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  nodes_json TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (machine, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine);
+
 -- settings.machine_order 保存机器排序（JSON 数组）
 
 CREATE TABLE IF NOT EXISTS machines (

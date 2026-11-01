@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.7.0";
+const VERSION = "1.8.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -45,6 +45,17 @@ export const SCHEMA_STATEMENTS = [
   auto_content TEXT
 )`,
   "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
+  `CREATE TABLE IF NOT EXISTS reports (
+  machine    TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  hash       TEXT NOT NULL,
+  bytes      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  nodes_json TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (machine, source)
+)`,
+  "CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine)",
   `CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -113,6 +124,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <div id="nodes" class="nodes"></div>
 <div class="row" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
 <div class="hint" style="margin-top:16px"><b>自动上报的节点</b>（只读，来自最近一次上报；想长期保留就点「转为手动」）</div>
+<div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 <div id="status" class="status"></div>
 </section>
@@ -249,9 +261,31 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     }
     state.nodes.forEach(function (n, i) { box.appendChild(nodeRow(n, i)); });
   }
+  function renderSources() {
+    var box = $("auto-sources"); if (!box) return;
+    box.innerHTML = "";
+    (state.sources || []).forEach(function (item) {
+      var chip = document.createElement("span"); chip.className = "chip";
+      var label = document.createElement("span");
+      label.innerHTML = "";
+      label.textContent = item.source + " · " + item.nodes + " 条";
+      label.title = "最近上报：" + (item.updated_at || "");
+      var del = document.createElement("button"); del.type = "button"; del.textContent = "×";
+      del.title = "删掉这个上报来源的节点（别的来源不受影响）";
+      del.onclick = function () {
+        if (!confirm("删掉上报来源「" + item.source + "」的节点？同名机器的其它来源和手动节点都不动，确定？")) return;
+        api("/machines/" + encodeURIComponent(state.current) + "/sources/" + encodeURIComponent(item.source), { method: "DELETE" })
+          .then(function () { setStatus("已删掉来源「" + item.source + "」的节点", true); return loadMachines(true); })
+          .catch(function (err) { setStatus(err.message, false); });
+      };
+      chip.appendChild(label); chip.appendChild(del);
+      box.appendChild(chip);
+    });
+  }
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
+    renderSources();
     if (!state.autoNodes.length) {
       var e = document.createElement("div"); e.className = "empty";
       e.textContent = "这台机器还没有自动上报";
@@ -301,7 +335,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       name.appendChild(document.createTextNode(m.machine)); name.appendChild(tag);
       var count = document.createElement("div"); count.className = "mcount";
       count.textContent = (m.nodes || 0) + " 节点" + (m.manual_nodes ? "（手动 " + m.manual_nodes + "）" : "");
-      count.title = "手动 " + (m.manual_nodes || 0) + " 个 · 自动 " + (m.auto_nodes || 0) + " 个";
+      count.title = "手动 " + (m.manual_nodes || 0) + " 个 · 自动 " + (m.auto_nodes || 0) + " 个"
+        + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
       var edit = document.createElement("button"); edit.type = "button"; edit.className = "edit"; edit.textContent = "编辑节点";
@@ -333,6 +368,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
+      state.sources = data.sources || [];
       render(); renderAutoNodes();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
@@ -486,6 +522,7 @@ async function handleRequest(request, env) {
         "GET/PUT /api/v1/nodes/:machine",
         "POST /api/v1/machines/:machine/reset",
         "POST /api/v1/machines/:machine/rename",
+        "DELETE /api/v1/machines/:machine/sources/:source",
         "GET/PUT /api/v1/machines/order",
         "GET /api/v1/machines",
         "POST /api/v1/admin/schema",
@@ -535,6 +572,13 @@ async function handleRequest(request, env) {
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return resetMachine(env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/machines\/([^/]+)\/sources\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "DELETE") return methodNotAllowed("DELETE");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    return deleteSource(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   }
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/rename$/);
@@ -669,6 +713,90 @@ async function saveRecord(env, record) {
   return record;
 }
 
+const SOURCE_RE = /^[\p{L}\p{N}][\p{L}\p{N} ._:-]{0,63}$/u;
+
+/* 一台机器可以被多个上报源写入（同名的两块机器、或者一台机器换了名字）：
+ * source 默认 "default"，客户端可以用 ?source= 或 X-Source 头区分。 */
+function sourceOf(request) {
+  let raw = "";
+  try {
+    raw = new URL(request.url).searchParams.get("source") || "";
+  } catch {
+    raw = "";
+  }
+  if (!raw) raw = request.headers.get("x-source") || "";
+  const source = String(raw).trim() || "default";
+  return SOURCE_RE.test(source) ? source : null;
+}
+
+async function loadReports(env, machine) {
+  const db = dbEnv(env);
+  if (!db) return [];
+  const result = await db.prepare(
+    "SELECT machine, source, content, hash, bytes, updated_at, nodes_json FROM reports WHERE machine = ?1",
+  ).bind(machine).all();
+  const rows = (result && result.results) || [];
+  return rows.map((row) => ({
+    machine: row.machine,
+    source: row.source,
+    content: row.content,
+    hash: row.hash,
+    bytes: Number(row.bytes) || 0,
+    updated_at: row.updated_at,
+    nodes: parseJsonArray(row.nodes_json),
+  }));
+}
+
+async function putReport(env, machine, source, reportRecord) {
+  const db = dbEnv(env);
+  if (!db) throw new Error("DB binding is not configured");
+  await db.prepare(
+    `INSERT INTO reports (machine, source, content, hash, bytes, updated_at, nodes_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT(machine, source) DO UPDATE SET
+       content = excluded.content,
+       hash = excluded.hash,
+       bytes = excluded.bytes,
+       updated_at = excluded.updated_at,
+       nodes_json = excluded.nodes_json`,
+  ).bind(
+    machine,
+    source,
+    reportRecord.content,
+    reportRecord.hash,
+    reportRecord.bytes,
+    reportRecord.updated_at,
+    JSON.stringify(reportRecord.nodes || []),
+  ).run();
+}
+
+async function deleteReports(env, machine, source) {
+  const db = dbEnv(env);
+  if (!db) throw new Error("DB binding is not configured");
+  if (source) {
+    await db.prepare("DELETE FROM reports WHERE machine = ?1 AND source = ?2").bind(machine, source).run();
+  } else {
+    await db.prepare("DELETE FROM reports WHERE machine = ?1").bind(machine).run();
+  }
+}
+
+/* 多个上报源的节点合并成 machines.nodes_json，供订阅一次查询读走 */
+async function aggregateReports(env, machine) {
+  const reports = await loadReports(env, machine);
+  const seen = new Set();
+  const merged = [];
+  const sources = [];
+  for (const report of reports.slice().sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0))) {
+    sources.push({ source: report.source, nodes: report.nodes.length, updated_at: report.updated_at });
+    for (const node of report.nodes) {
+      if (!node || !node.link || seen.has(node.link)) continue;
+      seen.add(node.link);
+      merged.push(node);
+    }
+  }
+  return { nodes: sortNodes(merged, true), sources };
+}
+
 async function deleteRecord(env, machine) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
@@ -705,7 +833,8 @@ async function initSchema(env) {
     }
   }
   const converted = await migrateNodeSources(env);
-  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length, migrations: migrated, node_sources_migrated: converted });
+  const reportsConverted = await migrateReportSources(env);
+  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length, migrations: migrated, node_sources_migrated: converted, report_sources_migrated: reportsConverted });
 }
 
 /* 1.7.0 之前：手动编辑直接覆盖 nodes_json。这里把老的手动机器拆成
@@ -736,6 +865,53 @@ async function migrateNodeSources(env) {
   return converted;
 }
 
+/* 1.8.0 之前一台机器只有一个上报槽（machines.content）。
+ * 这里把它补成 reports 表里的 source=default，可重复执行。 */
+async function migrateReportSources(env) {
+  const db = dbEnv(env);
+  const rows = (await db.prepare("SELECT machine, content, hash, bytes, updated_at, nodes_json FROM machines").all()).results || [];
+  const have = new Set();
+  const stored = (await db.prepare("SELECT machine, source FROM reports").all()).results || [];
+  for (const row of stored) have.add(`${row.machine}\u0000${row.source}`);
+  let converted = 0;
+  for (const row of rows) {
+    if (!row.content) continue;
+    if (have.has(`${row.machine}\u0000default`)) continue;
+    await putReport(env, row.machine, "default", {
+      content: row.content,
+      hash: row.hash,
+      bytes: Number(row.bytes) || 0,
+      updated_at: row.updated_at,
+      nodes: parseJsonArray(row.nodes_json),
+    });
+    converted += 1;
+  }
+  return converted;
+}
+
+async function deleteSource(env, machine, source) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  if (!SOURCE_RE.test(source)) return json({ ok: false, error: "invalid source name" }, 400);
+  const old = await loadRecord(env, machine);
+  if (!old) return json({ ok: false, error: "subscription not found" }, 404);
+  const reports = await loadReports(env, machine);
+  if (!reports.some((item) => item.source === source)) return json({ ok: false, error: "source not found" }, 404);
+  await deleteReports(env, machine, source);
+  const reported = await aggregateReports(env, machine);
+  const latest = reports.filter((item) => item.source !== source).sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))[0];
+  const record = {
+    ...old,
+    content: latest ? latest.content : "",
+    hash: latest ? latest.hash : await sha256Hex(""),
+    bytes: latest ? latest.bytes : 0,
+    nodes: reported.nodes,
+    updated_at: new Date().toISOString(),
+    auto_content: null,
+  };
+  await saveRecord(env, record);
+  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record) });
+}
+
 /* ---------------- handlers ---------------- */
 
 async function report(request, env, machine) {
@@ -751,30 +927,65 @@ async function report(request, env, machine) {
   let decoded;
   try { decoded = decodeBase64(content); } catch { return json({ ok: false, error: "invalid base64" }, 400); }
 
+  const source = sourceOf(request);
+  if (!source) return json({ ok: false, error: "invalid source name" }, 400);
   const hash = await sha256Hex(content);
   const old = await loadRecord(env, machine);
-  if (old && old.hash === hash && !old.manual) {
-    return json({ ok: true, changed: false, machine, bytes: content.length, hash, updated_at: old.updated_at });
+  const existing = (await loadReports(env, machine)).find((item) => item.source === source);
+  if (existing && existing.hash === hash) {
+    // 同一个上报源内容没变：不写库，也不动别的源
+    const state = await aggregateReports(env, machine);
+    const manualNodes = old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [];
+    const manualLinks = new Set(manualNodes.map((n) => n && n.link));
+    return json({
+      ok: true,
+      changed: false,
+      machine,
+      source,
+      bytes: content.length,
+      hash,
+      nodes: manualNodes.length + state.nodes.filter((n) => !manualLinks.has(n.link)).length,
+      auto_nodes: state.nodes.length,
+      manual_nodes: manualNodes.length,
+      sources: state.sources,
+      updated_at: existing.updated_at,
+    });
   }
   const links = splitLinks(decoded);
-  const autoNodes = await normalizeNodes(links, old && Array.isArray(old.nodes) ? old.nodes : []);
-  const manualNodes = old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [];
+  const nodes = await normalizeNodes(links, existing ? existing.nodes : []);
   const updatedAt = new Date().toISOString();
+  await putReport(env, machine, source, { content, hash, bytes: content.length, updated_at: updatedAt, nodes });
+  const reported = await aggregateReports(env, machine);
+  const manualNodes = old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [];
   const record = {
     machine,
+    // content/hash 保留「最近一次上报」，兼容老接口跟 ?format=base64 的回退
     content,
     hash,
     bytes: content.length,
     updated_at: updatedAt,
-    nodes: autoNodes,
+    nodes: reported.nodes,
     manual_nodes: manualNodes,
     manual: manualNodes.length > 0,
     auto_content: null,
   };
   await saveRecord(env, record);
   const manualLinks = new Set(manualNodes.map((n) => n && n.link));
-  const total = manualNodes.length + autoNodes.filter((n) => !manualLinks.has(n.link)).length;
-  return json({ ok: true, changed: true, machine, bytes: content.length, hash, nodes: total, auto_nodes: autoNodes.length, manual_nodes: manualNodes.length, manual: record.manual, updated_at: updatedAt });
+  const total = manualNodes.length + reported.nodes.filter((n) => !manualLinks.has(n.link)).length;
+  return json({
+    ok: true,
+    changed: true,
+    machine,
+    source,
+    bytes: content.length,
+    hash,
+    nodes: total,
+    auto_nodes: reported.nodes.length,
+    manual_nodes: manualNodes.length,
+    sources: reported.sources,
+    manual: record.manual,
+    updated_at: updatedAt,
+  });
 }
 
 async function getOne(env, machine, token, request) {
@@ -833,6 +1044,7 @@ async function getNodeConfig(env, machine) {
     nodes: await nodesOf(record),
     manual_nodes: record.manual_nodes || [],
     auto_nodes: await autoNodesOf(record),
+    sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
   });
 }
 
@@ -897,6 +1109,9 @@ async function renameMachine(request, env, machine) {
   if (await loadRecord(env, to)) return json({ ok: false, error: "target machine already exists" }, 409);
   const record = { ...old, machine: to, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
+  const reports = await loadReports(env, machine);
+  for (const item of reports) await putReport(env, to, item.source, item);
+  await deleteReports(env, machine);
   await deleteRecord(env, machine);
   const order = await getMachineOrder(env);
   const idx = order.indexOf(machine);
@@ -924,6 +1139,7 @@ async function listMachines(env) {
       nodes: nodes.length,
       manual_nodes: (record.manual_nodes || []).length,
       auto_nodes: (record.nodes || []).length,
+      sources: (await loadReports(env, record.machine)).map((item) => item.source),
     });
   }
   machines.sort((a, b) => {
@@ -1049,6 +1265,7 @@ async function putMachineOrder(request, env) {
 async function deleteMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   await deleteRecord(env, machine);
+  await deleteReports(env, machine);
   const order = await getMachineOrder(env);
   if (order.includes(machine)) await putSetting(env, "machine_order", JSON.stringify(order.filter((m) => m !== machine)));
   return json({ ok: true, deleted: machine });

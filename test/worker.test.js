@@ -15,6 +15,7 @@ class MockD1 {
   constructor() {
     this.machines = new Map();
     this.settings = new Map();
+    this.reports = new Map();
   }
   prepare(sql) {
     return new MockStatement(this, sql);
@@ -66,6 +67,16 @@ class MockStatement {
       const rows = [...this.db.machines.values()].filter((row) => Number(row.manual) === 1);
       return { results: rows, success: true, meta: { changes: 0 } };
     }
+    if (/^SELECT machine, source, content, hash, bytes, updated_at, nodes_json FROM reports WHERE machine = \?1$/i.test(this.sql)) {
+      const rows = [...this.db.reports.values()].filter((row) => row.machine === this.args[0]);
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
+    if (/^SELECT machine, source FROM reports$/i.test(this.sql)) {
+      return { results: [...this.db.reports.values()].map((row) => ({ machine: row.machine, source: row.source })), success: true, meta: { changes: 0 } };
+    }
+    if (/^SELECT machine, content, hash, bytes, updated_at, nodes_json FROM machines$/i.test(this.sql)) {
+      return { results: [...this.db.machines.values()], success: true, meta: { changes: 0 } };
+    }
     throw new Error(`MockD1: unsupported all() -> ${this.sql}`);
   }
   async run() {
@@ -78,6 +89,19 @@ class MockStatement {
       if (this.db.machines.has(args[0])) return { success: true, meta: { changes: 0 } };
       this.db.machines.set(args[0], mockRow(args));
       return { success: true, meta: { changes: 1 } };
+    }
+    if (/^INSERT INTO reports .+ ON CONFLICT\(machine, source\) DO UPDATE/i.test(this.sql)) {
+      const [machine, source, content, hash, bytes, updated_at, nodes_json] = args;
+      this.db.reports.set(`${machine}\u0000${source}`, { machine, source, content, hash, bytes, updated_at, nodes_json });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^DELETE FROM reports WHERE machine = \?1 AND source = \?2$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.reports.delete(`${args[0]}\u0000${args[1]}`) ? 1 : 0 } };
+    }
+    if (/^DELETE FROM reports WHERE machine = \?1$/i.test(this.sql)) {
+      let changes = 0;
+      for (const key of [...this.db.reports.keys()]) if (key.startsWith(`${args[0]}\u0000`)) { this.db.reports.delete(key); changes += 1; }
+      return { success: true, meta: { changes } };
     }
     if (/^DELETE FROM machines WHERE machine = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.machines.delete(args[0]) ? 1 : 0 } };
@@ -615,6 +639,73 @@ test("manual machines and reporting machines share one merged subscription", asy
   assert.ok(ordered.indexOf(SAMPLE_LINKS[1]) < ordered.indexOf(SAMPLE_LINKS[0]));
 });
 
+test("two boxes reporting under one machine name no longer overwrite each other", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const a1 = SAMPLE_LINKS[0];
+  const a2 = SAMPLE_LINKS[1];
+  const b1 = SAMPLE_LINKS[2];
+
+  // 两块机器都叫 vps：靠 ?source= 区分
+  let res = await call(env, "POST", "/api/v1/report/vps?source=box-a", b64(`${a1}\n${a2}`), auth);
+  assert.equal(res.status, 200);
+  let data = await res.json();
+  assert.equal(data.source, "box-a");
+  assert.equal(data.auto_nodes, 2);
+
+  res = await call(env, "POST", "/api/v1/report/vps?source=box-b", b64(b1), auth);
+  data = await res.json();
+  assert.equal(data.source, "box-b");
+  assert.equal(data.auto_nodes, 3, "两个源合并，谁也没被覆盖");
+  assert.deepEqual(data.sources.map((x) => x.source), ["box-a", "box-b"]);
+
+  res = await call(env, "GET", "/api/v1/nodes/vps", null, auth);
+  data = await res.json();
+  assert.equal(data.auto_nodes.length, 3);
+  assert.equal(data.sources.find((x) => x.source === "box-b").nodes, 1);
+
+  // box-a 重新上报（内容变了）：只换 box-a 的那份，box-b 原样
+  res = await call(env, "POST", "/api/v1/report/vps?source=box-a", b64(a1), auth);
+  data = await res.json();
+  assert.equal(data.auto_nodes, 2);
+  const links = (await (await call(env, "GET", "/api/v1/nodes/vps", null, auth)).json()).auto_nodes.map((n) => n.link);
+  assert.deepEqual(links.sort(), [b1, a1].sort());
+
+  // 同一个源内容没变：changed:false，且不动别的源
+  res = await call(env, "POST", "/api/v1/report/vps?source=box-a", b64(a1), auth);
+  data = await res.json();
+  assert.equal(data.changed, false);
+  assert.equal(data.auto_nodes, 2);
+
+  // X-Source 头等价于 ?source=
+  res = await call(env, "POST", "/api/v1/report/vps", b64(a2), { ...auth, "x-source": "box-c" });
+  data = await res.json();
+  assert.equal(data.source, "box-c");
+  assert.equal(data.auto_nodes, 3);
+
+  // 非法 source 名 400
+  res = await call(env, "POST", "/api/v1/report/vps?source=bad%2Fname", b64(a1), auth);
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "invalid source name");
+
+  // 删掉一个来源：只删它自己的节点
+  res = await call(env, "DELETE", "/api/v1/machines/vps/sources/box-b", null, auth);
+  assert.equal(res.status, 200);
+  data = await res.json();
+  assert.equal(data.auto_nodes, 2);
+  assert.deepEqual(data.sources.map((x) => x.source).sort(), ["box-a", "box-c"]);
+
+  res = await call(env, "DELETE", "/api/v1/machines/vps/sources/nope", null, auth);
+  assert.equal(res.status, 404);
+
+  // 删除机器时来源一起清掉
+  res = await call(env, "DELETE", "/api/v1/machines/vps", null, auth);
+  assert.equal(res.status, 200);
+  res = await call(env, "POST", "/api/v1/report/vps?source=box-a", b64(a1), auth);
+  const after = await res.json();
+  assert.equal(after.auto_nodes, 1, `重新上报只有新源自己的节点: ${JSON.stringify(after).slice(0,200)}`);
+});
+
 test("rename moves a machine, its nodes and its order slot", async () => {
   const env = makeEnv();
 
@@ -818,7 +909,7 @@ test("scripts/schema.sql matches SCHEMA_STATEMENTS", () => {
   for (const statement of SCHEMA_STATEMENTS) {
     assert.ok(sql.includes(`${norm(statement)};`), `schema.sql 缺少语句: ${statement.split("\n")[0]}`);
   }
-  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 2);
+  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 3);
   assert.ok(sql.includes("manual INTEGER NOT NULL DEFAULT 0"));
 });
 
