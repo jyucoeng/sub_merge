@@ -64,6 +64,12 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT key, value FROM settings WHERE key LIKE 'protocols:%'$/i.test(this.sql)) {
+      const rows = [...this.db.settings.entries()]
+        .filter(([key]) => key.startsWith("protocols:"))
+        .map(([key, value]) => ({ key, value }));
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'$/i.test(this.sql)) {
       const rows = [...this.db.settings.entries()]
         .filter(([key]) => key.startsWith("login-fail:"))
@@ -1437,4 +1443,44 @@ test("SUB_TOKEN is the new name and TOKEN still works as a fallback", async () =
   const both = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "new-token-value", TOKEN: "old-token-value" });
   assert.equal((await call(both, "GET", "/sub/all/new-token-value")).status, 200, "SUB_TOKEN wins when both exist");
   assert.equal((await call(both, "GET", "/sub/all/old-token-value")).status, 401, "the old token stops working once SUB_TOKEN is set");
+});
+
+test("protocol filter decides which protocols reach the subscription", async () => {
+  const env = makeEnv();
+  const vless = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-vless";
+  const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const trojan = "trojan://pw@sg.example.io:443?security=tls#新加坡-trojan";
+
+  const saved = await call(env, "PUT", "/api/v1/nodes/box-pf", JSON.stringify({ nodes: [{ link: vless }, { link: hy2 }, { link: trojan }] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
+  assert.equal(saved.status, 200);
+
+  const config = await (await call(env, "GET", "/api/v1/nodes/box-pf", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(config.protocols, [], "默认不筛选");
+  assert.deepEqual(config.protocol_stats.map((item) => [item.kind, item.count]).sort(), [["hy2", 1], ["trojan", 1], ["vless", 1]]);
+  assert.equal(config.stats_ok, undefined);
+
+  assert.equal(unb64(await (await call(env, "GET", `/sub/box-pf/${TOKEN}`)).text()).split("\n").filter(Boolean).length, 3);
+
+  const picked = await call(env, "PUT", "/api/v1/nodes/box-pf/protocols", JSON.stringify({ protocols: ["vless"] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
+  assert.equal(picked.status, 200);
+  const pickedBody = await picked.json();
+  assert.deepEqual(pickedBody.protocols, ["vless"]);
+  assert.equal(pickedBody.nodes, 1);
+  assert.equal(pickedBody.every, 3);
+
+  const single = unb64(await (await call(env, "GET", `/sub/box-pf/${TOKEN}`)).text()).split("\n").filter(Boolean);
+  assert.equal(single.length, 1);
+  assert.match(single[0], /^vless:\/\//);
+  assert.equal((await call(env, "GET", `/sub/all/${TOKEN}`)).headers.get("x-nodes"), "1", "合并订阅也跟着筛");
+
+  const both = await call(env, "PUT", "/api/v1/nodes/box-pf/protocols", JSON.stringify({ protocols: ["vless", "hy2"] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
+  assert.equal((await both.json()).nodes, 2);
+
+  const bad = await call(env, "PUT", "/api/v1/nodes/box-pf/protocols", JSON.stringify({ protocols: ["V-LE SS"] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /invalid protocol/);
+
+  const cleared = await call(env, "PUT", "/api/v1/nodes/box-pf/protocols", JSON.stringify({ protocols: [] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
+  assert.equal((await cleared.json()).nodes, 3, "清空 = 全部显示");
+  assert.equal((await (await call(env, "GET", "/api/v1/nodes/box-pf", null, { authorization: `Bearer ${TOKEN}` })).json()).protocols.length, 0);
 });

@@ -119,6 +119,26 @@ Workers & Pages → 你的 Worker → Settings → Domains & Routes → Add Cust
 7. Deploy；
 8. 需要自定义域名时，在 Domains & Routes 绑定。
 
+## 协议筛选（每台机器单独选）
+
+一台机器上报的节点常常混着好几种协议（vless / hysteria2 / tuic / trojan …），可以只让其中一部分进订阅：
+
+```bash
+# 只保留 vless 和 hysteria2（其它协议在这台机器的订阅里不出现）
+curl -X PUT https://sub.dingdang.de5.net/api/v1/nodes/<机器名>/protocols \
+  -H "Authorization: Bearer <SUB_TOKEN>" -H "content-type: application/json" \
+  -d '{"protocols":["vless","hy2"]}'
+
+# 恢复全部（空数组 = 不筛选，会删掉这条设置）
+curl -X PUT … -d '{"protocols":[]}' …
+```
+
+- WebUI：节点配置卡片里「协议筛选」一排胶囊，点一下切换，状态栏会报「已只保留 N 种协议，订阅里现在 X 个节点（共 Y 个）」。
+- 存储：`settings` 表 `protocols:<机器名>`，值是协议 kind 的 JSON 数组；不占 machines 表，老库不用迁移。
+- 生效范围：单机订阅和合并订阅都按它筛；手动节点和上报节点一视同仁（按协议过滤，不看来源）。
+- `GET /api/v1/nodes/<机器名>` 会返回 `protocols`（当前勾选）和 `protocol_stats`（这台机器实际有的协议与数量，永远统计全部节点，方便你把筛掉的再勾回来）。
+- 缓存键带上筛选结果，切换后立刻生效，不会吃到旧缓存。
+
 ## WebUI
 
 部署后访问：

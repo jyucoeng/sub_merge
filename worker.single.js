@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.18.5";
+const VERSION = "1.19.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -122,6 +122,12 @@ textarea:focus{border-color:var(--acc)}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 @media(max-width:720px){.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
+.protocols{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
+.proto:hover{border-color:#9db7e0}
+.proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
+.proto.off{color:#94a3b8;border-style:dashed;background:#fcfcfd;text-decoration:line-through}
+.proto .n{font-size:11px;opacity:.8}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);align-items:center;justify-content:center;padding:20px;z-index:50}
 #login .box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px rgba(15,23,42,.28)}
@@ -158,6 +164,8 @@ body.locked .wrap{display:none}
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
+<div class="hint" style="margin-top:16px"><b>协议筛选</b>（只有勾上的协议会进这台机器的订阅；全勾或不勾 = 全部显示）</div>
+<div id="protocols" class="protocols"></div>
 <div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
 <div id="nodes" class="nodes"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
@@ -194,7 +202,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [] };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], protocols: [], protocolStats: [] };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -526,6 +534,53 @@ body.locked .wrap{display:none}
       box.appendChild(chip);
     });
   }
+  /* 协议筛选：点一下切换某个协议是否进订阅。state.protocols 为空 = 全部显示。 */
+  function renderProtocols() {
+    var box = $("protocols"); if (!box) return;
+    box.innerHTML = "";
+    var stats = state.protocolStats || [];
+    if (!state.current || !stats.length) {
+      var empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = state.current ? "这台机器还没有节点" : "先选择一台机器";
+      box.appendChild(empty);
+      return;
+    }
+    var allowed = state.protocols || [];
+    stats.forEach(function (item) {
+      var on = !allowed.length || allowed.indexOf(item.kind) !== -1;
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "proto " + (on ? "on" : "off");
+      chip.title = on ? "点一下：这个协议不进订阅" : "点一下：这个协议进订阅";
+      var label = document.createElement("span");
+      label.textContent = (on ? "✓ " : "✕ ") + item.label;
+      var count = document.createElement("span"); count.className = "n"; count.textContent = "· " + item.count + " 个";
+      chip.appendChild(label); chip.appendChild(count);
+      chip.onclick = function () { toggleProtocol(item.kind); };
+      box.appendChild(chip);
+    });
+  }
+  function toggleProtocol(kind) {
+    if (!state.current) return;
+    var all = (state.protocolStats || []).map(function (item) { return item.kind; });
+    var set = (state.protocols || []).length ? state.protocols.slice() : all.slice();
+    var at = set.indexOf(kind);
+    if (at === -1) set.push(kind); else set.splice(at, 1);
+    var next = set.length === all.length ? [] : set;
+    api("/nodes/" + encodeURIComponent(state.current) + "/protocols", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ protocols: next }),
+    }).then(function (data) {
+      state.protocols = data.protocols || [];
+      state.protocolStats = data.protocol_stats || [];
+      renderProtocols();
+      setStatus(state.protocols.length
+        ? ("已只保留 " + state.protocols.length + " 种协议，这台机器订阅里现在 " + data.nodes + " 个节点（共 " + data.every + " 个）")
+        : ("已恢复全部协议，这台机器订阅里 " + data.nodes + " 个节点"), true);
+      loadMachines(true);
+    }).catch(function (err) { setStatus(err.message, false); });
+  }
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
@@ -609,13 +664,15 @@ body.locked .wrap{display:none}
     $("url-singbox").textContent = base + "?format=singbox";
   }
   function loadNodes(quiet) {
-    if (!state.current) { state.nodes = []; render(); return Promise.resolve(); }
+    if (!state.current) { state.nodes = []; state.autoNodes = []; state.protocols = []; state.protocolStats = []; render(); renderAutoNodes(); renderProtocols(); return Promise.resolve(); }
     if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.sources = data.sources || [];
-      render(); renderAutoNodes();
+      state.protocols = data.protocols || [];
+      state.protocolStats = data.protocol_stats || [];
+      render(); renderAutoNodes(); renderProtocols();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
@@ -1123,6 +1180,14 @@ async function handleRequest(request, env) {
     return methodNotAllowed("GET, PUT");
   }
 
+  m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/protocols$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "PUT") return methodNotAllowed("PUT");
+    return putProtocols(request, env, decodeURIComponent(m[1]));
+  }
+
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
@@ -1536,6 +1601,75 @@ async function putSetting(env, key, value) {
   ).bind(key, value).run();
 }
 
+/* 协议筛选：每台机器可以只让部分协议进订阅。存在 settings 表里，key = protocols:<machine>，
+ * value = JSON 数组（协议 kind）；空数组 / 没有记录 = 全部显示。不碰 machines 表，老库无需迁移。 */
+const PROTOCOL_KEY_PREFIX = "protocols:";
+const PROTOCOL_RE = /^[a-z0-9]{1,16}$/;
+const PROTOCOL_LABELS = {
+  vless: "VLESS", vmess: "VMess", trojan: "Trojan", hy2: "Hysteria2", hysteria2: "Hysteria2",
+  hysteria: "Hysteria", tuic: "TUIC", ss: "Shadowsocks", ssr: "ShadowsocksR", anytls: "AnyTLS",
+  socks: "SOCKS", socks5: "SOCKS5", http: "HTTP", wireguard: "WireGuard", ssh: "SSH",
+};
+
+function protocolKey(machine) { return PROTOCOL_KEY_PREFIX + machine; }
+function protocolLabel(kind) { return PROTOCOL_LABELS[kind] || String(kind || "unknown").toUpperCase(); }
+
+function nodeKind(node) {
+  const parsed = node && node.link ? parseLinkCached(node.link) : null;
+  return parsed && parsed.kind ? parsed.kind : "unknown";
+}
+
+function protocolStats(nodes) {
+  const counts = new Map();
+  for (const node of nodes || []) {
+    const kind = nodeKind(node);
+    counts.set(kind, (counts.get(kind) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([kind, count]) => ({ kind, label: protocolLabel(kind), count }))
+    .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+}
+
+function parseProtocols(raw) {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter((kind) => typeof kind === "string" && PROTOCOL_RE.test(kind)) : [];
+  } catch { return []; }
+}
+
+async function loadAllowedProtocols(env, machine) {
+  return parseProtocols(await getSetting(env, protocolKey(machine)));
+}
+
+async function loadProtocolMap(env) {
+  const map = new Map();
+  const db = dbEnv(env);
+  if (!db) return map;
+  const result = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'protocols:%'").all();
+  for (const row of (result && result.results) || []) {
+    map.set(String(row.key).slice(PROTOCOL_KEY_PREFIX.length), parseProtocols(row.value));
+  }
+  return map;
+}
+
+async function saveAllowedProtocols(env, machine, kinds) {
+  const clean = [...new Set((kinds || []).filter((kind) => typeof kind === "string" && PROTOCOL_RE.test(kind)))];
+  if (!clean.length) {
+    await dbEnv(env).prepare("DELETE FROM settings WHERE key = ?1").bind(protocolKey(machine)).run();
+    return [];
+  }
+  await putSetting(env, protocolKey(machine), JSON.stringify(clean));
+  return clean;
+}
+
+/* 只保留勾选的协议；allowed 为空 = 不筛选 */
+function keepProtocols(nodes, allowed) {
+  if (!allowed || !allowed.length) return nodes;
+  const set = new Set(allowed);
+  return nodes.filter((node) => set.has(nodeKind(node)));
+}
+
 async function initSchema(env) {
   if (!dbEnv(env)) return missingConfig("DB");
   for (const statement of SCHEMA_STATEMENTS) await dbEnv(env).prepare(statement).run();
@@ -1626,7 +1760,7 @@ async function deleteSource(env, machine, source) {
     auto_content: null,
   };
   await saveRecord(env, record);
-  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record) });
+  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine)) });
 }
 
 /* ---------------- handlers ---------------- */
@@ -1716,12 +1850,13 @@ async function getOne(env, machine, token, request) {
   if (!record) return json({ ok: false, error: "subscription not found" }, 404);
   const format = formatOf(request);
   const rules = format === "clash" ? await loadClashRules(env) : null;
-  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : ""), format, [], [record]);
+  const allowed = await loadAllowedProtocols(env, machine);
+  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(","), format, [], [record]);
   const hit = subCacheGet(key);
   if (hit) {
     return cachedSubResponse(hit, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
   }
-  const nodes = await nodesOf(record);
+  const nodes = await nodesOf(record, allowed);
   const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
   return cachedSubResponse(rendered, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(nodes.length), "x-sub-cache": "miss" });
 }
@@ -1736,7 +1871,9 @@ async function getAll(env, token, request) {
   const manualCount = records.filter((r) => r.manual).length;
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
   const rules = format === "clash" ? await loadClashRules(env) : null;
-  const key = subCacheKey("all" + (rules ? ":" + rules.rev : ""), format, order, records);
+  const protocolMap = await loadProtocolMap(env);
+  const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";");
+  const key = subCacheKey("all" + (rules ? ":" + rules.rev : "") + "|" + protocolKey, format, order, records);
   const hit = subCacheGet(key);
   if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
 
@@ -1744,7 +1881,7 @@ async function getAll(env, token, request) {
   const items = [];
   for (const record of records) {
     const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
-    const nodes = await nodesOf(record);
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || []);
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
@@ -1784,11 +1921,33 @@ async function getNodeConfig(env, machine) {
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: await nodesOf(record),
+    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine)),
     manual_nodes: record.manual_nodes || [],
     auto_nodes: await autoNodesOf(record),
     sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
+    // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
+    protocols: await loadAllowedProtocols(env, machine),
+    protocol_stats: protocolStats([...((record && record.manual_nodes) || []), ...(await autoNodesOf(record))]),
   });
+}
+
+/* 勾选哪些协议进订阅。空数组（或不传）等于「全部显示」，直接删掉这条设置。 */
+async function putProtocols(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  const body = await request.text();
+  if (body.length > 4096) return json({ ok: false, error: "body too large" }, 413);
+  let data;
+  try { data = JSON.parse(body); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  if (!data || !Array.isArray(data.protocols)) return json({ ok: false, error: "protocols must be an array" }, 400);
+  for (const kind of data.protocols) {
+    if (typeof kind !== "string" || !PROTOCOL_RE.test(kind)) return json({ ok: false, error: `invalid protocol: ${String(kind).slice(0, 32)}` }, 400);
+  }
+  const saved = await saveAllowedProtocols(env, machine, data.protocols);
+  const record = await loadRecord(env, machine);
+  if (!record) return json({ ok: true, machine, protocols: saved, nodes: 0, protocol_stats: [] });
+  const every = [...(record.manual_nodes || []), ...(await autoNodesOf(record))];
+  const nodes = await nodesOf(record, saved);
+  return json({ ok: true, machine, protocols: saved, nodes: nodes.length, every: every.length, protocol_stats: protocolStats(every) });
 }
 
 async function putNodeConfig(request, env, machine) {
@@ -1825,7 +1984,7 @@ async function putNodeConfig(request, env, machine) {
       auto_content: null,
     };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record);
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
   return json({ ok: true, machine, manual: record.manual, nodes, manual_nodes: manualNodes, auto_nodes: record.nodes || [] });
 }
 
@@ -1836,7 +1995,7 @@ async function resetMachine(env, machine) {
   const cleared = Array.isArray(old.manual_nodes) && old.manual_nodes.length > 0;
   const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record);
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
   return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });
 }
 
@@ -1862,7 +2021,7 @@ async function renameMachine(request, env, machine) {
     order[idx] = to;
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
-  const moved = await nodesOf(record);
+  const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
@@ -1872,7 +2031,7 @@ async function listMachines(env) {
   const rank = new Map(order.map((m, i) => [m, i]));
   const machines = [];
   for (const record of records) {
-    const nodes = await nodesOf(record);
+    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
     machines.push({
       machine: record.machine,
       bytes: record.bytes,
@@ -2047,7 +2206,7 @@ function sortNodes(nodes, useRank) {
 }
 
 /* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */
-async function nodesOf(record) {
+async function nodesOf(record, allowed) {
   const manual = record && Array.isArray(record.manual_nodes) ? record.manual_nodes.slice() : [];
   const auto = await autoNodesOf(record);
   const seen = new Set();
@@ -2067,7 +2226,8 @@ async function nodesOf(record) {
     seen.add(id);
     autoPart.push(node);
   }
-  return [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)].map((node, i) => ({ ...node, _sort: i }));
+  const merged = [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)];
+  return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
 
 function protocolRank(node) {

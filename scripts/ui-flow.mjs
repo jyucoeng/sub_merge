@@ -671,6 +671,51 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("分流规则：默认配置里没有自定义分组", !clashBack.includes("⚡ 自定义组") && !clashBack.includes("myproxy"));
 }
 
+/* ---------------- 协议筛选 ---------------- */
+{
+  const vless = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-vless";
+  const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const put = await api("/nodes/ui-proto", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: vless, name: "香港-vless" }, { link: hy2, name: "东京-hy2" }] }),
+  });
+  check("协议筛选：准备一台有两种协议的机器", put.status === 200, String(put.status));
+
+  click("reload");
+  await idle();
+  const machineSelect = el("machine");
+  machineSelect.value = "ui-proto";
+  machineSelect.onchange.call(machineSelect);
+  await idle();
+
+  const protoChips = () => el("protocols").children;
+  const protoText = () => protoChips().map((chip) => chip.textContent).join("|");
+  check("协议筛选：列出这台机器的协议", protoChips().length === 2, protoText());
+  check("协议筛选：默认全部勾上", protoChips().every((chip) => chip.className.includes("on")), protoText());
+
+  const first = protoChips()[0];
+  first.onclick.call(first);
+  await idle();
+  check("协议筛选：点一下变灰", protoChips()[0].className.includes("off"), protoText());
+  check("协议筛选：状态栏说明筛掉了多少", /协议/.test(text("status")), text("status"));
+
+  const after = await api("/nodes/ui-proto");
+  check("协议筛选：接口里只留了一种协议", after.data.protocols.length === 1 && after.data.nodes.length === 1, JSON.stringify(after.data.protocols));
+  check("协议筛选：统计仍然列出全部协议", after.data.protocol_stats.length === 2, JSON.stringify(after.data.protocol_stats));
+
+  const sub = await (await netFetch(`${BASE}/sub/ui-proto/${encodeURIComponent(TOKEN)}`)).text();
+  check("协议筛选：订阅里只剩一个节点", atob(sub).trim().split("\n").filter(Boolean).length === 1, sub.slice(0, 40));
+
+  const back = protoChips().find((chip) => chip.className.includes("off"));
+  back.onclick.call(back);
+  await idle();
+  const restored = await api("/nodes/ui-proto");
+  check("协议筛选：再点一下恢复全部", restored.data.protocols.length === 0 && restored.data.nodes.length === 2, JSON.stringify(restored.data.protocols));
+
+  await netFetch(`${BASE}/api/v1/machines/ui-proto`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+}
+
 /* ---------------- 登录与角色 ---------------- */
 {
   const session = await api("/auth/session");
