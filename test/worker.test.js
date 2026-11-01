@@ -446,6 +446,45 @@ test("link fragments become node names, duplicates and blanks are dropped", asyn
   assert.ok(merged.indexOf(tuic) < merged.indexOf(reality));
 });
 
+test("webui can create an empty machine and rejects invalid machine names", async () => {
+  const env = makeEnv();
+
+  // 没有机器上报时，UI 通过 PUT 空节点列表建一台
+  let res = await call(env, "PUT", "/api/v1/nodes/hk-node-1", JSON.stringify({ nodes: [] }), {
+    authorization: `Bearer ${TOKEN}`,
+    "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  let data = await res.json();
+  assert.equal(data.machine, "hk-node-1");
+  assert.equal(data.manual, true);
+  assert.equal(data.nodes.length, 0);
+
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
+  data = await res.json();
+  assert.equal(data.count, 1);
+  assert.equal(data.machines[0].machine, "hk-node-1");
+  assert.equal(data.machines[0].nodes, 0);
+
+  // 建完之后照常粘贴节点
+  res = await call(env, "PUT", "/api/v1/nodes/hk-node-1", JSON.stringify({ nodes: [{ link: SAMPLE_LINKS[0] }] }), {
+    authorization: `Bearer ${TOKEN}`,
+    "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  data = await res.json();
+  assert.equal(data.nodes.length, 1);
+
+  // 机器名必须满足 slug 规则
+  for (const bad of ["HK_Upper", "-lead", "has space", "a".repeat(65), "%2e%2e"]) {
+    res = await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(bad)}`, JSON.stringify({ nodes: [] }), {
+      authorization: `Bearer ${TOKEN}`,
+      "content-type": "application/json",
+    });
+    assert.equal(res.status, 400, `expected 400 for ${bad}`);
+  }
+});
+
 test("root reports d1 storage and advertises admin endpoints", async () => {
   const res = await call(makeEnv(), "GET", "/");
   assert.equal(res.status, 200);

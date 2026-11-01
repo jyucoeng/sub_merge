@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 const MAX_BODY = 512 * 1024;
 const MACHINE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -92,6 +92,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
 <div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
+<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名：小写字母/数字/中划线，如 hk-node-1" style="min-width:300px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">没有机器上报时，用这里建一台再粘贴节点</span></div>
 <div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
@@ -214,7 +215,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   }
   function renderMachines() {
     var sel = $("machine"); sel.innerHTML = "";
-    if (!state.machines.length) { var o = document.createElement("option"); o.value = ""; o.textContent = "暂无机器上报"; sel.appendChild(o); return; }
+    if (!state.machines.length) { var o = document.createElement("option"); o.value = ""; o.textContent = "暂无机器，先用下面「新建机器」"; sel.appendChild(o); return; }
     state.machines.forEach(function (m) { var o = document.createElement("option"); o.value = m.machine; o.textContent = m.machine + (m.manual ? "（手动）" : ""); sel.appendChild(o); });
     if (!state.current || !state.machines.some(function (m) { return m.machine === state.current; })) state.current = state.machines[0].machine;
     sel.value = state.current;
@@ -291,6 +292,23 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
       .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
+  };
+  $("create-machine").onclick = function () {
+    var box = $("new-machine");
+    var name = String(box.value || "").trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return setStatus("机器名只能用小写字母、数字和中划线，且以字母或数字开头", false);
+    var exist = null;
+    state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
+    if (exist) {
+      state.current = name; $("machine").value = name; loadNodes();
+      return setStatus("机器已存在，已切换到 " + name, true);
+    }
+    setStatus("创建中...");
+    api("/nodes/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: [] }) })
+      .then(function () { box.value = ""; return loadMachines(); })
+      .then(function () { state.current = name; $("machine").value = name; return loadNodes(); })
+      .then(function () { setStatus("已创建 " + name + "，粘贴节点后点保存配置", true); })
+      .catch(function (e) { setStatus("创建失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
     if (!state.current || !confirm("恢复后会用最近一次自动上报的节点覆盖手动配置，确定？")) return;
@@ -599,6 +617,7 @@ async function getNodeConfig(env, machine) {
 }
 
 async function putNodeConfig(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   const body = await request.text();
   if (body.length > MAX_BODY) return json({ ok: false, error: "config too large" }, 413);
   let data;
