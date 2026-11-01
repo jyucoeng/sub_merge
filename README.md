@@ -223,6 +223,8 @@ pnpm exec wrangler deploy --keep-vars \
 | `POST /api/v1/auth/login` | `{password}` → `{role, token}` |
 | `GET /api/v1/auth/session` | 当前角色，附带 `sub_token`（页面用它拼订阅链接） |
 
+登录限速：同一 IP 10 分钟内失败 10 次锁 15 分钟（`429` + `retry-after`），成功登录清零，计数存在 D1 的 `settings` 表里（`login-fail:<ip>`）。
+
 ### 「转为手动」之后上报还会不会覆盖
 
 不会覆盖，也**不会变成两条**——上报照常收下，只是订阅里这一条用手动的版本：

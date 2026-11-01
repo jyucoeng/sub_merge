@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.13.5";
+const VERSION = "1.14.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -948,12 +948,8 @@ async function handleRequest(request, env) {
 
   }
 
-  // 根路径直接进界面；接口索引挪到 /api（仍带 subscription_base）
-  const wantsJson = path === "/api" || path === "/api/" || request.headers.get("accept") === "application/json";
-  if (request.method === "GET" && (path === "/" || wantsJson) && (path === "/api" || path === "/api/" || path === "/")) {
-    if (path === "/" && !wantsJson) {
-      return html(UI_HTML);
-    }
+  // 接口索引在 /api；根路径和别的路径一律 404，只有 /ui 是入口
+  if (request.method === "GET" && (path === "/api" || path === "/api/")) {
     return json({
       name: "sub-worker",
       version: VERSION,
@@ -995,9 +991,24 @@ async function handleRequest(request, env) {
     try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
     const password = typeof data.password === "string" ? data.password.trim() : "";
     if (!password) return json({ ok: false, error: "password is required" }, 400);
-    if (await isAdminToken(env, password)) return json({ ok: true, role: "admin", token: password });
+    const ip = clientIp(request);
+    const guard = await loginGuard(env, ip);
+    if (guard.blocked) {
+      return new Response(JSON.stringify({ ok: false, error: `too many attempts, try again in ${Math.ceil(guard.retryAfter / 1000)}s` }), {
+        status: 429,
+        headers: { ...corsHeaders(), "content-type": "application/json; charset=utf-8", "retry-after": String(Math.ceil(guard.retryAfter / 1000)) },
+      });
+    }
+    if (await isAdminToken(env, password)) {
+      await clearLoginFails(env, ip);
+      return json({ ok: true, role: "admin", token: password });
+    }
     if (!adminPassword(env)) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
-    return json({ ok: false, error: "wrong password" }, 401);
+    const verdict = await noteLoginFail(env, ip);
+    if (verdict.blocked) {
+      return json({ ok: false, error: `too many attempts, try again in ${Math.ceil(verdict.retryAfter / 1000)}s`, fails: verdict.fails }, 429);
+    }
+    return json({ ok: false, error: "wrong password", fails: verdict.fails, left: verdict.left }, 401);
   }
 
   // 自检：这个 Worker 身上到底挂了哪些变量/绑定，哪些是代码真的在用的
@@ -1133,10 +1144,8 @@ async function handleRequest(request, env) {
     return getOne(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
   }
 
-  // 非接口路径：浏览器直接打开的一律进界面（域名后面随便带什么都行），
-  // 只有 /api 下的未知接口、以及不带 text/html 的请求才回 404。
+  // 非接口路径一律 404：随便扫域名的人看不到任何东西，界面只认 /ui
   if (path === "/api" || path.startsWith("/api/")) return json({ ok: false, error: "not found" }, 404);
-  if (request.method === "GET" && (request.headers.get("accept") || "").includes("text/html")) return html(UI_HTML);
   return html(NOT_FOUND_HTML(), 404);
 }
 
@@ -1337,6 +1346,54 @@ async function deleteRecord(env, machine) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
   await db.prepare("DELETE FROM machines WHERE machine = ?1").bind(machine).run();
+}
+
+/* ---- 登录限速：按来源 IP 记失败次数，纯 D1 settings 表，不额外建表 ---- */
+
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_MAX_FAILS = 10;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+function clientIp(request) {
+  return request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
+}
+
+function loginKey(ip) { return "login-fail:" + ip; }
+
+async function readLoginFails(env, ip) {
+  const raw = await getSetting(env, loginKey(ip));
+  if (!raw) return { fails: 0, first: 0, until: 0 };
+  try {
+    const data = JSON.parse(raw);
+    return { fails: Number(data.fails) || 0, first: Number(data.first) || 0, until: Number(data.until) || 0 };
+  } catch {
+    return { fails: 0, first: 0, until: 0 };
+  }
+}
+
+async function loginGuard(env, ip) {
+  const state = await readLoginFails(env, ip);
+  const now = Date.now();
+  if (state.until && state.until > now) return { blocked: true, retryAfter: state.until - now, fails: state.fails };
+  return { blocked: false, fails: state.fails };
+}
+
+async function noteLoginFail(env, ip) {
+  const now = Date.now();
+  const state = await readLoginFails(env, ip);
+  const fresh = !state.first || now - state.first > LOGIN_WINDOW_MS;
+  const fails = fresh ? 1 : state.fails + 1;
+  const first = fresh ? now : state.first;
+  const blocked = fails >= LOGIN_MAX_FAILS;
+  const until = blocked ? now + LOGIN_BLOCK_MS : 0;
+  await putSetting(env, loginKey(ip), JSON.stringify({ fails, first, until }));
+  return { fails, blocked, retryAfter: blocked ? LOGIN_BLOCK_MS : 0, left: blocked ? 0 : LOGIN_MAX_FAILS - fails };
+}
+
+async function clearLoginFails(env, ip) {
+  const db = dbEnv(env);
+  if (!db) return;
+  await db.prepare("DELETE FROM settings WHERE key = ?1").bind(loginKey(ip)).run();
 }
 
 async function getSetting(env, key) {

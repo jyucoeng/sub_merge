@@ -882,12 +882,14 @@ test("the WebUI script is syntactically valid JavaScript", async () => {
   assert.ok(m[1].includes("[\\p{L}\\p{N}]"), "machine name regex must survive templating");
 });
 
-test("the site root is the WebUI, /api reports d1 storage and advertises endpoints", async () => {
+test("only /ui serves the WebUI, /api reports d1 storage and advertises endpoints", async () => {
   const root = await call(makeEnv(), "GET", "/");
-  assert.equal(root.status, 200);
-  const page = await root.text();
-  assert.ok(page.includes("<title>sub-worker"), "root must serve the UI shell");
-  assert.ok(page.includes('id="login-password"'), "root must be the login page");
+  assert.equal(root.status, 404, "the root must not advertise anything");
+  assert.ok(!(await root.text()).includes("login-password"), "root must not leak the login form");
+
+  const ui = await call(makeEnv(), "GET", "/ui");
+  assert.equal(ui.status, 200);
+  assert.ok((await ui.text()).includes('id="login-password"'));
 
   const res = await call(makeEnv(), "GET", "/api");
   assert.equal(res.status, 200);
@@ -1259,10 +1261,9 @@ test("login failure says so when no admin password is configured", async () => {
 test("unknown paths get a 404 page, /api still answers JSON", async () => {
   const env = makeEnv();
   const page = await call(env, "GET", "/nope/whatever");
-  assert.equal(page.status, 404, "non-browser requests still get 404");
+  assert.equal(page.status, 404, "unknown paths must 404, scanners get nothing");
   const nav = await call(env, "GET", "/nope/whatever", null, { accept: "text/html" });
-  assert.equal(nav.status, 200, "browser navigation falls back to the UI");
-  assert.ok((await nav.text()).includes('id="login-password"'));
+  assert.equal(nav.status, 404, "browser navigation must 404 too, only /ui is the entry");
   const body = await page.text();
   assert.ok(body.includes("404"), "404 page must show the code");
   assert.ok(!body.includes("<script>"), "404 page must not run scripts");
@@ -1286,4 +1287,32 @@ test("admin env report lists known variables and flags leftovers", async () => {
 
   const anon = await call(env, "GET", "/api/v1/admin/env");
   assert.equal(anon.status, 401);
+});
+
+test("login is rate limited per IP after repeated failures", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "right-pass" });
+  const headers = { "content-type": "application/json", "cf-connecting-ip": "203.0.113.9" };
+  const attempt = (password, ip = "203.0.113.9") =>
+    call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password }), { ...headers, "cf-connecting-ip": ip });
+
+  for (let i = 1; i <= 9; i += 1) {
+    const res = await attempt("wrong-" + i);
+    assert.equal(res.status, 401, `attempt ${i} must stay 401`);
+  }
+  const tenth = await attempt("wrong-10");
+  assert.equal(tenth.status, 429, "the 10th failure locks the IP");
+  const blocked = await attempt("right-pass");
+  assert.equal(blocked.status, 429, "even the right password is refused while locked");
+  assert.ok(Number(blocked.headers.get("retry-after")) > 0);
+
+  const other = await attempt("right-pass", "198.51.100.7");
+  assert.equal(other.status, 200, "a different IP is not affected");
+
+  // 换一个 IP 把次数用对：成功登录会清掉自己的计数
+  const ip = "198.51.100.8";
+  await attempt("nope", ip);
+  const ok = await attempt("right-pass", ip);
+  assert.equal(ok.status, 200);
+  const res = await call(env, "GET", "/api/v1/machines", null, { authorization: "Bearer right-pass" });
+  assert.equal(res.status, 200);
 });
