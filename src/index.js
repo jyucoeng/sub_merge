@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.18.0";
+const VERSION = "1.18.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -161,7 +161,7 @@ body.locked .wrap{display:none}
 <h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span></h2>
 <div class="hint">分组决定 Clash 里有哪些策略组，规则来源决定 <code>rule-providers</code> 和 <code>RULE-SET</code> 的顺序。规则文件由客户端自己下载（每 24 小时），服务端只发引用。改完点「保存规则」，客户端重新拉订阅即生效；点「恢复默认」回到内置的 ACL4SSR 那一套。</div>
 <div class="row admin-only" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button><label class="clash-only-live"><input type="checkbox" id="clash-hide-empty" /> 只看有节点的分组</label></div>
-<div class="hint" style="margin-top:14px"><b>分组</b> <span class="tag auto" id="clash-group-count">0</span> 国家组只填「过滤」，功能组只填「成员」；两个都空的分组会被拒绝，没有任何节点匹配的分组不会输出</div>
+<div class="hint" style="margin-top:14px"><b>分组</b> <span class="tag auto" id="clash-group-count">0</span></div><div class="hint" style="margin-top:6px">国家组只填「过滤」，功能组只填「成员」；两个都空的分组会被拒绝，没有任何节点匹配的分组不会输出</div>
 <div class="clash-head group-head"><span>分组名</span><span>类型</span><span>过滤（正则，匹配节点名）</span><span>成员（分组名，逗号分隔）</span><span></span></div>
 <div id="clash-groups" class="clash-table"></div>
 <div class="hint" style="margin-top:14px"><b>规则来源</b> <span class="tag auto" id="clash-rule-count">0</span> 名称可留空（按文件名自动生成），分组必须是上面已经存在的分组</div>
