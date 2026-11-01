@@ -24,7 +24,6 @@ database_id = "a74a3457-d486-414b-b5e2-89efc3cbf543"
 # 口令都放后台变量，不要写进代码或 D1：
 #   pnpm exec wrangler secret put TOKEN            # 订阅/上报用的 token
 #   pnpm exec wrangler secret put ADMIN_PASSWORD   # WebUI 管理员登录口令
-#   pnpm exec wrangler secret put GUEST_CODE       # WebUI 游客码（只读），不配则关闭游客
 #   pnpm exec wrangler secret put UI_TOKEN         # 可选：另一个管理员口令
 
 # 建表（二选一）：

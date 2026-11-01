@@ -29,8 +29,7 @@ for (const s of SCHEMA_STATEMENTS) db.prepare(s).run();
 
 const TOKEN = "ui-test-token";
 const ADMIN_PASSWORD = "ui-admin-pass";
-const GUEST_CODE = "ui-guest-code";
-const env = { DB: new SqliteD1(db), TOKEN, ADMIN_PASSWORD, GUEST_CODE };
+const env = { DB: new SqliteD1(db), TOKEN, ADMIN_PASSWORD };
 
 const server = http.createServer(async (req, res) => {
   const chunks = [];
@@ -678,35 +677,9 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("会话：管理员角色", session.status === 200 && session.data.role === "admin", JSON.stringify(session.data));
   check("登录浮层：管理员登录后隐藏", el("login").style.display === "none", el("login").style.display);
   check("登录浮层：只有一个口令输入框（游客码也填这里）", Boolean(el("login-password")) && !html.includes('id="login-guest"'));
-  check("页面里没有改密码/游客码入口（都在 Cloudflare 后台）", !html.includes('id="admin-password"') && !html.includes('id="guest-token"') && !html.includes('id="card-access"'), "");
+  check("页面里没有改密码入口（在 Cloudflare 后台）", !html.includes('id="admin-password"') && !html.includes('id="card-access"'), "");
 
-  // 造一台机器，然后用游客码登录读
-  await api("/nodes/guest-check", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nodes: [{ link: HY2, name: "游客不该看到我", order: 0 }] }),
-  });
-  const guestLogin = await netFetch(`${BASE}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: GUEST_CODE }),
-  });
-  const guestData = await guestLogin.json();
-  check("游客：用游客码登录拿到 guest 角色", guestLogin.status === 200 && guestData.role === "guest", JSON.stringify(guestData));
-
-  const guestAuth = { Authorization: "Bearer " + guestData.token };
-  const read = await netFetch(`${BASE}/api/v1/nodes/guest-check`, { headers: guestAuth });
-  const readData = await read.json();
-  check("游客：读得到节点但没有链接", read.status === 200 && readData.nodes.length === 1 && readData.nodes[0].link === undefined && readData.nodes[0].name === "游客不该看到我", JSON.stringify(readData.nodes));
-  check("游客：会话角色为 guest", readData.role === "guest", readData.role);
-
-  const write = await netFetch(`${BASE}/api/v1/nodes/guest-check`, {
-    method: "PUT",
-    headers: Object.assign({ "Content-Type": "application/json" }, guestAuth),
-    body: JSON.stringify({ nodes: [] }),
-  });
-  check("游客：写操作被拒 403", write.status === 403, String(write.status));
-
+  // 只有管理员一种身份：口令不对进不来，对了可以读写
   const badLogin = await netFetch(`${BASE}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -714,7 +687,19 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   });
   check("登录：错误口令 401", badLogin.status === 401, String(badLogin.status));
 
-  await api("/machines/guest-check", { method: "DELETE" });
+  const guestLike = await netFetch(`${BASE}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "ui-guest-code" }),
+  });
+  check("登录：没有游客身份了", guestLike.status === 401, String(guestLike.status));
+
+  const noToken = await netFetch(`${BASE}/api/v1/machines`);
+  check("接口：不带口令 401", noToken.status === 401, String(noToken.status));
+
+  const sessionRes = await netFetch(`${BASE}/api/v1/auth/session`, { headers: { Authorization: "Bearer " + ADMIN_PASSWORD } });
+  const sessionData = await sessionRes.json();
+  check("会话：管理员带订阅 token", sessionRes.status === 200 && sessionData.role === "admin" && sessionData.sub_token === TOKEN, JSON.stringify(sessionData));
 }
 
 /* ---------------- 清场 + 汇总 ---------------- */

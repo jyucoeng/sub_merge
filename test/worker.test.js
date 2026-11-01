@@ -1202,19 +1202,19 @@ test("clash rules endpoints require the token", async () => {
   }
 });
 
-test("admin password and guest code both come from the environment", async () => {
-  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc", GUEST_CODE: "guest-code-123" });
+test("only admins can log in, and the password comes from the environment", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc" });
   const admin = { authorization: `Bearer ${TOKEN}` };
   await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01"), admin);
 
-  // 密码在环境变量里：对就是管理员
+  // 环境变量里的口令
   let res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "Sh94ghdf@" }), { "content-type": "application/json" });
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.role, "admin");
   assert.equal(data.token, "Sh94ghdf@");
 
-  // UI_TOKEN 也能当管理员口令；TOKEN 仍然能登录；错的 401
+  // UI_TOKEN、TOKEN 同样能登录；错的 401
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "ui-token-abc" }), { "content-type": "application/json" });
   assert.equal((await res.json()).role, "admin");
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
@@ -1222,42 +1222,24 @@ test("admin password and guest code both come from the environment", async () =>
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
   assert.equal(res.status, 401);
 
-  // 界面上改不了密码：这个接口已经不存在
+  // 没有游客这条身份了：GUEST_CODE 也进不去，老的 /auth/guest 接口不存在
+  const env2 = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", GUEST_CODE: "guest-code-123" });
+  res = await call(env2, "POST", "/api/v1/auth/login", JSON.stringify({ password: "guest-code-123" }), { "content-type": "application/json" });
+  assert.equal(res.status, 401);
+  res = await call(env, "GET", "/api/v1/auth/guest", null, admin);
+  assert.equal(res.status, 404);
   res = await call(env, "POST", "/api/v1/auth/password", JSON.stringify({ password: "whatever-123" }), { ...admin, "content-type": "application/json" });
   assert.equal(res.status, 404);
-  // 游客码也不能在界面上生成/查询
-  res = await call(env, "GET", "/api/v1/auth/guest", null, { authorization: "Bearer Sh94ghdf@" });
-  assert.equal(res.status, 404);
 
-  // 游客码登录 → guest，只读、无 link
-  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "guest-code-123" }), { "content-type": "application/json" });
-  assert.equal(res.status, 200);
+  // 会话带订阅 token；节点照常带 link（没有游客了就不需要抹掉）
+  res = await call(env, "GET", "/api/v1/auth/session", null, admin);
   data = await res.json();
-  assert.equal(data.role, "guest");
-  const guestToken = data.token;
-
-  res = await call(env, "GET", "/api/v1/nodes/box", null, { authorization: `Bearer ${guestToken}` });
-  assert.equal(res.status, 200);
+  assert.equal(data.role, "admin");
+  assert.equal(data.sub_token, TOKEN);
+  res = await call(env, "GET", "/api/v1/nodes/box", null, admin);
   data = await res.json();
-  assert.equal(data.role, "guest");
-  assert.equal(data.nodes.length, 1);
-  assert.equal(data.nodes[0].link, undefined);
-  assert.equal(data.nodes[0].name, "香港-01");
-
-  res = await call(env, "PUT", "/api/v1/nodes/box", JSON.stringify({ nodes: [] }), { authorization: `Bearer ${guestToken}`, "content-type": "application/json" });
-  assert.equal(res.status, 403);
-  assert.equal((await res.json()).error, "read-only guest session");
-
-  // 管理员会话能拿到订阅 token，游客拿不到
-  res = await call(env, "GET", "/api/v1/auth/session", null, { authorization: "Bearer Sh94ghdf@" });
-  assert.equal((await res.json()).sub_token, TOKEN);
-  res = await call(env, "GET", "/api/v1/auth/session", null, { authorization: `Bearer ${guestToken}` });
-  assert.equal((await res.json()).sub_token, undefined);
-
-  // 没配 GUEST_CODE 的实例：游客码登录直接 401
-  const bare = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@" });
-  res = await call(bare, "POST", "/api/v1/auth/login", JSON.stringify({ password: "guest-code-123" }), { "content-type": "application/json" });
-  assert.equal(res.status, 401);
+  assert.equal(data.role, undefined);
+  assert.ok(String(data.nodes[0].link).startsWith("vless://"));
 });
 
 test("login failure says so when no admin password is configured", async () => {

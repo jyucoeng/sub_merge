@@ -198,45 +198,31 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 - 机器列表里每台机器会显示「N 节点（手动 M）」，鼠标悬停能看「手动 M 个 · 自动 N 个」；
 - 一台机器**只有手动节点、从没上报过**时，它的 `content` 是空的——这不影响使用，手动节点照样进订阅。
 
-## 登录：管理员 / 游客
+## 登录
 
-UI 打开就是登录页，凭据全部来自 Cloudflare 后台的变量，界面里既不显示也改不了。
+UI 打开就是登录页，只有管理员一种身份。口令全部来自 Cloudflare 后台变量，界面里既不显示也改不了。
 
-**推荐用明文变量**（Dashboard → Workers & Pages → sub-worker → Settings → Variables and Secrets，类型选 Text），这样后台直接看得见、改完点 Deploy 就生效：
+**用明文变量**（Dashboard → Workers & Pages → sub-worker → Settings → Variables and Secrets，类型 Text），后台直接看得见：
 
 | 变量 | 作用 |
 | --- | --- |
 | `ADMIN_PASSWORD` | 管理员口令，进 UI 后可读可写 |
-| `GUEST_CODE` | 游客码，只读；不配则没有游客入口 |
 | `TOKEN` | 订阅/上报 token，跟登录无关 |
 | `UI_TOKEN` | 可选，另一串管理员口令 |
-
-命令行设置（不落仓库，`--keep-vars` 保留后台已有变量）：
 
 ```bash
 pnpm exec wrangler deploy --keep-vars \
   --var ADMIN_PASSWORD:你的管理员口令 \
-  --var GUEST_CODE:你的游客码 \
   --var TOKEN:你的订阅token
 ```
 
-`wrangler.toml` 里已经写了 `keep_vars = true`，所以之后直接 `pnpm exec wrangler deploy` 不会清掉后台手填的变量。（想用 Secret 也行，把 `wrangler secret put` 换成变量名即可；区别只是后台是否显示明文。）
-
-本仓库是公开的，别把真值写进 `wrangler.toml`；自己的口令可以记在 `CREDENTIALS.local.md`（已在 `.gitignore`）。
-
-- `/ui` 永远是登录页；`/ui/<任何东西>` 也只是这张登录页，URL 里不再携带凭据（老书签打开是登录框）。
-- 输入 `ADMIN_PASSWORD`（或 `UI_TOKEN`、`TOKEN`）→ 管理员；输入 `GUEST_CODE` → 游客（只读）。
-- 登录态存在 `localStorage`，刷新不用重输；点右上角「退出登录」清掉。右上角徽章显示当前是「管理员」还是「游客（只读）」。
-
-| 身份 | 能干什么 |
-| --- | --- |
-| 管理员 | 全部读写：机器、节点、分流规则、顺序 |
-| 游客 | 只看：机器列表、节点名和协议、分组结构。**节点链接（link）不下发**，写操作一律 `403 read-only guest session`，页面上编辑控件全部隐藏 |
+- `/ui` 永远是登录页；`/ui/<任何东西>` 也只是这张登录页，URL 里不携带凭据。
+- 登录态存 `localStorage`，刷新不用重输；右上角「退出登录」清掉。
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /api/v1/auth/login` | `{password}` → `{role, token}`；管理员口令或游客码都走这里 |
-| `GET /api/v1/auth/session` | 当前 Bearer 的角色；管理员额外返回 `sub_token`，页面用它拼订阅链接 |
+| `POST /api/v1/auth/login` | `{password}` → `{role, token}` |
+| `GET /api/v1/auth/session` | 当前角色，附带 `sub_token`（页面用它拼订阅链接） |
 
 ### 「转为手动」之后上报还会不会覆盖
 

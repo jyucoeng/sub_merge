@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.12.1";
+const VERSION = "1.13.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -124,12 +124,6 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 #login h2{font-size:18px;margin:0 0 4px}#login input{width:100%;margin:12px 0 0}
 #login .row{margin-top:12px}#login .status{margin-top:8px}
 body.locked .wrap{display:none}
-body.guest .admin-only{display:none!important}
-body.guest .node input,body.guest .node button,body.guest .machine button,body.guest .machine input,
-body.guest .clash-row button,body.guest .clash-row input,body.guest .clash-row select,
-body.guest #bulk,body.guest #new-machine{background:transparent;border-color:transparent;pointer-events:none;color:var(--sub)}
-body.guest .node button,body.guest .clash-row button,body.guest .machine button,body.guest #auto-sources button{display:none}
-body.guest .node input.link::placeholder{color:#b6c0cc}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
 </head>
@@ -137,8 +131,8 @@ body.guest .node input.link::placeholder{color:#b6c0cc}
 <div id="login">
 <div class="box">
 <h2>sub-worker 登录</h2>
-<div class="hint">填管理员密码 = 可编辑；填游客码 = 只读（看不到节点链接，也不能改任何东西）。两个口令都在 Cloudflare 的 Variables and Secrets 里配。</div>
-<input id="login-password" type="password" autocomplete="current-password" placeholder="管理员密码 或 游客码" spellcheck="false">
+<div class="hint">只有管理员一种身份：输口令进来就能读写。口令在 Cloudflare 后台的 Variables and Secrets 里配。</div>
+<input id="login-password" type="password" autocomplete="current-password" placeholder="管理员口令" spellcheck="false">
 <div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
 <div id="login-status" class="status"></div>
 </div>
@@ -408,7 +402,6 @@ body.guest .node input.link::placeholder{color:#b6c0cc}
     };
     idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
     var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
-    if (ROLE !== "admin") link.placeholder = "游客看不到节点链接";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
@@ -491,10 +484,6 @@ body.guest .node input.link::placeholder{color:#b6c0cc}
   }
   function render() {
     var box = $("nodes"); box.innerHTML = "";
-    if (ROLE !== "admin") {
-      // 游客拿不到 link，就别显示 vless:// 那种占位示例，免得以为是空的
-      state.nodes.forEach(function (n) { n.link = ""; n.hidden = true; });
-    }
     if (!state.nodes.length) {
       var e = document.createElement("div"); e.className = "empty";
       e.textContent = (state.autoNodes || []).length ? "没有手动节点，这台机器只用下面的自动上报节点" : "暂无节点，点击下方添加";
@@ -861,11 +850,10 @@ body.guest .node input.link::placeholder{color:#b6c0cc}
   }
   function applyRole(role) {
     ROLE = role;
-    var guest = role !== "admin";
-    document.body.className = guest ? "guest" : "";
+    document.body.className = role === "admin" ? "" : "locked";
     var badge = $("role-badge");
     if (badge) {
-      badge.textContent = role === "admin" ? "管理员" : role === "guest" ? "游客（只读）" : "未登录";
+      badge.textContent = role === "admin" ? "管理员" : "未登录";
       badge.className = "tag " + (role === "admin" ? "manual" : "auto");
     }
   }
@@ -949,14 +937,14 @@ async function handleRequest(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (request.method === "GET" && path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
 
-  // 会话先判：/api/v1/* 除登录、游客入口、上报外，统一在这里定角色
-  const openApi = /^\/api\/v1\/(auth\/(login|guest|session|password)|report\/)/.test(path);
+  // 会话先判：/api/v1/* 除登录和上报外，统一在这里校验管理员口令
+  const openApi = /^\/api\/v1\/(auth\/(login|session)|report\/)/.test(path);
   let session = null;
   if (path.startsWith("/api/v1/") && !openApi) {
     if (!authToken(env)) return missingConfig("TOKEN");
     session = await sessionOf(request, env);
     if (!session) return unauthorized();
-    if (session.role !== "admin" && request.method !== "GET") return json({ ok: false, error: "read-only guest session" }, 403);
+
   }
 
   if (request.method === "GET" && path === "/") {
@@ -993,7 +981,7 @@ async function handleRequest(request, env) {
     return html(UI_HTML);
   }
 
-  // 登录：密码 = 管理员密码（或 TOKEN），也能用游客码登录
+  // 登录：管理员密码（ADMIN_PASSWORD / UI_TOKEN / TOKEN 任一）
   if (path === "/api/v1/auth/login") {
     if (request.method !== "POST") return methodNotAllowed("POST");
     if (!dbEnv(env)) return missingConfig("DB");
@@ -1002,7 +990,6 @@ async function handleRequest(request, env) {
     const password = typeof data.password === "string" ? data.password.trim() : "";
     if (!password) return json({ ok: false, error: "password is required" }, 400);
     if (await isAdminToken(env, password)) return json({ ok: true, role: "admin", token: password });
-    if (await isGuestToken(env, password)) return json({ ok: true, role: "guest", token: password });
     if (!adminPassword(env) && !env.UI_TOKEN) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
     return json({ ok: false, error: "wrong password" }, 401);
   }
@@ -1011,9 +998,8 @@ async function handleRequest(request, env) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     const current = await sessionOf(request, env);
     if (!current) return unauthorized();
-    // 订阅链接固定用 TOKEN；管理员才拿得到，游客页面本来也不显示订阅链接
-    if (current.role === "admin") return json({ ok: true, role: current.role, sub_token: authToken(env) });
-    return json({ ok: true, role: current.role });
+    // 订阅链接固定用 TOKEN
+    return json({ ok: true, role: current.role, sub_token: authToken(env) });
   }
 
   let m = path.match(/^\/api\/v1\/admin\/schema$/);
@@ -1035,7 +1021,7 @@ async function handleRequest(request, env) {
     if (!dbEnv(env)) return missingConfig("DB");
     const machine = decodeURIComponent(m[1]);
     if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-    if (request.method === "GET") return getNodeConfig(env, machine, session ? session.role : null);
+    if (request.method === "GET") return getNodeConfig(env, machine);
     if (request.method === "PUT") return putNodeConfig(request, env, machine);
     return methodNotAllowed("GET, PUT");
   }
@@ -1129,7 +1115,7 @@ async function handleRequest(request, env) {
 
 function authToken(env) { return (env && env.TOKEN) || ""; }
 
-/* ---- 会话：管理员密码 / 游客只读码 ---- */
+/* ---- 会话：管理员口令 ---- */
 
 
 function bearerOf(request) {
@@ -1146,22 +1132,12 @@ async function isAdminToken(env, token) {
   if (env && env.UI_TOKEN && checkToken(token, env.UI_TOKEN)) return true;
   return checkToken(token, authToken(env));
 }
-function guestCode(env) { return (env && env.GUEST_CODE) || ""; }
-async function isGuestToken(env, token) {
-  if (!token) return false;
-  const code = guestCode(env);
-  return Boolean(code) && checkToken(token, code);
-}
+
 async function sessionOf(request, env) {
   const token = bearerOf(request);
   if (!token) return null;
   if (await isAdminToken(env, token)) return { role: "admin", token };
-  if (await isGuestToken(env, token)) return { role: "guest", token };
   return null;
-}
-// 游客只读：只给名字和协议，链接里是节点密码，不能下发
-function guestNodes(nodes) {
-  return (nodes || []).map((node) => ({ name: node.name, protocol: node.protocol, order: node.order }));
 }
 function baseUrl(request) { return new URL(request.url).origin; }
 function dbEnv(env) { return env && env.DB ? env.DB : null; }
@@ -1589,22 +1565,18 @@ async function putClashRules(request, env) {
   return json({ ok: true, custom: true, groups: saved.groups, rulesets: saved.rulesets, updated_at: saved.updated_at });
 }
 
-async function getNodeConfig(env, machine, role) {
-  const guest = role !== "admin";
+async function getNodeConfig(env, machine) {
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [] });
-  const nodes = await nodesOf(record);
-  const autoNodes = await autoNodesOf(record);
   return json({
     ok: true,
     machine,
-    role: guest ? "guest" : "admin",
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: guest ? guestNodes(nodes) : nodes,
-    manual_nodes: guest ? guestNodes(record.manual_nodes || []) : record.manual_nodes || [],
-    auto_nodes: guest ? guestNodes(autoNodes) : autoNodes,
+    nodes: await nodesOf(record),
+    manual_nodes: record.manual_nodes || [],
+    auto_nodes: await autoNodesOf(record),
     sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
   });
 }
