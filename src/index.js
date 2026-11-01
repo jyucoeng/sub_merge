@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -645,8 +645,15 @@ async function getOne(env, machine, token, request) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: false, error: "subscription not found" }, 404);
+  const format = formatOf(request);
+  const key = subCacheKey("one:" + machine, format, [], [record]);
+  const hit = subCacheGet(key);
+  if (hit) {
+    return cachedSubResponse(hit, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
+  }
   const nodes = await nodesOf(record);
-  return subResponse(nodes, request, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at });
+  const rendered = subCachePut(key, { ...subBody(nodes, format), nodes: nodes.length });
+  return cachedSubResponse(rendered, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(nodes.length), "x-sub-cache": "miss" });
 }
 
 async function getAll(env, token, request) {
@@ -655,20 +662,24 @@ async function getAll(env, token, request) {
   if (!dbEnv(env)) return missingConfig("DB");
   const records = await loadAllRecords(env);
   const order = await getMachineOrder(env);
+  const format = formatOf(request);
+  const manualCount = records.filter((r) => r.manual).length;
+  const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
+  const key = subCacheKey("all", format, order, records);
+  const hit = subCacheGet(key);
+  if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
+
   const rank = new Map(order.map((m, i) => [m, i]));
-  const all = [];
-  let manual = 0;
+  const items = [];
   for (const record of records) {
-    if (record.manual) manual++;
+    const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
     const nodes = await nodesOf(record);
-    nodes.forEach((n) => all.push({ ...n, machine: record.machine }));
+    for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
-  all.sort((a, b) => {
-    const ar = rank.has(a.machine) ? rank.get(a.machine) : defaultMachineRank(a.machine);
-    const br = rank.has(b.machine) ? rank.get(b.machine) : defaultMachineRank(b.machine);
-    return ar - br || (Number(a._sort) || 0) - (Number(b._sort) || 0) || String(a.machine).localeCompare(String(b.machine)) || String(a.name).localeCompare(String(b.name));
-  });
-  return subResponse(all, request, { "x-machines": String(records.length), "x-nodes": String(all.length), "x-manual-machines": String(manual), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") });
+  items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
+  const all = items.map((item) => item.node);
+  const rendered = subCachePut(key, { ...subBody(all, format), nodes: all.length });
+  return cachedSubResponse(rendered, { ...baseHeaders, "x-nodes": String(all.length), "x-sub-cache": "miss" });
 }
 
 async function getNodeConfig(env, machine) {
@@ -884,15 +895,19 @@ async function nodesOf(record) {
   } else {
     nodes = await normalizeNodes(splitLinks(record && record.content ? decodeSafe(record.content) : ""), []);
   }
-  nodes.sort((a, b) => {
-    if (record && record.manual) return (Number(a.order) || 0) - (Number(b.order) || 0);
-    return protocolRank(a) - protocolRank(b) || (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.name).localeCompare(String(b.name));
-  });
-  return nodes.map((n, i) => ({ ...n, _sort: i }));
+  const manual = Boolean(record && record.manual);
+  const decorated = nodes.map((node) => ({
+    node,
+    rank: manual ? 0 : protocolRank(node),
+    order: Number(node.order) || 0,
+    name: manual ? "" : String(node.name == null ? "" : node.name),
+  }));
+  decorated.sort((a, b) => a.rank - b.rank || a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return decorated.map((item, i) => ({ ...item.node, _sort: i }));
 }
 
 function protocolRank(node) {
-  const p = node && node.link ? parseLink(node.link) : null;
+  const p = node && node.link ? parseLinkCached(node.link) : null;
   if (!p) return 90;
   if (p.kind === "vless" && p.reality) return 10;
   if (p.kind === "anytls") return 20;
@@ -989,6 +1004,19 @@ function isInsecure(q) {
 
 /* ---------------- subscription formats ---------------- */
 
+const LINK_CACHE = new Map();
+const LINK_CACHE_MAX = 2048;
+
+function parseLinkCached(link) {
+  if (typeof link !== "string" || !link) return null;
+  const hit = LINK_CACHE.get(link);
+  if (hit !== undefined) return hit;
+  const parsed = parseLink(link);
+  if (LINK_CACHE.size >= LINK_CACHE_MAX) LINK_CACHE.clear();
+  LINK_CACHE.set(link, parsed);
+  return parsed;
+}
+
 function formatOf(request) {
   const u = new URL(request.url);
   const raw = (u.searchParams.get("format") || "").toLowerCase();
@@ -1006,17 +1034,52 @@ function formatOf(request) {
   return "base64";
 }
 
+function subBody(nodes, format) {
+  if (format === "clash") return { body: toClashConfig(nodes), type: "text/yaml; charset=utf-8" };
+  if (format === "proxies") return { body: toClash(nodes), type: "text/yaml; charset=utf-8" };
+  if (format === "singbox") return { body: toSingbox(nodes), type: "application/json; charset=utf-8" };
+  return { body: encodeBase64(nodes.map((n) => n.link).join("\n")), type: "text/plain; charset=utf-8" };
+}
+
+function subHeaders(type, extraHeaders) {
+  return { ...corsHeaders(), "content-type": type, "cache-control": "no-store, max-age=0", "profile-update-interval": "6", ...(extraHeaders || {}) };
+}
+
 function subResponse(nodes, request, extraHeaders) {
   const format = formatOf(request);
-  let body;
-  let type = "text/plain; charset=utf-8";
-  if (format === "clash") { body = toClashConfig(nodes); type = "text/yaml; charset=utf-8"; }
-  else if (format === "proxies") { body = toClash(nodes); type = "text/yaml; charset=utf-8"; }
-  else if (format === "singbox") { body = toSingbox(nodes); type = "application/json; charset=utf-8"; }
-  else body = encodeBase64(nodes.map((n) => n.link).join("\n"));
-  return new Response(body, {
-    headers: { ...corsHeaders(), "content-type": type, "cache-control": "no-store, max-age=0", "profile-update-interval": "6", ...(extraHeaders || {}) },
-  });
+  const rendered = subBody(nodes, format);
+  return new Response(rendered.body, { headers: subHeaders(rendered.type, extraHeaders) });
+}
+
+/* 生成结果缓存：客户端每次拉订阅都要重算 YAML，命中后直接返回上一次的字符串。
+ * key 覆盖所有影响输出的东西（格式、机器顺序、每行的 updated_at/hash/manual），
+ * 任何一次上报或手动保存都会换 key，因此不存在脏读。 */
+const SUB_CACHE = new Map();
+const SUB_CACHE_MAX = 8;
+const SUB_CACHE_MAX_BYTES = 512 * 1024;
+
+function subCacheKey(tag, format, order, records) {
+  const parts = records.map((r) => [r.machine, r.updated_at, r.hash, r.manual ? 1 : 0].join("\u0001"));
+  return [tag, format, order.join("\u0003"), parts.join("\u0002")].join("\u0000");
+}
+
+function subCacheGet(key) {
+  const hit = SUB_CACHE.get(key);
+  if (!hit) return null;
+  SUB_CACHE.delete(key);
+  SUB_CACHE.set(key, hit);
+  return hit;
+}
+
+function subCachePut(key, entry) {
+  if (entry.body.length > SUB_CACHE_MAX_BYTES) return entry;
+  if (SUB_CACHE.size >= SUB_CACHE_MAX) SUB_CACHE.delete(SUB_CACHE.keys().next().value);
+  SUB_CACHE.set(key, entry);
+  return entry;
+}
+
+function cachedSubResponse(entry, extraHeaders) {
+  return new Response(entry.body, { headers: subHeaders(entry.type, extraHeaders) });
 }
 
 function yamlString(value) { return JSON.stringify(String(value == null ? "" : value)); }
@@ -1028,7 +1091,7 @@ function uniqueNodeEntries(nodes, reserved) {
   for (const node of nodes || []) {
     const link = String((node && node.link) || "");
     if (link && usedLinks.has(link)) continue;
-    const proxy = (node && node.proxy) || parseLink(link);
+    const proxy = (node && node.proxy) || parseLinkCached(link);
     if (!proxy) continue;
     if (link) usedLinks.add(link);
     let base = String((node && node.name) || proxy.name || "").trim();

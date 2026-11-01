@@ -820,3 +820,53 @@ test("clash config carries ACL4SSR groups and rule-providers that resolve", asyn
   // 分组里不能出现空 proxies:
   assert.ok(!/proxies:\n\n/.test(yaml));
 });
+
+test("subscription output is cached until the content changes", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const link = (name) => `vless://11111111-2222-4333-8444-555555555555@203.0.113.7:443?security=reality&sni=pypi.org&pbk=deadbeef&sid=dead#${name}`;
+
+  let res = await call(env, "PUT", "/api/v1/nodes/cache-a", JSON.stringify({ nodes: [{ link: link("缓存-A1") }, { link: link("缓存-A2") }] }), { ...auth, "content-type": "application/json" });
+  assert.equal(res.status, 200);
+
+  const clashUrl = `/sub/cache-a/${TOKEN}?format=clash`;
+  res = await call(env, "GET", clashUrl);
+  const first = await res.text();
+  assert.equal(res.headers.get("x-sub-cache"), "miss");
+  assert.equal(res.headers.get("x-nodes"), "2");
+  assert.match(first, /缓存-A1/);
+
+  // 同一份内容再拉：命中缓存，正文与计数完全一致
+  res = await call(env, "GET", clashUrl);
+  assert.equal(res.headers.get("x-sub-cache"), "hit");
+  assert.equal(res.headers.get("x-nodes"), "2");
+  assert.equal(await res.text(), first);
+
+  // 不同格式是不同条目
+  res = await call(env, "GET", `/sub/cache-a/${TOKEN}?format=base64`);
+  assert.equal(res.headers.get("x-sub-cache"), "miss");
+  assert.notEqual(await res.text(), first);
+
+  // 改了节点 -> key 变了 -> 必须重新生成
+  res = await call(env, "PUT", "/api/v1/nodes/cache-a", JSON.stringify({ nodes: [{ link: link("缓存-A3") }] }), { ...auth, "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", clashUrl);
+  assert.equal(res.headers.get("x-sub-cache"), "miss");
+  const after = await res.text();
+  assert.match(after, /缓存-A3/);
+  assert.ok(!after.includes("缓存-A1"), "stale content must not be served");
+
+  // 合并订阅：机器顺序进 key，改顺序就要重新生成
+  await call(env, "POST", "/api/v1/report/cache-b", b64(link("缓存-B1")), auth);
+  const allUrl = `/sub/all/${TOKEN}?format=clash`;
+  let all = await (await call(env, "GET", allUrl)).text();
+  assert.ok(all.indexOf("缓存-A3") < all.indexOf("缓存-B1"));
+  await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: ["cache-b", "cache-a"] }), { ...auth, "content-type": "application/json" });
+  res = await call(env, "GET", allUrl);
+  assert.equal(res.headers.get("x-sub-cache"), "miss");
+  all = await res.text();
+  assert.ok(all.indexOf("缓存-B1") < all.indexOf("缓存-A3"), "order change must invalidate the cached body");
+  const allAgain = await call(env, "GET", allUrl);
+  assert.equal(allAgain.headers.get("x-sub-cache"), "hit");
+  assert.equal(await allAgain.text(), all);
+});
