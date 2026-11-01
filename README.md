@@ -207,8 +207,7 @@ UI 打开就是登录页，只有管理员一种身份。口令全部来自 Clou
 | 变量 | 作用 |
 | --- | --- |
 | `ADMIN_PASSWORD` | 管理员口令，进 UI 后可读可写 |
-| `TOKEN` | 订阅/上报 token，跟登录无关 |
-| `UI_TOKEN` | 可选，另一串管理员口令 |
+| `TOKEN` | 订阅/上报 token，也能当管理员口令登录 |
 
 ```bash
 pnpm exec wrangler deploy --keep-vars \

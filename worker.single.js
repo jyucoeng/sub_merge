@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.13.3";
+const VERSION = "1.13.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -987,7 +987,7 @@ async function handleRequest(request, env) {
     return html(UI_HTML);
   }
 
-  // 登录：管理员密码（ADMIN_PASSWORD / UI_TOKEN / TOKEN 任一）
+  // 登录：管理员口令（ADMIN_PASSWORD）或订阅 token（TOKEN）
   if (path === "/api/v1/auth/login") {
     if (request.method !== "POST") return methodNotAllowed("POST");
     if (!dbEnv(env)) return missingConfig("DB");
@@ -996,8 +996,25 @@ async function handleRequest(request, env) {
     const password = typeof data.password === "string" ? data.password.trim() : "";
     if (!password) return json({ ok: false, error: "password is required" }, 400);
     if (await isAdminToken(env, password)) return json({ ok: true, role: "admin", token: password });
-    if (!adminPassword(env) && !env.UI_TOKEN) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
+    if (!adminPassword(env)) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
     return json({ ok: false, error: "wrong password" }, 401);
+  }
+
+  // 自检：这个 Worker 身上到底挂了哪些变量/绑定，哪些是代码真的在用的
+  if (path === "/api/v1/admin/env") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    const known = {
+      DB: "D1 数据库绑定",
+      TOKEN: "订阅/上报 token，也能当管理员口令登录",
+      ADMIN_PASSWORD: "管理员口令",
+    };
+    const present = Object.keys(env || {}).filter((key) => env[key] !== undefined && env[key] !== null && env[key] !== "");
+    return json({
+      ok: true,
+      used: Object.keys(known).map((key) => ({ name: key, purpose: known[key], set: present.includes(key) })),
+      present,
+      unused: present.filter((key) => !(key in known)),
+    });
   }
 
   if (path === "/api/v1/auth/session") {
@@ -1132,13 +1149,12 @@ function bearerOf(request) {
   const m = header.match(/^Bearer\s+(.+)$/i);
   return m ? m[1].trim() : "";
 }
-// 管理员密码和 UI 口令都只从 Cloudflare 后台（wrangler secret / 环境变量）读，
+// 管理员口令只从 Cloudflare 后台（环境变量）读，
 // 界面上不放“改密码”，免得拿到会话的人顺手把主人关在门外。
 function adminPassword(env) { return (env && env.ADMIN_PASSWORD) || ""; }
 async function isAdminToken(env, token) {
   if (!token) return false;
   if (adminPassword(env) && checkToken(token, adminPassword(env))) return true;
-  if (env && env.UI_TOKEN && checkToken(token, env.UI_TOKEN)) return true;
   return checkToken(token, authToken(env));
 }
 

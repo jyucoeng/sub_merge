@@ -1209,7 +1209,7 @@ test("clash rules endpoints require the token", async () => {
 });
 
 test("only admins can log in, and the password comes from the environment", async () => {
-  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc" });
+  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@" });
   const admin = { authorization: `Bearer ${TOKEN}` };
   await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01"), admin);
 
@@ -1220,9 +1220,7 @@ test("only admins can log in, and the password comes from the environment", asyn
   assert.equal(data.role, "admin");
   assert.equal(data.token, "Sh94ghdf@");
 
-  // UI_TOKEN、TOKEN 同样能登录；错的 401
-  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "ui-token-abc" }), { "content-type": "application/json" });
-  assert.equal((await res.json()).role, "admin");
+  // 订阅 token 也能登录；错的 401
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
   assert.equal((await res.json()).role, "admin");
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
@@ -1271,4 +1269,18 @@ test("unknown paths get a 404 page, /api still answers JSON", async () => {
   const api = await call(env, "GET", "/api/v1/nope", null, { authorization: `Bearer ${TOKEN}` });
   assert.equal(api.status, 404);
   assert.equal((await api.json()).error, "not found");
+});
+
+test("admin env report lists known variables and flags leftovers", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw", GUEST_CODE: "leftover" });
+  const res = await call(env, "GET", "/api/v1/admin/env", null, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  const names = data.used.map((item) => item.name);
+  assert.deepEqual(names.sort(), ["ADMIN_PASSWORD", "DB", "TOKEN"]);
+  assert.ok(data.used.every((item) => item.set), "all known variables must be set in the test env");
+  assert.deepEqual(data.unused, ["GUEST_CODE"], "leftover variables must be reported");
+
+  const anon = await call(env, "GET", "/api/v1/admin/env");
+  assert.equal(anon.status, 401);
 });
