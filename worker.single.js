@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.2";
+const VERSION = "1.21.3";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -121,7 +121,7 @@ textarea:focus{border-color:var(--acc)}
 .clash-row button{padding:5px 7px}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 @media(max-width:720px){.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
-code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
+code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}
 .protocols{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
 .proto:hover{border-color:#9db7e0}
@@ -133,14 +133,22 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .sub-list{display:grid;gap:6px;margin-top:10px}
 .sub-group{display:flex;align-items:center;gap:8px;margin:12px 0 2px;font-size:12px;font-weight:600;color:#475569}
 .sub-group .tag{font-weight:500}
-.subrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
-.subrow:hover{border-color:#c7d5e8}
-.subrow.off{opacity:.45;background:#fbfbfc}
-.subrow.off .nlname{text-decoration:line-through}
-.subrow input{width:15px;height:15px;margin:0;cursor:pointer}
-.subrow .ptag{font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.subrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.subrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
+.subrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.subrow .tip{flex:none;width:170px}
+.subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.subrow button{flex:none}
+.subnode{display:grid;grid-template-columns:20px 76px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
+.subnode:hover{border-color:#c7d5e8}
+.subnode.off{opacity:.45;background:#fbfbfc}
+.subnode.off .nlname,.subnode.off .nllink{text-decoration:line-through}
+.subnode input{width:15px;height:15px;margin:0;cursor:pointer}
+.subnode .ptag{font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nlmeta{min-width:0;display:grid;gap:2px}
+.subnode .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subnode .nllink{font:11px ui-monospace,Consolas,monospace;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subnode .nlsrc{font-size:11px;text-align:right;white-space:nowrap;padding:2px 7px;border-radius:6px;border:1px solid transparent}
+.subnode .nlsrc.manual{color:#92400e;background:#fef3c7;border-color:#fde68a}
+.subnode .nlsrc.auto{color:#0e7490;background:#ecfeff;border-color:#a5f3fc}
 .nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
 .nlrow:hover{border-color:#c7d5e8}
 .nlrow.off{opacity:.45;background:#fbfbfc}
@@ -613,7 +621,15 @@ body.locked .wrap{display:none}
       (state.sub.stats && state.sub.stats.protocols || []).forEach(function (item) {
         if (!seen.some(function (x) { return x.kind === item.kind; })) seen.push({ kind: item.kind, label: item.label, count: 0 });
       });
-      seen.sort(function (a, b) { return b.count - a.count || (a.label < b.label ? -1 : 1); });
+      var order = [];
+      subRows().forEach(function (item) {
+        if (order.indexOf(item.node.kind) === -1) order.push(item.node.kind);
+      });
+      seen.sort(function (a, b) {
+        var ia = order.indexOf(a.kind), ib = order.indexOf(b.kind);
+        if (ia === -1) ia = 999; if (ib === -1) ib = 999;
+        return ia - ib || b.count - a.count || (a.label < b.label ? -1 : 1);
+      });
       if (!seen.length) {
         var e = document.createElement("span"); e.className = "tip"; e.textContent = "还没有节点"; protoBox.appendChild(e);
       }
@@ -698,15 +714,21 @@ body.locked .wrap{display:none}
       }
       var node = item.node;
       var row = document.createElement("div");
-      row.className = "subrow" + (node.in_sub ? "" : " off");
+      row.className = "subnode" + (node.in_sub ? "" : " off");
       row.title = node.link;
       var tick = document.createElement("input");
       tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
       var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = node.label;
+      var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
-      var src = document.createElement("div"); src.className = "nlsrc"; src.textContent = node.source === "manual" ? "手动" : "上报";
+      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
+      meta.appendChild(label); meta.appendChild(raw);
+      var src = document.createElement("span");
+      src.className = "nlsrc " + (node.source === "manual" ? "manual" : "auto");
+      src.textContent = node.source === "manual" ? "手动" : "上报";
+      src.title = node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
       row.onclick = function () { toggleSubNode(node); };
-      row.appendChild(tick); row.appendChild(tag); row.appendChild(label); row.appendChild(src);
+      row.appendChild(tick); row.appendChild(tag); row.appendChild(meta); row.appendChild(src);
       box.appendChild(row);
     });
   }
