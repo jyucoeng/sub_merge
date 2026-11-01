@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.14.1";
+const VERSION = "1.14.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -970,8 +970,10 @@ async function handleRequest(request, env) {
     });
   }
 
-  // 任何 /ui 路径都只给登录页：口令一律当场输入，URL 里不带凭据
-  if (path === "/ui" || path === "/ui/" || /^\/ui\/[^/]+$/.test(path)) {
+  // 入口路径：默认 /ui；配了 UI_PATH（比如 /x7q-入口）就只认它，/ui 变 404
+  const uiPath = normalizeUiPath(env && env.UI_PATH);
+  // 任何入口路径都只给登录页：口令一律当场输入，URL 里不带凭据
+  if (path === uiPath || path === uiPath + "/" || (uiPath !== "/" && path.startsWith(uiPath + "/"))) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     return html(UI_HTML);
   }
@@ -1346,6 +1348,13 @@ async function deleteRecord(env, machine) {
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 10;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+
+function normalizeUiPath(raw) {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value || value === "/") return "/ui";
+  const withSlash = value.startsWith("/") ? value : "/" + value;
+  return withSlash.replace(/\/+$/, "");
+}
 
 function clientIp(request) {
   return request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";

@@ -1316,3 +1316,17 @@ test("login is rate limited per IP after repeated failures", async () => {
   const res = await call(env, "GET", "/api/v1/machines", null, { authorization: "Bearer right-pass" });
   assert.equal(res.status, 200);
 });
+
+test("UI_PATH moves the entry and hides /ui", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw", UI_PATH: "/x7q" });
+  assert.equal((await call(env, "GET", "/ui")).status, 404, "default path must stop working");
+  const moved = await call(env, "GET", "/x7q");
+  assert.equal(moved.status, 200);
+  assert.ok((await moved.text()).includes('id="login-password"'));
+  assert.equal((await call(env, "GET", "/x7q/")).status, 200);
+  assert.equal((await call(env, "GET", "/x7q/whatever")).status, 200, "sub paths belong to the UI too");
+  assert.equal((await call(env, "GET", "/")).status, 404);
+
+  const normal = makeEnv({ ADMIN_PASSWORD: "pw" });
+  assert.equal((await call(normal, "GET", "/ui")).status, 200, "without UI_PATH the default keeps working");
+});
