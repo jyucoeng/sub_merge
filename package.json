@@ -14,7 +14,8 @@
     "db:init:local": "wrangler d1 execute sub-worker-db --local --file=scripts/schema.sql",
     "db:query": "wrangler d1 execute sub-worker-db --remote --command \"SELECT machine, bytes, manual, updated_at FROM machines ORDER BY machine\"",
     "build:single": "node scripts/build-single.mjs",
-    "check": "wrangler deploy --dry-run --outdir dist"
+    "check": "wrangler deploy --dry-run --outdir dist",
+    "test:ui": "node scripts/ui-flow.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

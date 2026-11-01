@@ -260,17 +260,17 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     $("url-clash").textContent = base + "?format=clash";
     $("url-singbox").textContent = base + "?format=singbox";
   }
-  function loadNodes() {
+  function loadNodes(quiet) {
     if (!state.current) { state.nodes = []; render(); return Promise.resolve(); }
-    setStatus("加载中...");
+    if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
-      render(); setStatus("已加载 " + state.nodes.length + " 个节点");
+      render(); if (!quiet) setStatus("已加载 " + state.nodes.length + " 个节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
-  function loadMachines() {
+  function loadMachines(quiet) {
     return api("/machines").then(function (data) {
-      state.machines = data.machines || []; renderMachines(); renderMachineList(); return loadNodes();
+      state.machines = data.machines || []; renderMachines(); renderMachineList(); return loadNodes(quiet);
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
   $("machine").onchange = function () { state.current = this.value; loadNodes(); };
@@ -298,7 +298,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     });
     setStatus("保存中...");
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
-      .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(); })
+      .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(true); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
@@ -317,7 +317,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     var exist = null;
     state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
     if (exist) {
-      state.current = name; $("machine").value = name; loadNodes();
+      state.current = name; $("machine").value = name; loadNodes(true);
       return setStatus("机器已存在，已切换到 " + name + (exist.manual ? "（手动配置）" : "（正在自动上报，保存节点后会接管，上报不再覆盖）"), true);
     }
     var pending = splitLinkText($("bulk").value || "");
@@ -330,8 +330,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .then(function (data) {
         box.value = "";
         if (pending.length) $("bulk").value = "";
-        return loadMachines().then(function () {
-          state.current = name; $("machine").value = name; return loadNodes();
+        return loadMachines(true).then(function () {
+          state.current = name; $("machine").value = name; return loadNodes(true);
         }).then(function () {
           var tip = $("bulk-status"); if (tip) tip.textContent = "";
           state.nodes.forEach(function (n) { if (!n.name) n.name = ""; });
@@ -355,14 +355,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     }).then(function (data) {
       if (data.renamed === false) { setStatus("名字没变", true); return; }
       state.current = to;
-      return loadMachines().then(function () { state.current = to; $("machine").value = to; return loadNodes(); })
+      return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); })
         .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
     if (!state.current || !confirm("恢复后会用最近一次自动上报的节点覆盖手动配置，确定？")) return;
     api("/machines/" + encodeURIComponent(state.current) + "/reset", { method: "POST" })
-      .then(function () { setStatus("已恢复自动上报", true); return loadMachines(); })
+      .then(function () { setStatus("已恢复自动上报", true); return loadMachines(true); })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
   };
   document.addEventListener("click", function (ev) {

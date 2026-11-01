@@ -640,6 +640,7 @@ sub_machine='machine-a'
 - D1 只有主副本可写，写入延迟取决于 Worker 与主区域的网络距离；读取强一致，合并订阅是单次 `SELECT * FROM machines`，机器再多也不会有 N+1；
 - WebUI 采用 `TOKEN` 路径认证，请勿把 `/ui/<TOKEN>` 发给他人；
 - 手动编辑后不会自动合并新上报节点，需要点“恢复自动上报”才会恢复；
+- `?format=clash` 输出的是只有 `proxies:` 的订阅片段，按「proxy-provider / 机场订阅」导入客户端可用；直接当完整 Clash 配置导入会因缺少 `proxy-groups` / `rules` 而失败；
 - `workers.dev` 域名在部分地区可能不可达，建议绑定自定义域名。
 
 ## 开发
@@ -650,6 +651,7 @@ pnpm run db:init:local    # 本地 D1 建表（wrangler dev --local 首次使用
 pnpm dev --local --var TOKEN:test-token
 pnpm test                 # Node 内置测试（内含纯 JS 的 D1 内存实现）
 pnpm run test:sqlite      # 同一批测试跑真实 SQLite（node:sqlite），验证 DDL / SQL 语法
+pnpm run test:ui          # 用真实页面脚本 + 最小 DOM 壳点一遍 WebUI 全流程（新建/批量粘贴/排序/改名/删除/reset）
 pnpm run build:single     # 生成 worker.single.js
 pnpm run check            # wrangler deploy --dry-run --outdir dist
 pnpm run db:query         # 线上库查 machines 概览
