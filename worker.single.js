@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.10";
+const VERSION = "1.9.11";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -112,13 +112,9 @@ textarea:focus{border-color:var(--acc)}
 .clash-row.group-row{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
 .clash-row.rule-row{grid-template-columns:1fr 1.1fr 1.6fr 34px}
 .clash-row input{min-width:0;font-size:12px;padding:7px 9px}.clash-row select{font-size:12px;padding:7px 6px}
-.clash-row.no-node{background:rgba(229,72,77,.06);box-shadow:inset 4px 0 0 #e5484d;border-radius:8px;padding:5px 8px}
-.clash-row.no-node::after{content:"⚠ 没有节点匹配 · 订阅里会省略";grid-column:1/-1;font-size:11px;line-height:1.5;font-weight:600;letter-spacing:.2px;color:#d14046}
+.clash-row.no-node{opacity:.55}
 .clash-only-live{display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:12px;color:var(--sub);cursor:pointer}
 .clash-only-live input{width:14px;height:14px;margin:0}
-.clash-row.no-node input,.clash-row.no-node select{color:#f0a3a6;border-color:#8a3b3f}
-.clash-row.no-node input:focus,.clash-row.no-node select:focus{color:inherit}
-.clash-row.no-node button{opacity:.75}
 .clash-row button{padding:5px 7px}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
