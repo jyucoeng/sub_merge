@@ -240,10 +240,53 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 - **国家分组按节点名匹配**：香港 / 香港节点 / HK / HKG、美国 / 洛杉矶 / 圣何塞 / US / LAX…，中文机器名和中文节点名都能命中。短英文代号（`DE`、`US`、`HK`…）要求整词匹配，所以 `Node-1` 不会被误判成德国；
 - **空分组自动省略**：没匹配到节点的国家分组不会输出，引用它的分组里也不留空引用（Clash 空 `proxies:` 会直接报错）；
 - **节点名去重**：不同机器里出现同名节点（或同一条链接）时自动加 ` 2`、` 3` 后缀，避免 Clash 因重名拒绝加载；
-- **规则以 `rule-providers` 下发**：28 个 ACL4SSR 规则集（`BanAD`、`BanProgramAD`、`GoogleCN`、`Microsoft`、`Apple`、`Telegram`、`OpenAi`、`YouTube`、`Netflix`、`ChinaDomain`、`ChinaCompanyIp`、`zdy` 等）只写 URL 和 `RULE-SET,<name>,<group>`，`behavior: classical` + `format: text`，客户端自己拉取并缓存 24 小时。Worker 里**不抓取、不内联**规则 —— 30 个 .list 内联下来是几 MB、几十次 subrequest，免费版（CPU 10 ms / subrequest 50）根本跑不动；
+- **规则以 `rule-providers` 下发**：默认 28 个 ACL4SSR 规则集（`BanAD`、`BanProgramAD`、`GoogleCN`、`Microsoft`、`Apple`、`Telegram`、`OpenAi`、`YouTube`、`Netflix`、`ChinaDomain`、`ChinaCompanyIp`、`zdy` 等）只写 URL 和 `RULE-SET,<name>,<group>`，`behavior: classical` + `format: text`，客户端自己拉取并缓存 24 小时。Worker 里**不抓取、不内联**规则 —— 30 个 .list 内联下来是几 MB、几十次 subrequest，免费版（CPU 10 ms / subrequest 50）根本跑不动；
 - **收尾规则**固定是 `GEOIP,CN,🎯 全球直连` 和 `MATCH,🐟 漏网之鱼`；`geodata-mode: true` + `geo-auto-update: true`，`geox-url` 指向 MetaCubeX 的 geoip/geosite/mmdb/asn。
 
 分组与规则定义来自 [ACL4SSR](https://github.com/ACL4SSR/ACL4SSR) 生态（跟 [clash-sub-converter](https://github.com/jyucoeng/clash-sub-converter) 的默认规则一致），DNS 段用 fake-ip + 国内 DoH，需要 **mihomo / Clash.Meta**（老版 Clash Premium 不认识 `rule-providers`、`fake-ip`、`geodata-mode` 这些字段）。
+
+### 分组与规则来源可以自己改（可增可删）
+
+上面这套分组和 `rule-providers` 只是**内置默认模板**，不是写死的。WebUI 底部的「分流规则」卡片里能直接改：
+
+- **改**：分组名、类型（`select` / `url-test` / `fallback` / `load-balance` / `relay`）、过滤正则、成员、规则来源的 URL 与归属分组；
+- **增**：`+ 新增分组`、`+ 新增规则来源`；
+- **删**：每行末尾的 `×`；
+- **恢复默认**：`恢复默认` 一键回到内置模板（自定义那份会丢，会先弹确认）。
+
+分组的成员来源二选一：
+
+- `过滤`（正则）：按节点名匹配，跟内置国家分组一样，例如 `(?i)香港|HK|HKG`；一个节点都没匹配到时整组不输出（Clash 里空的 `proxies:` 会直接报错）；
+- `成员`（逗号分隔）：显式写分组名或 `DIRECT` / `REJECT` / `PASS`，例如 `🚀 节点选择, DIRECT`。
+
+规则来源只填 URL 就行，provider 名会按文件名自动生成（`BanAD.list` → `BanAD`）；自己填名字时必须匹配 `[A-Za-z0-9_-]{1,64}`。
+
+改完点「保存规则」立即生效：订阅缓存是按规则版本分键的，规则一变旧缓存就不再命中，不用等过期。也可以直接走 API：
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/clash/rules                 # 读当前规则
+curl -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/clash/rules/default         # 看内置默认
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     https://<worker>/api/v1/clash/rules -d @rules.json                                   # 覆盖保存
+curl -X POST -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/clash/rules/reset   # 恢复默认
+```
+
+`rules.json` 形如：
+
+```json
+{
+  "groups": [
+    { "name": "🚀 节点选择", "type": "select", "members": ["♻️ 自动选择", "🇭🇰 香港节点", "DIRECT"] },
+    { "name": "🇭🇰 香港节点", "type": "url-test", "filter": "(?i)香港|HK|HKG",
+      "url": "http://www.gstatic.com/generate_204", "interval": 300, "tolerance": 50 }
+  ],
+  "rulesets": [
+    { "name": "BanAD", "group": "🛑 全球拦截", "url": "https://raw.githubusercontent.com/.../BanAD.list" }
+  ]
+}
+```
+
+校验挺严，写错了会直接 400 并说清第几条哪里不对：分组重名、`filter` 不是合法正则、`filter` 和 `members` 同时给、`rulesets` 引用了不存在的分组、URL 不是 `http(s)`、条目超过 200 条，都会被拦下。规则存在 `settings` 表里（key `clash_rules`），跟着 D1 走，升级不用额外建表。
 
 只想要节点列表、自己配分组的话用 `?format=proxies`，它输出的是纯 `proxies:` 片段。
 
@@ -609,6 +652,10 @@ curl -X POST \
 | `DELETE` | `/api/v1/machines/:machine/sources/:source` | 删掉一个上报来源的节点，别的来源和手动节点不动，Bearer `TOKEN` |
 | `GET` | `/api/v1/machines` | 查看已上报机器，Bearer `TOKEN` |
 | `DELETE` | `/api/v1/machines/:machine` | 删除机器，Bearer `TOKEN` |
+| `GET` | `/api/v1/clash/rules` | 读取当前分组与规则来源，Bearer `TOKEN` |
+| `PUT` | `/api/v1/clash/rules` | 覆盖保存分组与规则来源，Bearer `TOKEN` |
+| `GET` | `/api/v1/clash/rules/default` | 读取内置默认规则（不受自定义影响），Bearer `TOKEN` |
+| `POST` | `/api/v1/clash/rules/reset` | 恢复内置默认规则，Bearer `TOKEN` |
 | `POST` | `/api/v1/admin/schema` | 建表（幂等），Bearer `TOKEN` |
 | `GET` | `/health` | 健康检查，无需认证 |
 

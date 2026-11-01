@@ -103,6 +103,9 @@ class MockStatement {
       for (const key of [...this.db.reports.keys()]) if (key.startsWith(`${args[0]}\u0000`)) { this.db.reports.delete(key); changes += 1; }
       return { success: true, meta: { changes } };
     }
+    if (/^DELETE FROM settings WHERE key = \?1$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.settings.delete(args[0]) ? 1 : 0 } };
+    }
     if (/^DELETE FROM machines WHERE machine = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.machines.delete(args[0]) ? 1 : 0 } };
     }
@@ -1061,4 +1064,83 @@ test("subscription output is cached until the content changes", async () => {
   const allAgain = await call(env, "GET", allUrl);
   assert.equal(allAgain.headers.get("x-sub-cache"), "hit");
   assert.equal(await allAgain.text(), all);
+});
+
+test("clash groups and rule-providers are editable and fall back to defaults", async () => {
+  const env = makeEnv();
+  await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls&sni=pypi.org#香港-HK-01"), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+
+  let res = await call(env, "GET", "/api/v1/clash/rules", null, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200);
+  let doc = await res.json();
+  assert.equal(doc.custom, false);
+  assert.ok(doc.groups.length > 20, "defaults carry the ACL4SSR groups");
+  assert.ok(doc.rulesets.length > 20, "defaults carry the ACL4SSR rulesets");
+
+  const custom = {
+    groups: [
+      { name: "🚀 节点选择", type: "select", members: ["🇭🇰 香港", "DIRECT"] },
+      { name: "🇭🇰 香港", type: "select", filter: "香港|HK" },
+      { name: "🐟 漏网之鱼", type: "select", members: ["🚀 节点选择", "DIRECT"] },
+    ],
+    rulesets: [
+      { name: "banad", group: "🚀 节点选择", url: "https://example.com/BanAD.list" },
+      { group: "🐟 漏网之鱼", url: "https://example.com/ProxyLite.list" },
+    ],
+  };
+  res = await call(env, "PUT", "/api/v1/clash/rules", JSON.stringify(custom), {
+    authorization: `Bearer ${TOKEN}`,
+    "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  doc = await res.json();
+  assert.equal(doc.custom, true);
+
+  // 订阅立刻跟着变（缓存 key 带规则版本）
+  res = await call(env, "GET", `/sub/all/${TOKEN}?format=clash`);
+  let yaml = await res.text();
+  assert.ok(yaml.includes('"🇭🇰 香港"'));
+  assert.ok(yaml.includes("RULE-SET,banad,🚀 节点选择"));
+  assert.ok(yaml.includes("RULE-SET,ProxyLite,🐟 漏网之鱼"), "unnamed ruleset derives its name from the file");
+  assert.ok(!yaml.includes("RULE-SET,BanAD,🛑 全球拦截"), "default rulesets are replaced");
+  assert.ok(yaml.includes("MATCH,🐟 漏网之鱼"));
+
+  // 非法输入逐条拒绝
+  const bad = [
+    [{ groups: [{ name: "a", type: "select", filter: "(" }], rulesets: [] }, /not a valid regexp/],
+    [{ groups: [{ name: "a", type: "select" }], rulesets: [] }, /needs either filter or members/],
+    [{ groups: [{ name: "a", type: "select", filter: "x", members: ["DIRECT"] }], rulesets: [] }, /both filter and members/],
+    [{ groups: [{ name: "a", type: "select", filter: "x" }, { name: "a", type: "select", filter: "y" }], rulesets: [] }, /duplicate group name/],
+    [{ groups: [{ name: "a", type: "nope", filter: "x" }], rulesets: [] }, /type must be one of/],
+    [{ groups: [{ name: "a", type: "select", filter: "x" }], rulesets: [{ group: "b", url: "https://example.com/x.list" }] }, /is not a defined group/],
+    [{ groups: [{ name: "a", type: "select", filter: "x" }], rulesets: [{ group: "a", url: "ftp://example.com/x.list" }] }, /url must be http/],
+    [{ groups: [{ name: "a", type: "select", filter: "x" }], rulesets: [{ name: "bad name", group: "a", url: "https://example.com/x.list" }] }, /must match/],
+  ];
+  for (const [body, pattern] of bad) {
+    const response = await call(env, "PUT", "/api/v1/clash/rules", JSON.stringify(body), {
+      authorization: `Bearer ${TOKEN}`,
+      "content-type": "application/json",
+    });
+    assert.equal(response.status, 400, `expected 400 for ${JSON.stringify(body)}`);
+    assert.match((await response.json()).error, pattern);
+  }
+
+  // 恢复默认
+  res = await call(env, "POST", "/api/v1/clash/rules/reset", null, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200);
+  doc = await res.json();
+  assert.equal(doc.custom, false);
+  res = await call(env, "GET", `/sub/all/${TOKEN}?format=clash`);
+  yaml = await res.text();
+  assert.ok(yaml.includes("RULE-SET,BanAD"), "reset brings the ACL4SSR rulesets back");
+});
+
+test("clash rules endpoints require the token", async () => {
+  const env = makeEnv();
+  for (const [method, path] of [["GET", "/api/v1/clash/rules"], ["PUT", "/api/v1/clash/rules"], ["POST", "/api/v1/clash/rules/reset"]]) {
+    const res = await call(env, method, path, method === "PUT" ? "{}" : null);
+    assert.equal(res.status, 401, `${method} ${path} must need a token`);
+  }
 });

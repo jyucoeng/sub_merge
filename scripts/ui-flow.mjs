@@ -550,6 +550,71 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("单机订阅：内容非空", oneBody.length > 20, `${oneBody.length} B`);
 }
 
+// P. 分流规则卡片：分组与规则来源可增删改、可恢复默认
+{
+  const groupRows = () => rows("clash-groups").filter((row) => String(row.className).includes("group-row"));
+  const ruleRows = () => rows("clash-rulesets").filter((row) => String(row.className).includes("rule-row"));
+  const defaultGroups = groupRows().length;
+  const defaultRules = ruleRows().length;
+  check("分流规则：默认分组与规则来源已渲染", defaultGroups > 20 && defaultRules > 20, `${defaultGroups} 组 / ${defaultRules} 条`);
+  check("分流规则：初始状态是「默认」", text("clash-badge") === "默认", text("clash-badge"));
+  const g0 = groupRows()[0].children;
+  check("分流规则：分组行 = 名称/类型/过滤/成员/删除", g0.length === 5 && g0[0].value === "🚀 节点选择" && g0[1].value === "select", `${g0.length} 列`);
+  const r0 = ruleRows()[0].children;
+  check("分流规则：规则行 = 名称/分组/URL/删除", r0.length === 4 && /^https:\/\//.test(r0[2].value), r0[0].value);
+
+  click("clash-add-group");
+  check("分流规则：新增分组立刻出现在表里", groupRows().length === defaultGroups + 1, `${groupRows().length}`);
+  const added = groupRows()[defaultGroups].children;
+  added[0].value = "⚡ 自定义组";
+  added[0].oninput.call(added[0]);
+  added[3].value = "DIRECT";
+  added[3].oninput.call(added[3]);
+
+  click("clash-add-rule");
+  check("分流规则：新增规则来源立刻出现在表里", ruleRows().length === defaultRules + 1, `${ruleRows().length}`);
+  const addedRule = ruleRows()[defaultRules].children;
+  addedRule[0].value = "myproxy";
+  addedRule[0].oninput.call(addedRule[0]);
+  addedRule[1].value = "⚡ 自定义组";
+  addedRule[1].onchange.call(addedRule[1]);
+  addedRule[2].value = "https://example.com/myproxy.yaml";
+  addedRule[2].oninput.call(addedRule[2]);
+
+  click("clash-save");
+  await idle();
+  check("分流规则：保存后有成功提示", /规则已保存/.test(text("clash-status")), text("clash-status"));
+  check("分流规则：保存后标记为「自定义」", text("clash-badge") === "自定义", text("clash-badge"));
+  const saved = await api("/clash/rules");
+  check(
+    "分流规则：接口回读保存结果",
+    saved.data.custom === true && saved.data.groups.length === defaultGroups + 1 && saved.data.rulesets.length === defaultRules + 1,
+    `${saved.data.groups.length}/${saved.data.rulesets.length}`,
+  );
+  const clashNow = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}?format=clash`)).text();
+  check("分流规则：自定义分组进了 clash 配置", clashNow.includes('name: "⚡ 自定义组"') && clashNow.includes('- "DIRECT"'));
+  check(
+    "分流规则：自定义 rule-provider 生效且旧的仍在",
+    clashNow.includes("myproxy") && clashNow.includes("https://example.com/myproxy.yaml") && clashNow.includes("BanAD"),
+    `${clashNow.length} B`,
+  );
+
+  const last = groupRows()[groupRows().length - 1].children;
+  last[4].onclick.call(last[4]);
+  check("分流规则：删除分组后行数减少", groupRows().length === defaultGroups, `${groupRows().length}`);
+  check("分流规则：删除后有提示", /分组已删除/.test(text("clash-status")), text("clash-status"));
+
+  confirms.push(true);
+  click("clash-reset");
+  await idle();
+  check("分流规则：恢复默认后标记回「默认」", text("clash-badge") === "默认", text("clash-badge"));
+  check("分流规则：恢复默认后分组数回来", groupRows().length === defaultGroups, `${groupRows().length}`);
+  const afterReset = await api("/clash/rules");
+  check("分流规则：接口回读为默认", afterReset.data.custom === false && afterReset.data.groups.length === defaultGroups);
+  const clashBack = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}?format=clash`)).text();
+  check("分流规则：默认配置里没有自定义分组", !clashBack.includes("⚡ 自定义组") && !clashBack.includes("myproxy"));
+}
+
 /* ---------------- 清场 + 汇总 ---------------- */
 {
   const { data } = await api("/machines");

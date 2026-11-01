@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.8.2";
+const VERSION = "1.9.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -98,6 +98,12 @@ textarea:focus{border-color:var(--acc)}
 .tag.auto{color:#1d4ed8;border-color:#bfdbfe;background:#eff6ff}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
+.clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
+.clash-row.group-row{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
+.clash-row.rule-row{grid-template-columns:1fr 1.1fr 1.6fr 34px}
+.clash-row input{min-width:0;font-size:12px;padding:7px 9px}.clash-row select{font-size:12px;padding:7px 6px}
+.clash-row button{padding:5px 7px}
+@media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
@@ -130,6 +136,17 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 </section>
 
 <section class="card">
+<h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span></h2>
+<div class="hint">分组决定 Clash 里有哪些策略组，规则来源决定 <code>rule-providers</code> 和 <code>RULE-SET</code> 的顺序。规则文件由客户端自己下载（每 24 小时），服务端只发引用。改完点「保存规则」，客户端重新拉订阅即生效；点「恢复默认」回到内置的 ACL4SSR 那一套。</div>
+<div class="row" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button></div>
+<div class="hint" style="margin-top:14px"><b>分组</b>（名称 / 类型 / 过滤正则或显式成员；空分组不会输出）</div>
+<div id="clash-groups" class="clash-table"></div>
+<div class="hint" style="margin-top:14px"><b>规则来源</b>（名称可留空，自动按文件名生成；分组必须是上面已有的分组）</div>
+<div id="clash-rulesets" class="clash-table"></div>
+<div id="clash-status" class="status"></div>
+</section>
+
+<section class="card">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
 <div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button></div>
 <div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
@@ -157,6 +174,153 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       });
     });
   }
+  var clash = { groups: [], rulesets: [], custom: false };
+  var CLASH_GROUP_TYPES = ["select", "url-test", "fallback", "load-balance", "relay"];
+
+  function clashStatus(text, ok) {
+    var el = $("clash-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+  function setClashBadge() {
+    var badge = $("clash-badge");
+    if (!badge) return;
+    badge.textContent = clash.custom ? "自定义" : "默认";
+    badge.className = "tag " + (clash.custom ? "manual" : "auto");
+  }
+  function clashInput(value, placeholder, oninput, className) {
+    var el = document.createElement("input");
+    el.type = "text";
+    el.value = value == null ? "" : String(value);
+    el.placeholder = placeholder || "";
+    if (className) el.className = className;
+    el.oninput = oninput;
+    return el;
+  }
+  function clashDelete(title, onclick) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "danger";
+    btn.textContent = "×";
+    btn.title = title;
+    btn.onclick = onclick;
+    return btn;
+  }
+  function renderClashGroups() {
+    var wrap = $("clash-groups");
+    wrap.innerHTML = "";
+    if (!clash.groups.length) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "还没有分组，点「+ 新增分组」";
+      wrap.appendChild(empty);
+      return;
+    }
+    clash.groups.forEach(function (group, index) {
+      var row = document.createElement("div");
+      row.className = "clash-row group-row";
+      var name = clashInput(group.name, "分组名，例如 🇭🇰 香港节点", function () { clash.groups[index].name = name.value; });
+      var type = document.createElement("select");
+      CLASH_GROUP_TYPES.forEach(function (value) {
+        var option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        type.appendChild(option);
+      });
+      type.value = group.type || "select";
+      type.onchange = function () { clash.groups[index].type = type.value; };
+      var filter = clashInput(group.filter, "过滤正则（匹配节点名）", function () { clash.groups[index].filter = filter.value; });
+      var members = clashInput((group.members || []).join(","), "成员：分组名或 DIRECT，逗号分隔", function () {
+        clash.groups[index].members = members.value.split(",").map(function (item) { return item.trim(); }).filter(Boolean);
+      });
+      var del = clashDelete("删除这个分组", function () {
+        clash.groups.splice(index, 1);
+        renderClash();
+        clashStatus("分组已删除，点「保存规则」生效", true);
+      });
+      [name, type, filter, members, del].forEach(function (el) { row.appendChild(el); });
+      wrap.appendChild(row);
+    });
+  }
+  function renderClashRulesets() {
+    var wrap = $("clash-rulesets");
+    wrap.innerHTML = "";
+    if (!clash.rulesets.length) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "还没有规则来源，点「+ 新增规则来源」";
+      wrap.appendChild(empty);
+      return;
+    }
+    clash.rulesets.forEach(function (ruleset, index) {
+      var row = document.createElement("div");
+      row.className = "clash-row rule-row";
+      var name = clashInput(ruleset.name, "名称（留空自动生成）", function () { clash.rulesets[index].name = name.value; });
+      var group = document.createElement("select");
+      var names = clash.groups.map(function (item) { return item.name; });
+      names.forEach(function (value) {
+        var option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        group.appendChild(option);
+      });
+      if (names.indexOf(ruleset.group) === -1 && ruleset.group) {
+        var extra = document.createElement("option");
+        extra.value = ruleset.group;
+        extra.textContent = ruleset.group + "（未定义）";
+        group.appendChild(extra);
+      }
+      group.value = ruleset.group || (names[0] || "");
+      group.onchange = function () { clash.rulesets[index].group = group.value; };
+      var url = clashInput(ruleset.url, "https://.../BanAD.list", function () { clash.rulesets[index].url = url.value; });
+      var del = clashDelete("删除这个规则来源", function () {
+        clash.rulesets.splice(index, 1);
+        renderClash();
+        clashStatus("规则来源已删除，点「保存规则」生效", true);
+      });
+      [name, group, url, del].forEach(function (el) { row.appendChild(el); });
+      wrap.appendChild(row);
+    });
+  }
+  function renderClash() {
+    setClashBadge();
+    renderClashGroups();
+    renderClashRulesets();
+  }
+  function clashPayload() {
+    var groups = clash.groups.map(function (group) {
+      var out = { name: String(group.name || "").trim(), type: group.type || "select" };
+      var filter = String(group.filter || "").trim();
+      if (filter) out.filter = filter;
+      var members = (group.members || []).map(function (item) { return String(item).trim(); }).filter(Boolean);
+      if (members.length) out.members = members;
+      return out;
+    });
+    var rulesets = clash.rulesets.map(function (ruleset) {
+      var out = { group: String(ruleset.group || "").trim(), url: String(ruleset.url || "").trim() };
+      var name = String(ruleset.name || "").trim();
+      if (name) out.name = name;
+      return out;
+    });
+    return { groups: groups, rulesets: rulesets };
+  }
+  function applyClash(data) {
+    clash.groups = (data.groups || []).map(function (group) {
+      return { name: group.name, type: group.type, filter: group.filter || "", members: group.members || [] };
+    });
+    clash.rulesets = (data.rulesets || []).map(function (ruleset) {
+      return { name: ruleset.name || "", group: ruleset.group, url: ruleset.url };
+    });
+    clash.custom = Boolean(data.custom);
+    renderClash();
+  }
+  function loadClash() {
+    return api("/clash/rules").then(applyClash).catch(function (error) {
+      clashStatus("规则加载失败：" + error.message, false);
+    });
+  }
+
   function setStatus(text, ok) {
     var el = $("status"); el.textContent = text || ""; el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
   }
@@ -483,7 +647,37 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, 1200); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
   });
-  renderUrls(); loadMachines();
+  $("clash-add-group").onclick = function () {
+    clash.groups.push({ name: "新分组", type: "select", filter: "", members: [] });
+    renderClash();
+    clashStatus("新分组加好了，改完点「保存规则」", true);
+  };
+  $("clash-add-rule").onclick = function () {
+    clash.rulesets.push({ name: "", group: (clash.groups[0] || {}).name || "", url: "" });
+    renderClashRulesets();
+    clashStatus("新规则来源加好了，填 URL 再保存", true);
+  };
+  $("clash-save").onclick = function () {
+    var btn = $("clash-save");
+    btn.disabled = true;
+    clashStatus("保存中…");
+    api("/clash/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(clashPayload()) })
+      .then(function (data) {
+        applyClash(data);
+        clashStatus("规则已保存：" + clash.groups.length + " 个分组、" + clash.rulesets.length + " 个规则来源", true);
+      })
+      .catch(function (error) { clashStatus("保存失败：" + error.message, false); })
+      .then(function () { btn.disabled = false; });
+  };
+  $("clash-reset").onclick = function () {
+    if (!window.confirm("恢复成内置的默认分组和规则来源？自定义的会丢，确定？")) return;
+    clashStatus("恢复中…");
+    api("/clash/rules/reset", { method: "POST" })
+      .then(function (data) { applyClash({ groups: data.groups, rulesets: data.rulesets, custom: false }); clashStatus("已恢复默认规则", true); })
+      .catch(function (error) { clashStatus("恢复失败：" + error.message, false); });
+  };
+
+  renderUrls(); loadMachines(); loadClash();
 })();
 </script>
 </body>
@@ -524,6 +718,8 @@ async function handleRequest(request, env) {
         "POST /api/v1/machines/:machine/rename",
         "DELETE /api/v1/machines/:machine/sources/:source",
         "GET/PUT /api/v1/machines/order",
+        "GET/PUT /api/v1/clash/rules",
+        "POST /api/v1/clash/rules/reset",
         "GET /api/v1/machines",
         "POST /api/v1/admin/schema",
         "GET /health",
@@ -608,6 +804,35 @@ async function handleRequest(request, env) {
     if (request.method === "GET" && !m[1]) return listMachines(env);
     if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
     return methodNotAllowed("GET, DELETE");
+  }
+
+  m = path.match(/^\/api\/v1\/clash\/rules$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method === "GET") return getClashRules(env);
+    if (request.method === "PUT") return putClashRules(request, env);
+    return methodNotAllowed("GET, PUT");
+  }
+
+  m = path.match(/^\/api\/v1\/clash\/rules\/default$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    return json({ ok: true, defaults: true, ...defaultClashRules() });
+  }
+
+  m = path.match(/^\/api\/v1\/clash\/rules\/reset$/);
+  if (m) {
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    await resetClashRules(env);
+    const doc = await loadClashRules(env);
+    return json({ ok: true, reset: true, custom: doc.custom, groups: doc.groups, rulesets: doc.rulesets });
   }
 
   m = path.match(/^\/sub\/all\/([^/]+)$/);
@@ -998,13 +1223,14 @@ async function getOne(env, machine, token, request) {
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: false, error: "subscription not found" }, 404);
   const format = formatOf(request);
-  const key = subCacheKey("one:" + machine, format, [], [record]);
+  const rules = format === "clash" ? await loadClashRules(env) : null;
+  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : ""), format, [], [record]);
   const hit = subCacheGet(key);
   if (hit) {
     return cachedSubResponse(hit, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
   }
   const nodes = await nodesOf(record);
-  const rendered = subCachePut(key, { ...subBody(nodes, format), nodes: nodes.length });
+  const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
   return cachedSubResponse(rendered, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(nodes.length), "x-sub-cache": "miss" });
 }
 
@@ -1017,7 +1243,8 @@ async function getAll(env, token, request) {
   const format = formatOf(request);
   const manualCount = records.filter((r) => r.manual).length;
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
-  const key = subCacheKey("all", format, order, records);
+  const rules = format === "clash" ? await loadClashRules(env) : null;
+  const key = subCacheKey("all" + (rules ? ":" + rules.rev : ""), format, order, records);
   const hit = subCacheGet(key);
   if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
 
@@ -1030,8 +1257,30 @@ async function getAll(env, token, request) {
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
   const all = items.map((item) => item.node);
-  const rendered = subCachePut(key, { ...subBody(all, format), nodes: all.length });
+  const rendered = subCachePut(key, { ...subBody(all, format, rules), nodes: all.length });
   return cachedSubResponse(rendered, { ...baseHeaders, "x-nodes": String(all.length), "x-sub-cache": "miss" });
+}
+
+async function getClashRules(env) {
+  const doc = await loadClashRules(env);
+  return json({ ok: true, custom: doc.custom, groups: doc.groups, rulesets: doc.rulesets });
+}
+
+async function putClashRules(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ ok: false, error: "invalid json body" }, 400);
+  }
+  let doc;
+  try {
+    doc = normalizeClashRules(body);
+  } catch (error) {
+    return json({ ok: false, error: String(error && error.message ? error.message : error) }, 400);
+  }
+  const saved = await saveClashRules(env, doc);
+  return json({ ok: true, custom: true, groups: saved.groups, rulesets: saved.rulesets, updated_at: saved.updated_at });
 }
 
 async function getNodeConfig(env, machine) {
@@ -1457,8 +1706,8 @@ function formatOf(request) {
   return "base64";
 }
 
-function subBody(nodes, format) {
-  if (format === "clash") return { body: toClashConfig(nodes), type: "text/yaml; charset=utf-8" };
+function subBody(nodes, format, rules) {
+  if (format === "clash") return { body: toClashConfig(nodes, rules), type: "text/yaml; charset=utf-8" };
   if (format === "proxies") return { body: toClash(nodes), type: "text/yaml; charset=utf-8" };
   if (format === "singbox") return { body: toSingbox(nodes), type: "application/json; charset=utf-8" };
   return { body: encodeBase64(nodes.map((n) => n.link).join("\n")), type: "text/plain; charset=utf-8" };
@@ -1608,7 +1857,7 @@ function toClash(nodes) {
  * 只输出 rule-providers，让客户端自己拉 .list（Workers 的 CPU 与 subrequest 都省）。
  */
 
-const CLASH_PROXY_GROUPS = [
+const DEFAULT_CLASH_GROUPS = [
   { name: "🚀 节点选择", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇲🇴 澳门节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇰🇷 韩国节点", "🇺🇸 美国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇷🇺 俄罗斯节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇮🇳 印度节点", "DIRECT"] },
   { name: "☑️ 手动切换", type: "select", filter: ".*" },
   { name: "♻️ 自动选择", type: "url-test", filter: ".*", url: "http://www.gstatic.com/generate_204", interval: 300, tolerance: 50 },
@@ -1663,7 +1912,7 @@ const CLASH_PROXY_GROUPS = [
   { name: "🇳🇿 新西兰节点", type: "select", filter: "(新西兰|New Zealand|奥克兰)" },
 ];
 
-const CLASH_RULESETS = [
+const DEFAULT_CLASH_RULESETS = [
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/CFnat.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/LocalAreaNetwork.list" },
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/UnBan.list" },
@@ -1694,8 +1943,6 @@ const CLASH_RULESETS = [
   { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ryty1/ACL4SSR/master/Clash/zdy.list" },
 ];
 
-const CLASH_RESERVED = new Set(CLASH_PROXY_GROUPS.map((g) => g.name));
-
 const CLASH_GEOX = {
   geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat",
   geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat",
@@ -1703,17 +1950,142 @@ const CLASH_GEOX = {
   asn: "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
 };
 
+const CLASH_RULES_KEY = "clash_rules";
+const CLASH_GROUP_TYPES = ["select", "url-test", "fallback", "load-balance", "relay"];
+const CLASH_PROVIDER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
 function clashProviderName(url, used) {
   const base = String(url).split("/").pop().replace(/\.list.*$/, "").replace(/[^A-Za-z0-9_-]+/g, "-") || "rules";
-  let name = base;
-  for (let i = 2; used.has(name); i += 1) name = base + "-" + i;
+  let name = base.slice(0, 64);
+  for (let i = 2; used.has(name); i += 1) name = `${base}-${i}`;
   used.add(name);
   return name;
 }
 
-function clashProviders() {
+/* 内置的一套默认规则：分组（proxy-groups）+ 规则来源（rule-providers） */
+function defaultClashRules() {
+  return {
+    groups: DEFAULT_CLASH_GROUPS.map((group) => {
+      const out = { name: group.name, type: group.type };
+      if (group.filter) out.filter = group.filter;
+      if (group.proxies) out.members = group.proxies.slice();
+      if (group.url) out.url = group.url;
+      if (group.interval != null) out.interval = group.interval;
+      if (group.tolerance != null) out.tolerance = group.tolerance;
+      return out;
+    }),
+    rulesets: DEFAULT_CLASH_RULESETS.map((item) => ({ ...item })),
+  };
+}
+
+function normalizeGroup(raw, index) {
+  if (!raw || typeof raw !== "object") throw new Error(`groups[${index}] must be an object`);
+  const name = String(raw.name == null ? "" : raw.name).trim();
+  if (!name) throw new Error(`groups[${index}].name is required`);
+  if (name.length > 64) throw new Error(`groups[${index}].name is too long`);
+  if (/[\u0000-\u001f]/.test(name)) throw new Error(`groups[${index}].name has control characters`);
+  const type = String(raw.type || "select");
+  if (!CLASH_GROUP_TYPES.includes(type)) throw new Error(`groups[${index}].type must be one of ${CLASH_GROUP_TYPES.join(", ")}`);
+  const group = { name, type };
+  const filter = raw.filter == null ? "" : String(raw.filter).trim();
+  const members = Array.isArray(raw.members) ? raw.members.map((m) => String(m).trim()).filter(Boolean) : [];
+  if (filter && members.length) throw new Error(`groups[${index}] has both filter and members`);
+  if (!filter && !members.length) throw new Error(`groups[${index}] needs either filter or members`);
+  if (filter) {
+    try {
+      new RegExp(filter);
+    } catch {
+      throw new Error(`groups[${index}].filter is not a valid regexp`);
+    }
+    group.filter = filter;
+  } else {
+    group.members = members.slice(0, 200);
+  }
+  if (raw.url) {
+    const url = String(raw.url).trim();
+    if (!/^https?:\/\//i.test(url)) throw new Error(`groups[${index}].url must be http(s)`);
+    group.url = url;
+    const interval = Number(raw.interval);
+    group.interval = Number.isFinite(interval) && interval >= 30 ? Math.min(Math.round(interval), 86400) : 300;
+    const tolerance = Number(raw.tolerance);
+    group.tolerance = Number.isFinite(tolerance) && tolerance > 0 ? Math.min(Math.round(tolerance), 1000) : 50;
+  }
+  return group;
+}
+
+function normalizeRuleset(raw, index, groupNames) {
+  if (!raw || typeof raw !== "object") throw new Error(`rulesets[${index}] must be an object`);
+  const url = String(raw.url == null ? "" : raw.url).trim();
+  if (!/^https?:\/\//i.test(url)) throw new Error(`rulesets[${index}].url must be http(s)`);
+  if (url.length > 600) throw new Error(`rulesets[${index}].url is too long`);
+  const group = String(raw.group == null ? "" : raw.group).trim();
+  if (!group) throw new Error(`rulesets[${index}].group is required`);
+  if (!groupNames.has(group)) throw new Error(`rulesets[${index}].group "${group}" is not a defined group`);
+  const item = { group, url };
+  const name = String(raw.name == null ? "" : raw.name).trim();
+  if (name) {
+    if (!CLASH_PROVIDER_NAME_RE.test(name)) throw new Error(`rulesets[${index}].name must match ${CLASH_PROVIDER_NAME_RE}`);
+    item.name = name;
+  }
+  return item;
+}
+
+function normalizeClashRules(input) {
+  if (!input || typeof input !== "object") throw new Error("body must be {groups, rulesets}");
+  const rawGroups = input.groups;
+  const rawRulesets = input.rulesets;
+  if (!Array.isArray(rawGroups)) throw new Error("groups must be an array");
+  if (!Array.isArray(rawRulesets)) throw new Error("rulesets must be an array");
+  if (rawGroups.length > 200) throw new Error("too many groups (max 200)");
+  if (rawRulesets.length > 200) throw new Error("too many rulesets (max 200)");
+  const groups = rawGroups.map(normalizeGroup);
+  const seen = new Set();
+  for (const group of groups) {
+    if (seen.has(group.name)) throw new Error(`duplicate group name: ${group.name}`);
+    seen.add(group.name);
+  }
+  const rulesets = rawRulesets.map((item, i) => normalizeRuleset(item, i, seen));
+  return { groups, rulesets };
+}
+
+/* 一套分组里被引用的分组名（给节点名去重用，避免节点名撞上分组名） */
+function clashReserved(doc) {
+  return new Set((doc && doc.groups ? doc.groups : []).map((group) => group.name));
+}
+
+async function loadClashRules(env) {
+  let raw = null;
+  try {
+    raw = await getSetting(env, CLASH_RULES_KEY);
+  } catch {
+    raw = null;
+  }
+  if (raw) {
+    try {
+      const doc = JSON.parse(raw);
+      const normalized = normalizeClashRules(doc);
+      return { ...normalized, custom: true, rev: String(doc.updated_at || JSON.stringify(normalized).length) };
+    } catch {
+      // 存进去的规则坏了就退回默认，别让订阅直接 500
+    }
+  }
+  return { ...defaultClashRules(), custom: false, rev: "default" };
+}
+
+async function saveClashRules(env, doc) {
+  const payload = { groups: doc.groups, rulesets: doc.rulesets, updated_at: new Date().toISOString() };
+  await putSetting(env, CLASH_RULES_KEY, JSON.stringify(payload));
+  return payload;
+}
+
+async function resetClashRules(env) {
+  const db = dbEnv(env);
+  await db.prepare("DELETE FROM settings WHERE key = ?1").bind(CLASH_RULES_KEY).run();
+}
+
+function clashProviders(rulesets) {
   const used = new Set();
-  return CLASH_RULESETS.map((rs) => ({ group: rs.group, url: rs.url, name: clashProviderName(rs.url, used) }));
+  return rulesets.map((item) => ({ group: item.group, url: item.url, name: item.name || clashProviderName(item.url, used) }));
 }
 
 function clashRegionRegex(filter) {
@@ -1726,24 +2098,24 @@ function clashRegionRegex(filter) {
   return new RegExp(parts.join("|") || "$^", "i");
 }
 
-function resolveClashGroups(names) {
+function resolveClashGroups(names, specs) {
   const present = new Set(names);
   const hits = new Map();
-  for (const spec of CLASH_PROXY_GROUPS) {
+  for (const spec of specs) {
     if (!spec.filter) continue;
     const re = clashRegionRegex(spec.filter);
     const matched = names.filter((name) => re.test(name));
     if (matched.length) hits.set(spec.name, matched);
   }
-  const kept = new Set(CLASH_PROXY_GROUPS.filter((g) => !g.filter || hits.has(g.name)).map((g) => g.name));
+  const kept = new Set(specs.filter((g) => !g.filter || hits.has(g.name)).map((g) => g.name));
   const groups = [];
-  for (const spec of CLASH_PROXY_GROUPS) {
+  for (const spec of specs) {
     if (spec.filter) {
       if (!hits.has(spec.name)) continue;
-      groups.push({ name: spec.name, type: spec.type, members: hits.get(spec.name) });
+      groups.push({ name: spec.name, type: spec.type, members: hits.get(spec.name), url: spec.url, interval: spec.interval, tolerance: spec.tolerance });
       continue;
     }
-    const members = spec.proxies.filter((p) => p === "DIRECT" || p === "REJECT" || p === "PASS" || kept.has(p) || present.has(p));
+    const members = (spec.members || spec.proxies || []).filter((p) => p === "DIRECT" || p === "REJECT" || p === "PASS" || kept.has(p) || present.has(p));
     groups.push({ name: spec.name, type: spec.type, url: spec.url, interval: spec.interval, tolerance: spec.tolerance, members: members.length ? members : ["DIRECT"] });
   }
   return groups;
@@ -1797,11 +2169,12 @@ function clashHeaderLines() {
   return lines;
 }
 
-function toClashConfig(nodes) {
-  const entries = uniqueNodeEntries(nodes, CLASH_RESERVED);
+function toClashConfig(nodes, rules) {
+  const doc = rules && Array.isArray(rules.groups) ? rules : defaultClashRules();
+  const entries = uniqueNodeEntries(nodes, clashReserved(doc));
   const names = entries.map((entry) => entry.name);
-  const groups = resolveClashGroups(names);
-  const providers = clashProviders();
+  const groups = resolveClashGroups(names, doc.groups);
+  const providers = clashProviders(doc.rulesets);
   const lines = clashHeaderLines();
   lines.push(...clashProxyLines(entries));
   lines.push("");
@@ -1832,8 +2205,10 @@ function toClashConfig(nodes) {
   lines.push("");
   lines.push("rules:");
   for (const provider of providers) lines.push(`  - ${yamlString("RULE-SET," + provider.name + "," + provider.group)}`);
-  lines.push(`  - ${yamlString("GEOIP,CN,🎯 全球直连")}`);
-  lines.push(`  - ${yamlString("MATCH,🐟 漏网之鱼")}`);
+  const groupNames = new Set(groups.map((group) => group.name));
+  if (groupNames.has("🎯 全球直连")) lines.push(`  - ${yamlString("GEOIP,CN,🎯 全球直连")}`);
+  const fallback = groupNames.has("🐟 漏网之鱼") ? "🐟 漏网之鱼" : groups.length ? groups[0].name : "DIRECT";
+  lines.push(`  - ${yamlString("MATCH," + fallback)}`);
   return lines.join("\n") + "\n";
 }
 
