@@ -1,3 +1,4 @@
+# Workers 部署用这个文件；Pages 部署不用它（Pages 走 dist-pages/_worker.js，绑定和变量在 Dashboard 配，见 README「部署 B」）。
 # 改成你自己的 Worker 名称
 name = "sub-worker"
 main = "src/index.js"

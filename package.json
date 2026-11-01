@@ -1,9 +1,9 @@
 {
-  "name": "sub-worker",
+  "name": "sub-merge",
   "version": "1.23.4",
   "private": true,
   "type": "module",
-  "description": "Fixed subscription endpoint for singbox-manager, backed by Cloudflare D1",
+  "description": "Merge many subscription endpoints into one fixed URL, on Cloudflare Workers or Pages, backed by D1",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -18,7 +18,10 @@
     "test:ui": "node scripts/ui-flow.mjs",
     "bench:sub": "node scripts/bench-sub.mjs",
     "vars:clean": "node scripts/clean-vars.mjs",
-    "unlock": "wrangler d1 execute sub-worker-db --remote --command \"DELETE FROM settings WHERE key LIKE 'login-fail:%'\""
+    "unlock": "wrangler d1 execute sub-worker-db --remote --command \"DELETE FROM settings WHERE key LIKE 'login-fail:%'\"",
+    "build:pages": "node scripts/build-pages.mjs",
+    "deploy:pages": "node scripts/build-pages.mjs && wrangler pages deploy dist-pages --project-name sub-merge --branch main",
+    "pages:create": "wrangler pages project create sub-merge --production-branch main"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
