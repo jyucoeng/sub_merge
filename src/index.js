@@ -3,6 +3,8 @@
  *
  * 固定订阅入口 + 多机器自动上报 + WebUI 节点编辑/排序 + 客户端格式适配
  *
+ * 存储：Cloudflare D1（SQLite），绑定变量名 DB
+ *
  * 上报：POST /api/v1/report/:machine         Bearer TOKEN，body 为 base64 订阅
  * 读取：GET  /sub/:machine/:token           单机
  *       GET  /sub/all/:token                 全部机器
@@ -11,18 +13,40 @@
  * WebUI：GET /ui/:token
  * API：GET/PUT /api/v1/nodes/:machine
  *      POST /api/v1/machines/:machine/reset
+ *      POST /api/v1/admin/schema            建表（幂等）
  *
- * KV：
- *   sub:<machine> -> {
- *     machine, content, hash, bytes, updated_at,
- *     nodes: [{id, name, link, protocol, order}],
- *     manual: boolean
- *   }
+ * D1 表结构：
+ *   machines(machine PK, content, hash, bytes, updated_at, nodes_json, manual)
+ *     machine   : 机器 slug
+ *     content   : base64 订阅原文
+ *     hash      : content 的 SHA-256，用于去重
+ *     nodes_json: [{id, name, link, protocol, order}] 的 JSON 文本
+ *     manual    : 1 表示 WebUI 手动编辑过，自动上报不再覆盖
+ *   settings(key PK, value)
+ *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.1.3";
+const VERSION = "1.2.0";
 const MAX_BODY = 512 * 1024;
 const MACHINE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/* D1 表结构；scripts/schema.sql 与本数组保持一致，供 wrangler d1 execute --file 使用。 */
+export const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS machines (
+  machine    TEXT PRIMARY KEY,
+  content    TEXT NOT NULL,
+  hash       TEXT NOT NULL,
+  bytes      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  nodes_json TEXT NOT NULL DEFAULT '[]',
+  manual     INTEGER NOT NULL DEFAULT 0
+)`,
+  "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
+  `CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+)`,
+];
 
 const UI_HTML = `<!doctype html>
 <html lang="zh-CN">
@@ -206,112 +230,228 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
-    if (request.method === "GET" && path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
-
-    if (request.method === "GET" && path === "/") {
-      return json({
-        name: "sub-worker",
-        version: VERSION,
-        subscription_base: baseUrl(request),
-        formats: ["base64", "clash", "singbox"],
-        ui: "/ui/:token",
-        endpoints: [
-          "POST /api/v1/report/:machine",
-          "GET /sub/:machine/:token",
-          "GET /sub/all/:token",
-          "GET /sub/:token",
-          "GET/PUT /api/v1/nodes/:machine",
-          "POST /api/v1/machines/:machine/reset",
-          "GET/PUT /api/v1/machines/order",
-          "GET /api/v1/machines",
-          "GET /health",
-        ],
-      });
+    try {
+      return await handleRequest(request, env);
+    } catch (err) {
+      return internalError(err);
     }
-
-    let m = path.match(/^\/ui\/([^/]+)$/);
-    if (m) {
-      if (request.method !== "GET") return methodNotAllowed("GET");
-      if (!authToken(env)) return missingConfig("TOKEN");
-      if (!checkToken(decodeURIComponent(m[1]), authToken(env))) return unauthorized();
-      return html(UI_HTML);
-    }
-
-    m = path.match(/^\/api\/v1\/report\/([^/]+)$/);
-    if (m) {
-      if (request.method !== "POST") return methodNotAllowed("POST");
-      return report(request, env, decodeURIComponent(m[1]));
-    }
-
-    m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
-    if (m) {
-      if (!authToken(env)) return missingConfig("TOKEN");
-      if (!checkBearer(request, authToken(env))) return unauthorized();
-      const machine = decodeURIComponent(m[1]);
-      if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-      if (request.method === "GET") return getNodeConfig(env, machine);
-      if (request.method === "PUT") return putNodeConfig(request, env, machine);
-      return methodNotAllowed("GET, PUT");
-    }
-
-    m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
-    if (m) {
-      if (!authToken(env)) return missingConfig("TOKEN");
-      if (!checkBearer(request, authToken(env))) return unauthorized();
-      if (request.method !== "POST") return methodNotAllowed("POST");
-      return resetMachine(env, decodeURIComponent(m[1]));
-    }
-
-    m = path.match(/^\/api\/v1\/machines\/order$/);
-    if (m) {
-      if (!authToken(env)) return missingConfig("TOKEN");
-      if (!checkBearer(request, authToken(env))) return unauthorized();
-      if (request.method === "GET") return json({ ok: true, machine_order: await getMachineOrder(env) });
-      if (request.method !== "PUT") return methodNotAllowed("GET, PUT");
-      return putMachineOrder(request, env);
-    }
-
-    m = path.match(/^\/api\/v1\/machines(?:\/([^/]+))?$/);
-    if (m) {
-      if (!authToken(env)) return missingConfig("TOKEN");
-      if (!checkBearer(request, authToken(env))) return unauthorized();
-      if (request.method === "GET" && !m[1]) return listMachines(env);
-      if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
-      return methodNotAllowed("GET, DELETE");
-    }
-
-    m = path.match(/^\/sub\/all\/([^/]+)$/);
-    if (m) {
-      if (request.method !== "GET") return methodNotAllowed("GET");
-      return getAll(env, decodeURIComponent(m[1]), request);
-    }
-
-    m = path.match(/^\/sub\/([^/]+)$/);
-    if (m) {
-      if (request.method !== "GET") return methodNotAllowed("GET");
-      return getAll(env, decodeURIComponent(m[1]), request);
-    }
-
-    m = path.match(/^\/sub\/([^/]+)\/([^/]+)$/);
-    if (m) {
-      if (request.method !== "GET") return methodNotAllowed("GET");
-      return getOne(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
-    }
-
-    return json({ ok: false, error: "not found" }, 404);
   },
 };
 
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  if (request.method === "GET" && path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
+
+  if (request.method === "GET" && path === "/") {
+    return json({
+      name: "sub-worker",
+      version: VERSION,
+      storage: "d1",
+      subscription_base: baseUrl(request),
+      formats: ["base64", "clash", "singbox"],
+      ui: "/ui/:token",
+      endpoints: [
+        "POST /api/v1/report/:machine",
+        "GET /sub/:machine/:token",
+        "GET /sub/all/:token",
+        "GET /sub/:token",
+        "GET/PUT /api/v1/nodes/:machine",
+        "POST /api/v1/machines/:machine/reset",
+        "GET/PUT /api/v1/machines/order",
+        "GET /api/v1/machines",
+        "POST /api/v1/admin/schema",
+        "GET /health",
+      ],
+    });
+  }
+
+  let m = path.match(/^\/ui\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkToken(decodeURIComponent(m[1]), authToken(env))) return unauthorized();
+    return html(UI_HTML);
+  }
+
+  m = path.match(/^\/api\/v1\/admin\/schema$/);
+  if (m) {
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    return initSchema(env);
+  }
+
+  m = path.match(/^\/api\/v1\/report\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    return report(request, env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    const machine = decodeURIComponent(m[1]);
+    if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+    if (request.method === "GET") return getNodeConfig(env, machine);
+    if (request.method === "PUT") return putNodeConfig(request, env, machine);
+    return methodNotAllowed("GET, PUT");
+  }
+
+  m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    return resetMachine(env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/machines\/order$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method === "GET") return json({ ok: true, machine_order: await getMachineOrder(env) });
+    if (request.method !== "PUT") return methodNotAllowed("GET, PUT");
+    return putMachineOrder(request, env);
+  }
+
+  m = path.match(/^\/api\/v1\/machines(?:\/([^/]+))?$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method === "GET" && !m[1]) return listMachines(env);
+    if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
+    return methodNotAllowed("GET, DELETE");
+  }
+
+  m = path.match(/^\/sub\/all\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return getAll(env, decodeURIComponent(m[1]), request);
+  }
+
+  m = path.match(/^\/sub\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return getAll(env, decodeURIComponent(m[1]), request);
+  }
+
+  m = path.match(/^\/sub\/([^/]+)\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return getOne(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
+  }
+
+  return json({ ok: false, error: "not found" }, 404);
+}
+
 function authToken(env) { return (env && env.TOKEN) || ""; }
 function baseUrl(request) { return new URL(request.url).origin; }
+function dbEnv(env) { return env && env.DB ? env.DB : null; }
+
+/* ---------------- storage: Cloudflare D1 ---------------- */
+
+const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual";
+
+function rowToRecord(row) {
+  let nodes = [];
+  try { nodes = JSON.parse(row.nodes_json || "[]"); } catch { nodes = []; }
+  return {
+    machine: row.machine,
+    content: row.content,
+    hash: row.hash,
+    bytes: Number(row.bytes) || 0,
+    updated_at: row.updated_at,
+    nodes: Array.isArray(nodes) ? nodes : [],
+    manual: Boolean(Number(row.manual)),
+  };
+}
+
+function recordValues(record) {
+  return [
+    record.machine,
+    record.content,
+    record.hash,
+    record.bytes,
+    record.updated_at,
+    JSON.stringify(record.nodes || []),
+    record.manual ? 1 : 0,
+  ];
+}
+
+async function loadRecord(env, machine) {
+  const db = dbEnv(env);
+  if (!db) return null;
+  const row = await db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines WHERE machine = ?1`).bind(machine).first();
+  return row ? rowToRecord(row) : null;
+}
+
+async function loadAllRecords(env) {
+  const db = dbEnv(env);
+  if (!db) return [];
+  const result = await db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines`).all();
+  const rows = (result && result.results) || [];
+  return rows.map(rowToRecord);
+}
+
+async function saveRecord(env, record) {
+  const db = dbEnv(env);
+  if (!db) throw new Error("DB binding is not configured");
+  await db.prepare(
+    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT(machine) DO UPDATE SET
+       content = excluded.content,
+       hash = excluded.hash,
+       bytes = excluded.bytes,
+       updated_at = excluded.updated_at,
+       nodes_json = excluded.nodes_json,
+       manual = excluded.manual`,
+  ).bind(...recordValues(record)).run();
+  return record;
+}
+
+async function deleteRecord(env, machine) {
+  const db = dbEnv(env);
+  if (!db) throw new Error("DB binding is not configured");
+  await db.prepare("DELETE FROM machines WHERE machine = ?1").bind(machine).run();
+}
+
+async function getSetting(env, key) {
+  const db = dbEnv(env);
+  if (!db) return null;
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?1").bind(key).first();
+  return row && typeof row.value === "string" ? row.value : null;
+}
+
+async function putSetting(env, key, value) {
+  const db = dbEnv(env);
+  if (!db) throw new Error("DB binding is not configured");
+  await db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?1, ?2)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).bind(key, value).run();
+}
+
+async function initSchema(env) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  for (const statement of SCHEMA_STATEMENTS) await dbEnv(env).prepare(statement).run();
+  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length });
+}
+
+/* ---------------- handlers ---------------- */
 
 async function report(request, env, machine) {
   if (!authToken(env)) return missingConfig("TOKEN");
   if (!checkBearer(request, authToken(env))) return unauthorized();
+  if (!dbEnv(env)) return missingConfig("DB");
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
 
   const body = await request.text();
@@ -321,9 +461,8 @@ async function report(request, env, machine) {
   let decoded;
   try { decoded = decodeBase64(content); } catch { return json({ ok: false, error: "invalid base64" }, 400); }
 
-  const key = `sub:${machine}`;
   const hash = await sha256Hex(content);
-  const old = await env.SUBS.get(key, { type: "json" });
+  const old = await loadRecord(env, machine);
   if (old && old.hash === hash && !old.manual) {
     return json({ ok: true, changed: false, machine, bytes: content.length, hash, updated_at: old.updated_at });
   }
@@ -333,15 +472,16 @@ async function report(request, env, machine) {
     : await normalizeNodes(links, old && Array.isArray(old.nodes) ? old.nodes : []);
   const updatedAt = new Date().toISOString();
   const record = { machine, content, hash, bytes: content.length, updated_at: updatedAt, nodes, manual: Boolean(old && old.manual) };
-  await env.SUBS.put(key, JSON.stringify(record));
+  await saveRecord(env, record);
   return json({ ok: true, changed: true, machine, bytes: content.length, hash, nodes: nodes.length, manual: record.manual, updated_at: updatedAt });
 }
 
 async function getOne(env, machine, token, request) {
   if (!authToken(env)) return missingConfig("TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
+  if (!dbEnv(env)) return missingConfig("DB");
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-  const record = await env.SUBS.get(`sub:${machine}`, { type: "json" });
+  const record = await loadRecord(env, machine);
   if (!record) return json({ ok: false, error: "subscription not found" }, 404);
   const nodes = await nodesOf(record);
   return subResponse(nodes, request, { "x-machine": machine, "x-updated-at": record.updated_at });
@@ -350,14 +490,13 @@ async function getOne(env, machine, token, request) {
 async function getAll(env, token, request) {
   if (!authToken(env)) return missingConfig("TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
-  const list = await env.SUBS.list({ prefix: "sub:" });
+  if (!dbEnv(env)) return missingConfig("DB");
+  const records = await loadAllRecords(env);
   const order = await getMachineOrder(env);
   const rank = new Map(order.map((m, i) => [m, i]));
   const all = [];
   let manual = 0;
-  for (const key of list.keys) {
-    const record = await env.SUBS.get(key.name, { type: "json" });
-    if (!record) continue;
+  for (const record of records) {
     if (record.manual) manual++;
     const nodes = await nodesOf(record);
     nodes.forEach((n) => all.push({ ...n, machine: record.machine }));
@@ -367,11 +506,11 @@ async function getAll(env, token, request) {
     const br = rank.has(b.machine) ? rank.get(b.machine) : defaultMachineRank(b.machine);
     return ar - br || (Number(a._sort) || 0) - (Number(b._sort) || 0) || String(a.machine).localeCompare(String(b.machine)) || String(a.name).localeCompare(String(b.name));
   });
-  return subResponse(all, request, { "x-machines": String(list.keys.length), "x-nodes": String(all.length), "x-manual-machines": String(manual), "x-machine-order": order.join(",") });
+  return subResponse(all, request, { "x-machines": String(records.length), "x-nodes": String(all.length), "x-manual-machines": String(manual), "x-storage": "d1", "x-machine-order": order.join(",") });
 }
 
 async function getNodeConfig(env, machine) {
-  const record = await env.SUBS.get(`sub:${machine}`, { type: "json" });
+  const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, nodes: [], manual: false });
   return json({ ok: true, machine, manual: Boolean(record.manual), updated_at: record.updated_at, nodes: await nodesOf(record) });
 }
@@ -390,32 +529,30 @@ async function putNodeConfig(request, env, machine) {
     if (!link || link.length > 8192 || !parseLink(link)) return json({ ok: false, error: "invalid node link" }, 400);
     inputs.push({ link, name: typeof item.name === "string" ? item.name.trim().slice(0, 160) : "" });
   }
-  const old = await env.SUBS.get(`sub:${machine}`, { type: "json" });
+  const old = await loadRecord(env, machine);
   const nodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.nodes) ? old.nodes : [], inputs);
   const content = encodeBase64(nodes.map((n) => n.link).join("\n"));
   const record = { machine, content, hash: await sha256Hex(content), bytes: content.length, updated_at: new Date().toISOString(), nodes, manual: true };
-  await env.SUBS.put(`sub:${machine}`, JSON.stringify(record));
+  await saveRecord(env, record);
   return json({ ok: true, machine, manual: true, nodes });
 }
 
 async function resetMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-  const old = await env.SUBS.get(`sub:${machine}`, { type: "json" });
+  const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
   const nodes = await normalizeNodes(splitLinks(decodeSafe(old.content)), []);
   const record = { ...old, nodes, manual: false, updated_at: new Date().toISOString() };
-  await env.SUBS.put(`sub:${machine}`, JSON.stringify(record));
+  await saveRecord(env, record);
   return json({ ok: true, machine, manual: false, nodes });
 }
 
 async function listMachines(env) {
-  const list = await env.SUBS.list({ prefix: "sub:" });
+  const records = await loadAllRecords(env);
   const order = await getMachineOrder(env);
   const rank = new Map(order.map((m, i) => [m, i]));
   const machines = [];
-  for (const key of list.keys) {
-    const record = await env.SUBS.get(key.name, { type: "json" });
-    if (!record) continue;
+  for (const record of records) {
     const nodes = await nodesOf(record);
     machines.push({ machine: record.machine, bytes: record.bytes, updated_at: record.updated_at, hash: record.hash, manual: Boolean(record.manual), nodes: nodes.length });
   }
@@ -424,7 +561,7 @@ async function listMachines(env) {
     const br = rank.has(b.machine) ? rank.get(b.machine) : defaultMachineRank(b.machine);
     return ar - br || a.machine.localeCompare(b.machine);
   });
-  return json({ ok: true, count: machines.length, machines, machine_order: order });
+  return json({ ok: true, count: machines.length, storage: "d1", machines, machine_order: order });
 }
 
 const COUNTRY_GROUPS = {
@@ -490,8 +627,11 @@ function defaultMachineRank(machine) {
 }
 
 async function getMachineOrder(env) {
-  const raw = await env.SUBS.get("meta:machine_order", { type: "json" });
-  return Array.isArray(raw) ? raw.filter((x) => typeof x === "string" && MACHINE_RE.test(x)) : [];
+  const raw = await getSetting(env, "machine_order");
+  if (!raw) return [];
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return []; }
+  return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string" && MACHINE_RE.test(x)) : [];
 }
 
 async function putMachineOrder(request, env) {
@@ -505,16 +645,23 @@ async function putMachineOrder(request, env) {
     if (typeof item !== "string" || !MACHINE_RE.test(item)) return json({ ok: false, error: "invalid machine name" }, 400);
     if (!unique.includes(item)) unique.push(item);
   }
-  await env.SUBS.put("meta:machine_order", JSON.stringify(unique));
+  await putSetting(env, "machine_order", JSON.stringify(unique));
   return json({ ok: true, machine_order: unique });
 }
 
 async function deleteMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-  await env.SUBS.delete(`sub:${machine}`);
+  await deleteRecord(env, machine);
   const order = await getMachineOrder(env);
-  if (order.includes(machine)) await env.SUBS.put("meta:machine_order", JSON.stringify(order.filter((m) => m !== machine)));
+  if (order.includes(machine)) await putSetting(env, "machine_order", JSON.stringify(order.filter((m) => m !== machine)));
   return json({ ok: true, deleted: machine });
+}
+
+function internalError(err) {
+  const message = err && err.message ? String(err.message) : String(err);
+  const body = { ok: false, error: "internal error", message };
+  if (/no such table|no such column/i.test(message)) body.hint = "数据表未创建：POST /api/v1/admin/schema 或 pnpm run db:init";
+  return json(body, 500);
 }
 
 async function nodesOf(record) {
@@ -824,3 +971,4 @@ function methodNotAllowed(allow) {
 function corsHeaders() {
   return { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "access-control-allow-headers": "Authorization, Content-Type", "x-content-type-options": "nosniff" };
 }
+

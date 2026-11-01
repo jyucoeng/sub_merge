@@ -9,7 +9,13 @@ workers_dev = true
 #   { pattern = "sub.example.com", custom_domain = true }
 # ]
 
-[[kv_namespaces]]
-binding = "SUBS"
-# 运行 `wrangler kv namespace create SUBS` 后，把输出的 id 填到这里
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# D1 数据库绑定：变量名必须是 DB
+# 运行 `wrangler d1 create sub-worker-db` 后，把输出的 database_id 填到这里
+[[d1_databases]]
+binding = "DB"
+database_name = "sub-worker-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# 建表（二选一）：
+#   pnpm run db:init          # wrangler d1 execute --remote --file=scripts/schema.sql
+#   curl -X POST -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/admin/schema
