@@ -208,6 +208,7 @@ UI 打开就是登录页，只有管理员一种身份。口令全部来自 Clou
 | --- | --- |
 | `ADMIN_PASSWORD` | 管理员口令，进 UI 后可读可写 |
 | `ADMIN_USERNAME` | 可选，配了就必须「用户名 + 口令」都对才能登录（用户名本身当秘密用，别写 admin） |
+| `REPORT_TOKEN` | 可选，机器上报专用凭证；配了就只认它，`TOKEN` 不再能写数据 |
 | `TOKEN` | 订阅/上报 token，也能当管理员口令登录 |
 
 ```bash
@@ -227,6 +228,16 @@ pnpm exec wrangler deploy --keep-vars \
 | `GET /api/v1/admin/env` | 变量自检：已用 / 多余 |
 
 配了 `ADMIN_USERNAME` 后登录页会自动多出一个用户名输入框（页面靠 `GET /api/v1/auth/mode` 判断，不泄露任何秘密）。用户名或口令任一不对都算一次失败，同样计入锁定。
+
+**机器上报用什么凭证**：默认沿用 `TOKEN`（订阅和上报同一串）。想要「订阅链接外泄也写不了数据」，配一个独立的 `REPORT_TOKEN`：
+
+```bash
+OPENSSL=$(openssl rand -hex 24)
+pnpm exec wrangler deploy --keep-vars --var REPORT_TOKEN:$OPENSSL
+# 机器上的 cron：SUB_REPORT_TOKEN=$OPENSSL python scripts/report.py --links /tmp/links.txt
+```
+
+它是普通变量，**不会过期**；要换就改后台的 `REPORT_TOKEN` 再部署，然后在机器上把新值写进 `SUB_REPORT_TOKEN`。改完旧值立刻失效（401），订阅链接不受影响。
 
 登录成功发的是**签名会话 token**（`sk1.<过期时间>.<HMAC>`，7 天有效），不是口令本身：改 `ADMIN_PASSWORD` 会让所有旧会话立刻失效。脚本仍可直接用 `TOKEN` 或 `ADMIN_PASSWORD` 当 bearer，但 **`TOKEN` 不能用来登录界面**（订阅链接外泄不等于后台外泄）。明文 HTTP 请求会 308 跳 HTTPS。
 

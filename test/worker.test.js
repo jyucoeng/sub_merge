@@ -1298,8 +1298,8 @@ test("admin env report lists known variables and flags leftovers", async () => {
   assert.equal(res.status, 200);
   const data = await res.json();
   const names = data.used.map((item) => item.name);
-  assert.deepEqual(names.sort(), ["ADMIN_PASSWORD", "DB", "TOKEN"]);
-  assert.ok(data.used.every((item) => item.set), "all known variables must be set in the test env");
+  assert.deepEqual(names.sort(), ["ADMIN_PASSWORD", "DB", "REPORT_TOKEN", "TOKEN"]);
+  assert.ok(data.used.filter((item) => item.name !== "REPORT_TOKEN").every((item) => item.set), "known variables are set in the test env");
   assert.deepEqual(data.unused, ["GUEST_CODE"], "leftover variables must be reported");
 
   const anon = await call(env, "GET", "/api/v1/admin/env");
@@ -1402,4 +1402,27 @@ test("optional ADMIN_USERNAME must match together with the password", async () =
   const loose = await call(plain, "POST", "/api/v1/auth/login", JSON.stringify({ password: "pw-xyz-9" }), { "content-type": "application/json" });
   assert.equal(loose.status, 200, "without ADMIN_USERNAME the username field is ignored");
   assert.equal((await (await call(plain, "GET", "/api/v1/auth/mode")).json()).username_required, false);
+});
+
+test("REPORT_TOKEN becomes the only credential machines may report with", async () => {
+  const env = makeEnv({ REPORT_TOKEN: "report-only-token-abc", ADMIN_PASSWORD: "pw-report" });
+  const body = b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01");
+
+  const withToken = await call(env, "POST", "/api/v1/report/box-rt", body, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(withToken.status, 401, "subscription TOKEN must stop working once REPORT_TOKEN is set");
+
+  const withReport = await call(env, "POST", "/api/v1/report/box-rt", body, { authorization: "Bearer report-only-token-abc" });
+  assert.equal(withReport.status, 200);
+  assert.equal((await withReport.json()).nodes, 1);
+
+  // 上报凭证不能当管理员口令，也不能读管理接口
+  const login = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "report-only-token-abc" }), { "content-type": "application/json" });
+  assert.equal(login.status, 401);
+  const read = await call(env, "GET", "/api/v1/machines", null, { authorization: "Bearer report-only-token-abc" });
+  assert.equal(read.status, 401);
+
+  // 没配 REPORT_TOKEN 的老部署继续用 TOKEN 上报
+  const legacy = makeEnv({});
+  const old = await call(legacy, "POST", "/api/v1/report/box-legacy", body, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(old.status, 200);
 });

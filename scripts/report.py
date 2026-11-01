@@ -105,7 +105,8 @@ def curl(args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=os.environ.get("SUB_WORKER_BASE", ""))
-    ap.add_argument("--token", default=os.environ.get("SUB_TOKEN", ""))
+    ap.add_argument("--token", default=os.environ.get("SUB_REPORT_TOKEN") or os.environ.get("SUB_TOKEN", ""),
+                    help="上报凭证；优先读 SUB_REPORT_TOKEN，其次 SUB_TOKEN")
     ap.add_argument("--file", help="JSON: {machine: subscription_url}")
     ap.add_argument(
         "--links",
@@ -127,7 +128,7 @@ def main():
     args = ap.parse_args()
 
     if not args.base or not args.token:
-        sys.exit("需要 --base 和 --token（或 SUB_WORKER_BASE / SUB_TOKEN）")
+        sys.exit("需要 --base 和 --token（或 SUB_WORKER_BASE / SUB_REPORT_TOKEN / SUB_TOKEN）")
 
     machines = {}
     if args.file:

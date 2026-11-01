@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.16.0";
+const VERSION = "1.17.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1077,6 +1077,7 @@ async function handleRequest(request, env) {
       DB: "D1 数据库绑定",
       TOKEN: "订阅/上报 token，也能当管理员口令登录",
       ADMIN_PASSWORD: "管理员口令",
+      REPORT_TOKEN: "机器上报专用凭证（可选）",
     };
     const present = Object.keys(env || {}).filter((key) => env[key] !== undefined && env[key] !== null && env[key] !== "");
     return json({
@@ -1222,6 +1223,8 @@ function bearerOf(request) {
 // 管理员口令只从 Cloudflare 后台（环境变量）读，
 // 界面上不放“改密码”，免得拿到会话的人顺手把主人关在门外。
 function adminPassword(env) { return (env && env.ADMIN_PASSWORD) || ""; }
+// 机器上报专用凭证：配了 REPORT_TOKEN 就只认它（可随时改，永不过期）；没配则沿用 TOKEN。
+function reportToken(env) { return ((env && env.REPORT_TOKEN) || authToken(env) || ""); }
 // 可选：配了 ADMIN_USERNAME 就必须用户名 + 口令都对。用户名本身也是秘密，别用 admin/root 这种。
 function adminUsername(env) { return (env && env.ADMIN_USERNAME) || ""; }
 async function isAdminToken(env, token) {
@@ -1625,8 +1628,10 @@ async function deleteSource(env, machine, source) {
 /* ---------------- handlers ---------------- */
 
 async function report(request, env, machine) {
-  if (!authToken(env)) return missingConfig("TOKEN");
-  if (!checkBearer(request, authToken(env))) return unauthorized();
+  const expected = reportToken(env);
+  if (!expected) return missingConfig("TOKEN");
+  // 上报只认上报凭证；配了 REPORT_TOKEN 后 TOKEN 不再能上报，避免订阅链接泄露就能写数据
+  if (!checkBearer(request, expected)) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
 
