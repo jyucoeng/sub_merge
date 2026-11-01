@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.23.1";
+const VERSION = "1.23.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -118,6 +118,8 @@ textarea:focus{border-color:var(--acc)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
 .machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px}
 .nsec.auto{background:var(--soft)}
+.sources{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.sources .chip{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--sub);white-space:nowrap}
 .nsec-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
 .nstep{width:20px;height:20px;border-radius:50%;background:var(--accbg);color:var(--accink);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .tag.warn{background:var(--warnbg);color:var(--warnink);border-color:var(--warnline)}
@@ -626,12 +628,16 @@ body.locked .wrap{display:none}
   function renderSources() {
     var box = $("auto-sources"); if (!box) return;
     box.innerHTML = "";
+    // 标题上已经显示「内容更新于：最新那份」，来源胶囊只在「自己不是最新的」时才带时间，
+    // 否则同一行会重复出现两个一模一样的时间。
+    var newest = (state.sources || []).map(function (x) { return x.updated_at || ""; }).sort().pop() || "";
     (state.sources || []).forEach(function (item) {
       var chip = document.createElement("span"); chip.className = "chip";
       var label = document.createElement("span");
       label.innerHTML = "";
-      var when = fmtWhen(item.updated_at);
-      label.textContent = item.source + " · " + item.nodes + " 条" + (when ? " · " + when : "");
+      var stale = item.updated_at && item.updated_at !== newest;
+      var when = stale ? fmtWhen(item.updated_at) : "";
+      label.textContent = item.source + " · " + item.nodes + " 条" + (when ? " · 停在 " + when : "");
       label.title = "这条来源最近一次内容变化：" + (item.updated_at || "未知") + (item.updated_at ? "（" + agoText(item.updated_at) + "）" : "") + "；内容没变的上报不会刷新";
       // 自动层是只读快照：界面上不给删除入口，避免误删后再也拿不回来。要换内容就让脚本重新上报。
       chip.appendChild(label);

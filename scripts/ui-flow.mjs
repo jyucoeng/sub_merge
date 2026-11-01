@@ -459,7 +459,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     const when = text("auto-when");
     check("② 显示了内容更新时间", /内容更新于：\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(when) && !when.includes("还没有上报记录"), when);
     const srcLabel = el("auto-sources").children[0].children[0].textContent;
-    check("② 来源胶囊带内容更新时间", /·\s*\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/.test(srcLabel), srcLabel);
+    check("② 来源胶囊只写来源和条数（时间在标题上）", /^[^·]+·\s*\d+ 条$/.test(srcLabel), srcLabel);
   }
   check("自动节点只读", autoRows()[0].children[0].readOnly === true, String(autoRows()[0].children[0].readOnly));
   check("手动区为空并提示", text("nodes").includes("没有手动节点"), text("nodes").slice(0, 30));
@@ -516,6 +516,10 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     const chips = el("auto-sources").children;
     check("来源 chip 两个", chips.length === 2, `chips=${chips.length}`);
     check("来源 chip 带条数", text("auto-sources").includes("box-b") && /box-b · 1 条/.test(text("auto-sources")), text("auto-sources"));
+    // 标题已经写了「内容更新于：最新那份」，所以最新的那份胶囊不再重复时间，只有旧的那份标「停在 …」
+    const chipText = (i) => el("auto-sources").children[i].children[0].textContent;
+    const staleCount = [0, 1].filter((i) => chipText(i).includes("停在 ")).length;
+    check("只有旧来源标「停在 时间」", staleCount === 1, chipText(0) + " | " + chipText(1));
     check("两个来源的节点合在一起", autoRows().length === 2, `rows=${autoRows().length}`);
     check("来源胶囊没有删除按钮（自动层只读）", chips[1].children.length === 1, `children=${chips[1].children.length}`);
     check("自动层不再出现 ×", !el("auto-sources").innerHTML?.includes?.("×") && !text("auto-sources").includes("×"), text("auto-sources"));
