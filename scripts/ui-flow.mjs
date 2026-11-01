@@ -854,6 +854,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅清单：选中的芯片有勾和选中态", lightChip.textContent.trim().indexOf("✓") === 0 && lightChip.className.indexOf("on") !== -1, `${lightChip.className} / ${lightChip.textContent}`);
   const offChip = protoChips().filter((chip) => chip.textContent.indexOf("VLESS") === -1)[0];
   check("订阅清单：被筛掉的芯片变淡", offChip.className.indexOf("dim") !== -1, offChip.className);
+  check("订阅清单：选中的筛选芯片有蓝色选中框", lightChip.className.indexOf("picked") !== -1, lightChip.className);
+  check("订阅清单：样式图例写清了虚线含义", html.includes("虚线半透明") && html.includes("一个节点都没列出来"), "");
   check("订阅清单：筛选说明写清了看了几个", el("sub-shown").textContent.indexOf("1 / 4") === 0 && el("sub-shown").textContent.indexOf("VLESS") !== -1, el("sub-shown").textContent);
   const afterPick = await api("/sub/nodes");
   check("订阅清单：只看 VLESS 时订阅内容没变", afterPick.data.stats.enabled === afterPick.data.stats.total, `${afterPick.data.stats.enabled}/${afterPick.data.stats.total}`);
@@ -879,6 +881,15 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("订阅清单：全不选后芯片都不在订阅", protoChips().every((chip) => chip.className.indexOf("on") === -1 && chip.className.indexOf("part") === -1), protoChips().map((c) => c.className).join(","));
   check("订阅清单：全不选后芯片数字变成 0/总", protoChips().every((chip) => parseCount(chip) === 0 && parseTotal(chip) > 0), protoChips().map((c) => c.textContent).join(" , "));
+  {
+    const chip = protoChips()[0];
+    chip.onclick.call(chip);
+    await idle();
+    const picked = protoChips().filter((c) => c.className.indexOf("picked") !== -1)[0];
+    check("订阅清单：只看某组时芯片不冒充 ✓/◐", picked && picked.textContent.indexOf("✓") === -1 && picked.textContent.indexOf("◐") === -1, picked ? picked.textContent : "没有 picked 芯片");
+    click("sub-clear");
+    await idle();
+  }
   click("sub-all");
   await idle();
   check("订阅清单：全选后芯片全部回到订阅态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));

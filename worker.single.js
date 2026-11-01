@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.5";
+const VERSION = "1.22.6";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -143,7 +143,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .sub-group:hover{color:var(--ink)}
 .proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 .proto.part{border-color:#fcd34d;background:#fffbeb;color:#92400e}
-.proto.dim{opacity:.5;border-style:dashed}
+.proto.dim{opacity:.55;border-style:dashed}
+.proto.picked{border-style:solid;border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc);font-weight:600}
 
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
@@ -237,6 +238,7 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
 <div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
 <div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 在订阅 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
+<div class="hint" style="margin-top:4px">芯片样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
 </div>
@@ -676,7 +678,8 @@ body.locked .wrap{display:none}
       if (filtering && shown === 0) cls += " dim";
       el.className = cls;
       var mark = (total && inSub === total) ? "✓ " : (inSub > 0 ? "◐ " : "");
-      el.textContent = (picked && mark ? mark : (picked ? "✓ " : mark)) + label + " · " + inSub + "/" + total;
+      // ✓/◐ 只表示订阅状态；「正在按它筛选」用蓝框表示，避免一个符号两种含义
+      el.textContent = mark + label + " · " + inSub + "/" + total;
       el.title = (picked ? "取消只看这个" : hint) + "（在订阅 " + inSub + " 个 / 共 " + total + " 个；当前列出 " + shown + " 个）";
       el.onclick = onClick;
       return el;
