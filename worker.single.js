@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.12";
+const VERSION = "1.22.13";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -225,7 +225,7 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span><button id="sub-toggle" class="fold" type="button">展开</button></h2>
+<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span><button id="sub-toggle" class="fold" type="button">展开 +</button></h2>
 <div id="sub-body" class="hidden">
 <div class="row" style="margin-top:10px">
   <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
@@ -246,7 +246,7 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span><button id="clash-toggle" class="fold" type="button">展开</button></h2>
+<h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span><button id="clash-toggle" class="fold" type="button">展开 +</button></h2>
 <div id="clash-body" class="hidden">
 <div class="hint">分组决定 Clash 里有哪些策略组，规则来源决定 <code>rule-providers</code> 和 <code>RULE-SET</code> 的顺序。规则文件由客户端自己下载（每 24 小时），服务端只发引用。改完点「保存规则」，客户端重新拉订阅即生效；点「恢复默认」回到内置的 ACL4SSR 那一套。</div>
 <div class="row admin-only" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button><label class="clash-only-live"><input type="checkbox" id="clash-hide-empty" /> 只看有节点的分组</label></div>
@@ -1025,7 +1025,7 @@ body.locked .wrap{display:none}
   function setClashOpen(open) {
     clashOpen = open;
     $("clash-body").className = open ? "" : "hidden";
-    $("clash-toggle").textContent = open ? "收起" : "展开";
+    $("clash-toggle").textContent = open ? "收起 -" : "展开 +";
     $("clash-toggle").title = open ? "收起分流规则" : "展开分流规则";
   }
   setClashOpen(false);
@@ -1037,7 +1037,7 @@ body.locked .wrap{display:none}
   function setSubOpen(open) {
     subOpen = open;
     $("sub-body").className = open ? "" : "hidden";
-    $("sub-toggle").textContent = open ? "收起" : "展开";
+    $("sub-toggle").textContent = open ? "收起 -" : "展开 +";
     $("sub-toggle").title = open ? "收起节点清单" : "展开节点清单，勾选要进订阅的节点";
   }
   setSubOpen(false);

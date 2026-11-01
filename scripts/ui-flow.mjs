@@ -935,27 +935,27 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
 /* ---------------- 订阅中的节点折叠 ---------------- */
 {
-  check("订阅清单：默认收起", el("sub-body").className === "hidden" && el("sub-toggle").textContent === "展开", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
+  check("订阅清单：默认收起", el("sub-body").className === "hidden" && el("sub-toggle").textContent === "展开 +", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
   check("订阅清单：收起时标题上的计数还在", /\d+\s*\/\s*\d+/.test(text("sub-count")), text("sub-count"));
   click("sub-toggle");
   await idle();
-  check("订阅清单：点开展开", el("sub-body").className === "" && el("sub-toggle").textContent === "收起", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
+  check("订阅清单：点开展开", el("sub-body").className === "" && el("sub-toggle").textContent === "收起 -", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
   check("订阅清单：展开后能看到搜索框和节点表", html.includes('id="sub-search"') && html.includes('id="sub-list"'), "");
   click("sub-toggle");
   await idle();
-  check("订阅清单：再点收起", el("sub-body").className === "hidden" && el("sub-toggle").textContent === "展开", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
+  check("订阅清单：再点收起", el("sub-body").className === "hidden" && el("sub-toggle").textContent === "展开 +", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
 }
 
 /* ---------------- 分流规则折叠 ---------------- */
 {
-  check("分流规则：默认收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+  check("分流规则：默认收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开 +", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
   click("clash-toggle");
   await idle();
-  check("分流规则：点开展开", el("clash-body").className === "" && el("clash-toggle").textContent === "收起", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+  check("分流规则：点开展开", el("clash-body").className === "" && el("clash-toggle").textContent === "收起 -", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
   check("分流规则：展开后能看到分组和规则表", html.includes('id="clash-groups"') && html.includes('id="clash-rulesets"'), "");
   click("clash-toggle");
   await idle();
-  check("分流规则：再点收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+  check("分流规则：再点收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开 +", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
 }
 
 /* ---------------- 登录与角色 ---------------- */
