@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.3";
+const VERSION = "1.22.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -87,6 +87,7 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:#f1f5f9;color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+.err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
 .node.auto-row{grid-template-columns:minmax(0,1fr) 96px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
@@ -194,7 +195,7 @@ body.locked .wrap{display:none}
 <section class="card">
 <h2>节点配置 <span class="tip">一台机器有两层节点：① 手动（你写的，会保存）② 自动上报（只读快照）。两层分开存，合并进订阅时手动在前、自动在后，按链接去重</span><span class="tag auto" id="node-mode">手动</span></h2>
 <div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" class="admin-only" type="button">重命名</button><button id="reset" class="admin-only" type="button" title="丢掉 ① 手动层，节点换回最近一次上报的内容，立刻生效">恢复自动上报</button><button id="clear-manual" class="danger admin-only" type="button" title="只清空 ① 的列表并标记未保存，点「保存配置」才写库">清空手动节点</button></div>
-<div class="hint" style="margin-top:6px"><b>两个「清空」不一样</b>：<b>恢复自动上报</b> = 丢掉 ① 手动层，节点整体换回最近一次上报的 ② 内容，<b>立刻生效、不用再保存</b>；<b>清空手动节点</b> = 只把 ① 的列表清空并标记「未保存」，点 ① 的「保存配置」才写进库，中途可以用「撤销修改」还原。</div>
+<div class="hint" style="margin-top:6px"><b>恢复自动上报</b> = 丢掉 ① 手动层，节点整体换回最近一次上报的 ② 内容，<b>立刻生效、不用再保存</b>；<b class="err">清空手动节点</b> = 只把 ① 的列表清空并标记「未保存」，点 ① 的「保存配置」才写进库，中途可以用「撤销修改」还原。</div>
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="nsec">
 <div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>

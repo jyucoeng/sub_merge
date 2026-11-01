@@ -397,7 +397,9 @@ check("保存排序：提示", text("order-status").includes("机器顺序已保
 el("new-machine").value = "bad/name";
 click("create-machine");
 await idle();
-check("按钮说明：写清两个「清空」的区别", html.includes("恢复自动上报") && html.includes("立刻生效、不用再保存") && html.includes("点 ① 的「保存配置」才写进库"), "块内说明");
+check("按钮说明：写清两个「清空」的区别", html.includes("立刻生效、不用再保存") && html.includes("点 ① 的「保存配置」才写进库"), "块内说明");
+check("按钮说明：不再有「两个清空不一样」前缀", !html.includes("两个「清空」不一样"), "");
+check("按钮说明：清空手动节点用红字", html.includes('<b class="err">清空手动节点</b>'), "");
 check("非法机器名：给提示", text("status").includes("机器名可用中文"), text("status"));
 check("非法机器名：标红", el("status").className.includes("err"), el("status").className);
 
