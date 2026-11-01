@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -73,8 +73,8 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:#f1f5f9;color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
-button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:34px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
-.node .idx{color:var(--sub);font:12px ui-monospace,Consolas,monospace;text-align:center}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
+button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
+.idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
 textarea:focus{border-color:var(--acc)}
@@ -82,11 +82,11 @@ textarea:focus{border-color:var(--acc)}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
 .tag.manual{color:#b45309;border-color:#fcd34d;background:#fffbeb}
 .tag.auto{color:#1d4ed8;border-color:#bfdbfe;background:#eff6ff}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:34px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
-.machine .idx{color:var(--sub);font:12px ui-monospace,Consolas,monospace;text-align:center}.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
-@media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx{grid-row:1/span 2}}
+@media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
 </head>
 <body>
@@ -94,7 +94,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><span class="ver" id="version">v${VERSION}</span></div>
 
 <section class="card">
-<h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅</span></h2>
+<h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
 <div id="machine-list" class="machine-list"></div>
 <div class="row" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
 <div id="order-status" class="status"></div>
@@ -144,7 +144,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
   }
   function nodeRow(node, index) {
     var row = document.createElement("div"); row.className = "node";
-    var idx = document.createElement("div"); idx.className = "idx"; idx.textContent = String(index + 1);
+    var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.nodes.length); idx.value = String(index + 1); idx.title = "输入序号直接调整这一条的次序";
+    idx.onchange = function () {
+      var want = parseInt(idx.value, 10);
+      var to = Math.max(1, Math.min(state.nodes.length, isNaN(want) ? index + 1 : want)) - 1;
+      if (!moveItem(state.nodes, index, to)) { idx.value = String(index + 1); return; }
+      render();
+    };
+    idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
     var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
@@ -220,6 +227,12 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     if (added) render();
     return { added: added, dup: dup };
   }
+  function moveItem(list, from, to) {
+    if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return false;
+    var item = list.splice(from, 1)[0];
+    list.splice(to, 0, item);
+    return true;
+  }
   function render() {
     var box = $("nodes"); box.innerHTML = "";
     if (!state.nodes.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = "暂无节点，点击下方添加"; box.appendChild(e); return; }
@@ -237,7 +250,15 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     if (!state.machines.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = "暂无机器上报"; box.appendChild(e); return; }
     state.machines.forEach(function (m, index) {
       var row = document.createElement("div"); row.className = "machine";
-      var idx = document.createElement("div"); idx.className = "idx"; idx.textContent = String(index + 1);
+      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1); idx.title = "输入序号直接调整这台机器的位置";
+      idx.onchange = function () {
+        var want = parseInt(idx.value, 10);
+        var to = Math.max(1, Math.min(state.machines.length, isNaN(want) ? index + 1 : want)) - 1;
+        if (!moveItem(state.machines, index, to)) { idx.value = String(index + 1); return; }
+        var tip = $("order-status"); tip.textContent = "顺序已改，点「保存顺序」生效"; tip.className = "status";
+        renderMachineList(); renderMachines();
+      };
+      idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
       var name = document.createElement("div"); name.className = "mname";
       var tag = document.createElement("span"); tag.className = "tag " + (m.manual ? "manual" : "auto");
       tag.textContent = m.manual ? "手动" : "上报";

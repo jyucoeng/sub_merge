@@ -261,6 +261,29 @@ click("add");
   check("行内粘贴：提示已添加", text("bulk-status").includes("已添加 2 个节点"), text("bulk-status"));
 }
 
+// F2. 节点序号直接调整
+{
+  const rows = nodeRows();
+  check("节点序号是输入框", rows[0].children[0].type === "number", rows[0].children[0].type);
+  const lastLink = rows[rows.length - 1].children[1].value;
+  const idxInput = rows[rows.length - 1].children[0];
+  idxInput.value = "1";
+  idxInput.onchange();
+  check("节点序号：最后一条提到第 1", nodeRows()[0].children[1].value === lastLink, nodeRows().map((r) => r.children[1].value.slice(0, 24)).join(" | "));
+  const back = nodeRows()[0].children[0];
+  back.value = "2";
+  back.onchange();
+  check("节点序号：放回第 2", nodeRows()[1].children[1].value === lastLink, nodeRows().map((r) => r.children[1].value.slice(0, 24)).join(" | "));
+  const over = nodeRows()[1].children[0];
+  over.value = "999";
+  over.onchange();
+  check("节点序号：超范围钳到末尾", nodeRows()[nodeRows().length - 1].children[1].value === lastLink, `rows=${nodeRows().length}`);
+  const low = nodeRows()[nodeRows().length - 1].children[0];
+  low.value = "0";
+  low.onchange();
+  check("节点序号：小于 1 钳到开头", nodeRows()[0].children[1].value === lastLink, nodeRows().map((r) => r.children[1].value.slice(0, 24)).join(" | "));
+}
+
 // G. 第二台机器（名字带空格）+ 排序 + 保存顺序
 el("new-machine").value = "洛杉矶 备用";
 el("bulk").value = TUIC;
@@ -272,6 +295,27 @@ const orderBefore = machineRows().map((r) => r.children[1].textContent);
 check("创建顺序符合预期", orderBefore[0].includes("香港-小叮当") && orderBefore[1].includes("洛杉矶 备用"), orderBefore.join(" | "));
 machineRows()[0].children[4].onclick(); // ↓
 check("下移：UI 顺序交换", machineRows()[0].children[1].textContent.includes("洛杉矶 备用"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+{
+  // 机器序号直接调整：第 2 行改成 1，再改回 2，最后越界填 99
+  check("机器序号是输入框", machineRows()[0].children[0].type === "number", machineRows()[0].children[0].type);
+  let idxInput = machineRows()[1].children[0];
+  idxInput.value = "1";
+  idxInput.onchange();
+  check("机器序号：第二台提到第 1", machineRows()[0].children[1].textContent.includes("香港-小叮当"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+  check("机器序号：提示需要保存", text("order-status").includes("顺序已改"), text("order-status"));
+  idxInput = machineRows()[0].children[0];
+  idxInput.value = "2";
+  idxInput.onchange();
+  check("机器序号：回到第 2", machineRows()[1].children[1].textContent.includes("香港-小叮当"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+  idxInput = machineRows()[0].children[0];
+  idxInput.value = "99";
+  idxInput.onchange();
+  check("机器序号：越界钳到末尾", machineRows()[1].children[1].textContent.includes("洛杉矶 备用"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+  idxInput = machineRows()[0].children[0];
+  idxInput.value = "2";
+  idxInput.onchange();
+  check("机器序号：再摆回原顺序", machineRows()[0].children[1].textContent.includes("洛杉矶 备用"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+}
 click("save-machine-order");
 await idle();
 check("保存排序：提示", text("order-status").includes("机器顺序已保存"), text("order-status"));
