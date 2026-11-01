@@ -882,8 +882,14 @@ test("the WebUI script is syntactically valid JavaScript", async () => {
   assert.ok(m[1].includes("[\\p{L}\\p{N}]"), "machine name regex must survive templating");
 });
 
-test("root reports d1 storage and advertises admin endpoints", async () => {
-  const res = await call(makeEnv(), "GET", "/");
+test("the site root is the WebUI, /api reports d1 storage and advertises endpoints", async () => {
+  const root = await call(makeEnv(), "GET", "/");
+  assert.equal(root.status, 200);
+  const page = await root.text();
+  assert.ok(page.includes("<title>sub-worker"), "root must serve the UI shell");
+  assert.ok(page.includes('id="login-password"'), "root must be the login page");
+
+  const res = await call(makeEnv(), "GET", "/api");
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.storage, "d1");

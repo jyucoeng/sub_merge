@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.13.0";
+const VERSION = "1.13.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -96,8 +96,8 @@ textarea:focus{border-color:var(--acc)}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
 .tag.manual{color:#b45309;border-color:#fcd34d;background:#fffbeb}
 .tag.auto{color:#1d4ed8;border-color:#bfdbfe;background:#eff6ff}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
-.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
+.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
 .clash-head{display:grid;gap:7px;font-size:11px;color:#8b98a5;padding:0 2px 4px}
 .clash-head.group-head{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
@@ -110,6 +110,7 @@ textarea:focus{border-color:var(--acc)}
 .clash-only-live input{width:14px;height:14px;margin:0}
 .clash-row button{padding:5px 7px}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
+@media(max-width:720px){.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);align-items:center;justify-content:center;padding:20px;z-index:50}
@@ -940,14 +941,19 @@ async function handleRequest(request, env) {
 
   }
 
-  if (request.method === "GET" && path === "/") {
+  // 根路径直接进界面；接口索引挪到 /api（仍带 subscription_base）
+  const wantsJson = path === "/api" || path === "/api/" || request.headers.get("accept") === "application/json";
+  if (request.method === "GET" && (path === "/" || wantsJson) && (path === "/api" || path === "/api/" || path === "/")) {
+    if (path === "/" && !wantsJson) {
+      return html(UI_HTML);
+    }
     return json({
       name: "sub-worker",
       version: VERSION,
       storage: "d1",
       subscription_base: baseUrl(request),
       formats: ["base64", "clash", "proxies", "singbox"],
-      ui: "/ui/:token",
+      ui: "/ui",
       endpoints: [
         "POST /api/v1/report/:machine",
         "GET /sub/:machine/:token",

@@ -585,7 +585,7 @@ D1 只要挂在 Workers Free 计划下就是免费的，额度按**天**结算�
 | `DB` | D1 binding | 是 | 存储订阅内容（`machines` / `settings` 表） |
 | `TOKEN` | Secret | 是 | 上报和读取共用的认证 token |
 
-不需要 `PUBLIC_BASE_URL`；Worker 根路径返回的 `subscription_base` 来自当前请求的 `Origin`。
+不需要 `PUBLIC_BASE_URL`；Worker 的 `/api` 索引返回的 `subscription_base` 来自当前请求的 `Origin`（根路径 `/` 现在是 WebUI）。
 
 ### TOKEN 格式（重要）
 
