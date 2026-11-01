@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.18.1";
+const VERSION = "1.18.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -89,6 +89,9 @@ select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1p
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
+.node.auto-row{grid-template-columns:minmax(0,1fr) 96px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.node.auto-row input.link{grid-column:1/-1}
+.node.auto-row input[readonly]{background:#fbfbfc;color:#555;cursor:text}
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
 textarea:focus{border-color:var(--acc)}
@@ -118,7 +121,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 #login h2{font-size:18px;margin:0 0 4px}#login input{width:100%;margin:12px 0 0}
 #login .row{margin-top:12px}#login .status{margin-top:8px}
 body.locked .wrap{display:none}
-@media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
+@media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node.auto-row{grid-template-columns:1fr 1fr;gap:6px}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
 </head>
 <body class="locked">
@@ -527,9 +530,9 @@ body.locked .wrap{display:none}
       return;
     }
     state.autoNodes.forEach(function (n) {
-      var row = document.createElement("div"); row.className = "node";
-      var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = "只读：来自自动上报";
-      var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true;
+      var row = document.createElement("div"); row.className = "node auto-row";
+      var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = n.link || "";
+      var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true; name.title = n.name || "";
       var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转为手动";
       keep.onclick = function () {
         if (state.nodes.some(function (x) { return x.link.split("#")[0] === n.link.split("#")[0]; })) return;
