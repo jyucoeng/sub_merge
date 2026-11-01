@@ -234,12 +234,47 @@ check("新建机器：第二个名字", names()[1] === "小叮当-洛杉矶-clou
 // C. 保存配置
 click("save");
 await idle();
-check("保存配置：状态文案", text("status").includes("保存成功：2 个节点"), text("status"));
+check("保存配置：状态文案", text("status").includes("已保存 ① 的 2 个手动节点"), text("status"));
 {
   const { data } = await api("/nodes/" + encodeURIComponent("香港-小叮当"));
   const n = data.nodes || [];
   check("保存配置：服务端两条且 order 连续", n.length === 2 && n[0].order === 0 && n[1].order === 1, JSON.stringify(n.map((x) => [x.order, x.protocol])));
   check("保存配置：协议识别", n[0].protocol === "hy2" && n[1].protocol === "tuic", n.map((x) => x.protocol).join(","));
+}
+
+/* 未保存状态、撤销、清空手动节点、切换机器守卫 */
+{
+  check("未保存：初始无徽章", el("dirty-badge").style.display === "none", el("dirty-badge").style.display);
+  check("计数徽章：① 2 个 / ② 0 个", text("manual-count") === "2 个" && text("auto-count") === "0 个", `${text("manual-count")} / ${text("auto-count")}`);
+  click("add");
+  await idle();
+  check("未保存：徽章出现", el("dirty-badge").style.display === "", el("dirty-badge").style.display);
+  check("未保存：保存按钮文案变化", el("save").textContent.includes("未保存"), el("save").textContent);
+  check("未保存：撤销按钮可用", el("discard").disabled === false, String(el("discard").disabled));
+
+  confirms.push(false);
+  const sel = el("machine");
+  sel.value = "auto-hk";
+  sel.onchange.call(sel);
+  await idle();
+  check("切换机器：有未保存修改时被拦下", el("machine").value === "香港-小叮当", el("machine").value);
+
+  click("discard");
+  await idle();
+  check("撤销：回到保存时的 2 条", el("nodes").children.length === 2, `${el("nodes").children.length} 行`);
+  check("撤销：徽章隐藏、按钮恢复", el("dirty-badge").style.display === "none" && !el("save").textContent.includes("未保存"), el("save").textContent);
+
+  confirms.push(true);
+  click("clear-manual");
+  await idle();
+  check("清空手动节点：① 空且标记未保存", el("nodes").children[0].className === "empty" && el("dirty-badge").style.display === "", el("nodes").children[0].className);
+  {
+    const d = (await api("/nodes/" + encodeURIComponent("香港-小叮当"))).data;
+    check("清空手动节点：没保存前服务端不变", (d.manual_nodes || []).length === 2, `${(d.manual_nodes || []).length} 条`);
+  }
+  click("discard");
+  await idle();
+  check("撤销：恢复 2 条", el("nodes").children.length === 2, `${el("nodes").children.length} 行`);
 }
 
 // D. 单条添加 + 失焦自动命名 + 删行
@@ -394,7 +429,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   autoRows()[0].children[2].onclick();
   await idle();
   check("转为手动：手动区出现一条", nodeRows().length === 1, `rows=${nodeRows().length}`);
-  check("转为手动：提示要保存", text("status").includes("已加入手动节点"), text("status"));
+  check("转 ① 手动：提示要保存", text("status").includes("已复制到 ① 手动节点"), text("status"));
   click("save");
   await idle();
   {

@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.14";
+const VERSION = "1.22.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -100,7 +100,12 @@ textarea:focus{border-color:var(--acc)}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:#92400e;background:#fef3c7;border-color:#fde68a}
 .srctag.auto{color:#0e7490;background:#ecfeff;border-color:#a5f3fc}
-.machine .srctag{margin-left:7px;vertical-align:1px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
+.machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px}
+.nsec.auto{background:#fafcff}
+.nsec-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.nstep{width:20px;height:20px;border-radius:50%;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.tag.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}
+.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
 #clash-body.hidden,#sub-body.hidden{display:none}
 .fold{margin-left:8px;padding:3px 10px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--sub);cursor:pointer;vertical-align:1px}
 .fold:hover{border-color:#9db7e0;color:var(--ink)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
@@ -187,17 +192,21 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>节点配置 <span class="tip">先选择机器</span></h2>
-<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" class="admin-only" type="button">重命名</button><button id="reset" class="danger admin-only" type="button">清空手动节点</button></div>
+<h2>节点配置 <span class="tip">一台机器有两层节点：① 手动（你写的，会保存）② 自动上报（只读快照）。两层分开存，合并进订阅时手动在前、自动在后，按链接去重</span><span class="tag auto" id="node-mode">手动</span></h2>
+<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" class="admin-only" type="button">重命名</button><button id="reset" class="admin-only" type="button" title="手动层清空，换回最近一次上报的内容">恢复自动上报</button><button id="clear-manual" class="danger admin-only" type="button" title="只清空①的列表，点保存才写库">清空手动节点</button></div>
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
+<div class="nsec">
+<div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>
 <div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
-<div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
-<div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
+<div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><button id="add" type="button">+ 空节点</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
-<div class="row admin-only" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
-<div class="hint" style="margin-top:16px"><b>自动上报的节点</b>（只读，来自最近一次上报；想长期保留就点「转为手动」）</div>
+<div class="row admin-only"><button id="save" class="primary" type="button">保存配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
+</div>
+<div class="nsec auto">
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
+</div>
 <div id="status" class="status"></div>
 </section>
 
@@ -467,7 +476,7 @@ body.locked .wrap{display:none}
       var want = parseInt(idx.value, 10);
       var to = Math.max(1, Math.min(state.nodes.length, isNaN(want) ? index + 1 : want)) - 1;
       if (!moveItem(state.nodes, index, to)) { idx.value = String(index + 1); return; }
-      render();
+      markDirty(); render();
     };
     idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
     var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...";
@@ -475,10 +484,10 @@ body.locked .wrap{display:none}
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
     var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "×"; del.title = "删除";
-    up.onclick = function () { if (index > 0) { var t = state.nodes[index - 1]; state.nodes[index - 1] = state.nodes[index]; state.nodes[index] = t; render(); } };
-    down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; render(); } };
-    del.onclick = function () { state.nodes.splice(index, 1); render(); };
-    link.oninput = function () { state.nodes[index].link = link.value; };
+    up.onclick = function () { if (index > 0) { var t = state.nodes[index - 1]; state.nodes[index - 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
+    down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
+    del.onclick = function () { state.nodes.splice(index, 1); markDirty(); render(); };
+    link.oninput = function () { state.nodes[index].link = link.value; markDirty(); };
     link.onpaste = function (ev) {
       var text = ev.clipboardData && ev.clipboardData.getData("text");
       if (!text || splitLinkText(text).length < 2) return;
@@ -493,7 +502,7 @@ body.locked .wrap{display:none}
       var auto = nameFromLink(link.value);
       if (auto) { state.nodes[index].name = auto; name.value = auto; }
     };
-    name.oninput = function () { state.nodes[index].name = name.value; };
+    name.oninput = function () { state.nodes[index].name = name.value; markDirty(); };
     row.appendChild(idx); row.appendChild(link); row.appendChild(name); row.appendChild(up); row.appendChild(down); row.appendChild(del);
     return row;
   }
@@ -551,7 +560,21 @@ body.locked .wrap{display:none}
     list.splice(to, 0, item);
     return true;
   }
+  function counts() {
+    var m = $("manual-count"), a = $("auto-count");
+    if (m) m.textContent = (state.nodes || []).length + " 个";
+    if (a) a.textContent = (state.autoNodes || []).length + " 个";
+  }
+  function syncDirty() {
+    var badge = $("dirty-badge"); if (badge) badge.style.display = state.dirty ? "" : "none";
+    var save = $("save"); if (save) save.textContent = state.dirty ? "保存配置（有未保存修改）" : "保存配置";
+    var undo = $("discard"); if (undo) undo.disabled = !state.dirty;
+  }
+  function snapshotNodes() { state.saved = JSON.parse(JSON.stringify(state.nodes || [])); }
+  function markDirty() { state.dirty = true; syncDirty(); }
+  function markClean() { state.dirty = false; snapshotNodes(); syncDirty(); }
   function render() {
+    counts(); syncDirty();
     var box = $("nodes"); box.innerHTML = "";
     if (!state.nodes.length) {
       var e = document.createElement("div"); e.className = "empty";
@@ -828,12 +851,12 @@ body.locked .wrap{display:none}
       var row = document.createElement("div"); row.className = "node auto-row";
       var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = n.link || "";
       var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true; name.title = n.name || "";
-      var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转为手动";
+      var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转 ① 手动"; keep.title = "把这条复制进 ① 手动节点（还要点 ① 的保存）";
       keep.onclick = function () {
         if (state.nodes.some(function (x) { return x.link.split("#")[0] === n.link.split("#")[0]; })) return;
         state.nodes.push({ link: n.link, name: n.name || "" });
-        render();
-        setStatus("已加入手动节点，点「保存配置」生效", true);
+        markDirty(); render();
+        setStatus("已复制到 ① 手动节点（还没保存）：点 ① 的「保存配置」才写进库", true);
       };
       row.appendChild(link); row.appendChild(name); row.appendChild(keep);
       box.appendChild(row);
@@ -897,13 +920,15 @@ body.locked .wrap{display:none}
     $("url-singbox").textContent = base + "?format=singbox";
   }
   function loadNodes(quiet) {
-    if (!state.current) { state.nodes = []; state.autoNodes = []; render(); renderAutoNodes(); return Promise.resolve(); }
+    if (!state.current) { state.nodes = []; state.autoNodes = []; render(); renderAutoNodes(); markClean(); return Promise.resolve(); }
     if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.sources = data.sources || [];
-      render(); renderAutoNodes();
+      var badge = $("node-mode");
+      if (badge) { badge.textContent = data.manual ? "手动接管" : "自动上报"; badge.className = "tag " + (data.manual ? "warn" : "auto"); }
+      render(); renderAutoNodes(); markClean();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
@@ -912,7 +937,10 @@ body.locked .wrap{display:none}
       state.machines = data.machines || []; renderMachines(); renderMachineList(); return loadNodes(quiet);
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
-  $("machine").onchange = function () { state.current = this.value; loadNodes(); };
+  $("machine").onchange = function () {
+    if (state.dirty && !window.confirm("① 手动节点有未保存的修改，切换机器会丢掉，继续？")) { this.value = state.current || ""; return; }
+    state.current = this.value; loadNodes();
+  };
   $("save-machine-order").onclick = function () {
     var machines = state.machines.map(function (m) { return m.machine; });
     var el = $("order-status"); el.textContent = "保存中..."; el.className = "status";
@@ -948,14 +976,15 @@ body.locked .wrap{display:none}
   $("sub-all").onclick = function () { applySubBulk("all"); };
   $("sub-only").onclick = function () { applySubBulk("only"); };
   $("sub-none").onclick = function () { applySubBulk("none"); };
-  $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); render(); };
+  $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); markDirty(); render(); $("nodes").lastChild && $("nodes").lastChild.querySelector && $("nodes").lastChild.querySelector("input.link").focus(); };
   $("bulk-add").onclick = function () {
     var box = $("bulk"), tip = $("bulk-status");
     var text = box.value;
     if (!splitLinkText(text).length) { tip.textContent = "没识别到节点链接"; return; }
     var r = addLinks(text);
     box.value = "";
-    tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点保存配置";
+    if (r.added) markDirty();
+    tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
   };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);
@@ -965,7 +994,7 @@ body.locked .wrap{display:none}
     });
     setStatus("保存中...");
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
-      .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(true); })
+      .then(function (data) { markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true); return loadMachines(true); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
@@ -1026,8 +1055,22 @@ body.locked .wrap{display:none}
         .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
+  $("discard").onclick = function () {
+    if (!state.dirty) return;
+    state.nodes = JSON.parse(JSON.stringify(state.saved || []));
+    state.dirty = false;
+    render();
+    setStatus("已撤销未保存的修改", true);
+  };
+  $("clear-manual").onclick = function () {
+    if (!state.current) return setStatus("先选一台机器", false);
+    if (!state.nodes.length) return setStatus("① 里没有手动节点，不用清空", false);
+    if (!window.confirm("清空 ① 手动节点？点「保存配置」前可以用「撤销修改」还原，确定？")) return;
+    state.nodes = []; markDirty(); render();
+    setStatus("① 已清空，点「保存配置」才会写进库", true);
+  };
   $("reset").onclick = function () {
-    if (!state.current || !confirm("清空这台机器的手动节点？清空后只剩自动上报的节点，手写的内容会丢，确定？")) return;
+    if (!state.current || !window.confirm("恢复自动上报？这台机器的 ① 会被清空、节点换回最近一次上报的内容，立即生效，确定？")) return;
     api("/machines/" + encodeURIComponent(state.current) + "/reset", { method: "POST" })
       .then(function (data) {
         setStatus(data && data.cleared === false
@@ -1037,6 +1080,12 @@ body.locked .wrap{display:none}
       })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
   };
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("beforeunload", function (ev) {
+      if (!state.dirty) return;
+      ev.preventDefault(); ev.returnValue = "";
+    });
+  }
   document.addEventListener("click", function (ev) {
     var id = ev.target && ev.target.getAttribute("data-copy");
     if (!id) return;
