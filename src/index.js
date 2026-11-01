@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.6";
+const VERSION = "1.22.7";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -230,8 +230,8 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
 <div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
-<div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 在订阅 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
-<div class="hint" style="margin-top:4px">芯片样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
+<div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；胶囊上的数字 = 在订阅 / 全部。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
+<div class="hint" style="margin-top:4px">胶囊样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
 </div>
@@ -625,7 +625,7 @@ body.locked .wrap{display:none}
     });
     return out;
   }
-  /* 分面筛选：ignore 用来算「某个芯片自己的候选数量」——统计它时不算它自己那一维。 */
+  /* 分面筛选：ignore 用来算「某个胶囊自己的候选数量」——统计它时不算它自己那一维。 */
   function subVisible(ignore) {
     ignore = ignore || {};
     var q = String(state.sub.search || "").trim().toLowerCase();
