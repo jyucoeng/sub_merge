@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.12";
+const VERSION = "1.21.13";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -101,7 +101,7 @@ textarea:focus{border-color:var(--acc)}
 .srctag.manual{color:#92400e;background:#fef3c7;border-color:#fde68a}
 .srctag.auto{color:#0e7490;background:#ecfeff;border-color:#a5f3fc}
 .machine .srctag{margin-left:7px;vertical-align:1px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
-#clash-body.hidden{display:none}
+#clash-body.hidden,#sub-body.hidden{display:none}
 .fold{margin-left:8px;padding:3px 10px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--sub);cursor:pointer;vertical-align:1px}
 .fold:hover{border-color:#9db7e0;color:var(--ink)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
@@ -202,7 +202,8 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span></h2>
+<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span><button id="sub-toggle" class="fold" type="button">展开</button></h2>
+<div id="sub-body" class="hidden">
 <div class="row" style="margin-top:10px">
   <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
   <button id="sub-all" type="button">全选</button>
@@ -217,6 +218,7 @@ body.locked .wrap{display:none}
 <div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 在订阅 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
+</div>
 </section>
 
 <section class="card">
@@ -932,6 +934,15 @@ body.locked .wrap{display:none}
     setClashOpen(!clashOpen);
     if (clashOpen && typeof refreshClashCoverage === "function") refreshClashCoverage();
   };
+  var subOpen = false;
+  function setSubOpen(open) {
+    subOpen = open;
+    $("sub-body").className = open ? "" : "hidden";
+    $("sub-toggle").textContent = open ? "收起" : "展开";
+    $("sub-toggle").title = open ? "收起节点清单" : "展开节点清单，勾选要进订阅的节点";
+  }
+  setSubOpen(false);
+  $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
   $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
