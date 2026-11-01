@@ -1195,3 +1195,68 @@ test("clash rules endpoints require the token", async () => {
     assert.equal(res.status, 401, `${method} ${path} must need a token`);
   }
 });
+
+test("admin password login, guest read-only session", async () => {
+  const env = makeEnv();
+  const admin = { authorization: `Bearer ${TOKEN}` };
+  await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01"), admin);
+
+  // 未设置密码时只有 TOKEN 能登录
+  let res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "Sh94ghdf@" }), { "content-type": "application/json" });
+  assert.equal(res.status, 401);
+
+  // 设置管理员密码
+  res = await call(env, "POST", "/api/v1/auth/password", JSON.stringify({ password: "Sh94ghdf@" }), { ...admin, "content-type": "application/json" });
+  assert.equal(res.status, 200);
+
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "Sh94ghdf@" }), { "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  let data = await res.json();
+  assert.equal(data.role, "admin");
+  assert.equal(data.token, "Sh94ghdf@");
+
+  // 游客模式没开：/auth/guest 不能拿到码
+  res = await call(env, "GET", "/api/v1/auth/guest", null, { authorization: "Bearer Sh94ghdf@" });
+  assert.equal(res.status, 200);
+  data = await res.json();
+  assert.equal(data.enabled, false);
+
+  // 开启游客
+  res = await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: true }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  const guestToken = (await res.json()).token;
+  assert.ok(guestToken && guestToken.length >= 8);
+
+  // 游客：读得到机器，但节点里没有 link
+  res = await call(env, "GET", "/api/v1/nodes/box", null, { authorization: `Bearer ${guestToken}` });
+  assert.equal(res.status, 200);
+  data = await res.json();
+  assert.equal(data.role, "guest");
+  assert.equal(data.nodes.length, 1);
+  assert.equal(data.nodes[0].link, undefined);
+  assert.equal(data.nodes[0].name, "香港-01");
+
+  // 游客：写操作 403
+  res = await call(env, "PUT", "/api/v1/nodes/box", JSON.stringify({ nodes: [] }), { authorization: `Bearer ${guestToken}`, "content-type": "application/json" });
+  assert.equal(res.status, 403);
+  data = await res.json();
+  assert.equal(data.error, "read-only guest session");
+
+  // 游客码也能当登录密码用（登录页/直达都行）
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: guestToken }), { "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).role, "guest");
+
+  // 关掉游客后旧码立刻失效
+  await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: false }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${guestToken}` });
+  assert.equal(res.status, 401);
+});
+
+test("ui page is reachable without a token so people can log in", async () => {
+  const res = await call(makeEnv(), "GET", "/ui");
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  assert.ok(body.includes('id="login-password"'));
+  assert.ok(body.includes("以游客身份浏览"));
+});

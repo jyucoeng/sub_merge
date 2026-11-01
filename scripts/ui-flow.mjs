@@ -656,6 +656,59 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("分流规则：默认配置里没有自定义分组", !clashBack.includes("⚡ 自定义组") && !clashBack.includes("myproxy"));
 }
 
+/* ---------------- 登录与角色 ---------------- */
+{
+  const session = await api("/auth/session");
+  check("会话：管理员角色", session.status === 200 && session.data.role === "admin", JSON.stringify(session.data));
+  check("登录浮层：管理员登录后隐藏", el("login").style.display === "none", el("login").style.display);
+  check("登录浮层：页面里有密码框和游客按钮", Boolean(el("login-password")) && Boolean(el("login-guest")));
+  check("访问控制卡：页面里有密码/游客码输入", html.includes('id="card-access"') && html.includes('id="admin-password"') && html.includes('id="guest-token"'));
+  check("订阅链接卡：对游客隐藏（admin-only）", /id="card-sub"/.test(html) && /class="card admin-only" id="card-sub"/.test(html));
+  check("游客样式：guest 时隐藏管理动作", html.includes("body.guest .admin-only{display:none!important}"));
+
+  // 造一台机器，然后用游客码读
+  await api("/nodes/guest-check", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: HY2, name: "游客不该看到我", order: 0 }] }),
+  });
+  const guest = await api("/auth/guest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true }),
+  });
+  check("游客：开启后拿到只读码", guest.status === 200 && String(guest.data.token || "").length >= 8, String(guest.data.token || "").slice(0, 6));
+
+  const guestAuth = { Authorization: "Bearer " + guest.data.token };
+  const read = await netFetch(`${BASE}/api/v1/nodes/guest-check`, { headers: guestAuth });
+  const readData = await read.json();
+  check("游客：读得到节点但没有链接", read.status === 200 && readData.nodes.length === 1 && readData.nodes[0].link === undefined && readData.nodes[0].name === "游客不该看到我", JSON.stringify(readData.nodes));
+  check("游客：会话角色为 guest", readData.role === "guest", readData.role);
+
+  const write = await netFetch(`${BASE}/api/v1/nodes/guest-check`, {
+    method: "PUT",
+    headers: Object.assign({ "Content-Type": "application/json" }, guestAuth),
+    body: JSON.stringify({ nodes: [] }),
+  });
+  check("游客：写操作被拒 403", write.status === 403, String(write.status));
+
+  const badLogin = await netFetch(`${BASE}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "wrong-password" }),
+  });
+  check("登录：错误密码 401", badLogin.status === 401, String(badLogin.status));
+
+  await api("/auth/guest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: false }),
+  });
+  const off = await netFetch(`${BASE}/api/v1/machines`, { headers: guestAuth });
+  check("游客：关闭后旧码立刻失效", off.status === 401, String(off.status));
+  await api("/machines/guest-check", { method: "DELETE" });
+}
+
 /* ---------------- 清场 + 汇总 ---------------- */
 {
   const { data } = await api("/machines");

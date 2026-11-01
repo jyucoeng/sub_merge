@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.11";
+const VERSION = "1.10.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -119,29 +119,48 @@ textarea:focus{border-color:var(--acc)}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
+#login{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);align-items:center;justify-content:center;padding:20px;z-index:50}
+#login .box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px rgba(15,23,42,.28)}
+#login h2{font-size:18px;margin:0 0 4px}#login input{width:100%;margin:12px 0 0}
+#login .row{margin-top:12px}#login .status{margin-top:8px}
+body.locked .wrap{display:none}
+body.guest .admin-only{display:none!important}
+body.guest .node input,body.guest .node button,body.guest .machine button,body.guest .machine input,
+body.guest .clash-row button,body.guest .clash-row input,body.guest .clash-row select,
+body.guest #bulk,body.guest #new-machine{background:transparent;border-color:transparent;pointer-events:none;color:var(--sub)}
+body.guest .node button,body.guest .clash-row button{display:none}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
 </head>
-<body>
+<body class="locked">
+<div id="login">
+<div class="box">
+<h2>sub-worker 登录</h2>
+<div class="hint">管理员密码可以在下面「访问控制」里改；游客只能用只读码浏览，节点链接不会下发。</div>
+<input id="login-password" type="password" autocomplete="current-password" placeholder="管理员密码" spellcheck="false">
+<div class="row"><button id="login-submit" class="primary" type="button">登录</button><button id="login-guest" type="button">以游客身份浏览</button></div>
+<div id="login-status" class="status"></div>
+</div>
+</div>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><span class="ver" id="version">v${VERSION}</span></div>
+<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
 <div id="machine-list" class="machine-list"></div>
-<div class="row" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
+<div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
 <div id="order-status" class="status"></div>
 </section>
 
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
-<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" type="button">重命名</button><button id="reset" class="danger" type="button">清空手动节点</button></div>
-<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
-<div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
+<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" class="admin-only" type="button">重命名</button><button id="reset" class="danger admin-only" type="button">清空手动节点</button></div>
+<div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
+<div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
 <div id="nodes" class="nodes"></div>
-<div class="row" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
+<div class="row admin-only" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
 <div class="hint" style="margin-top:16px"><b>自动上报的节点</b>（只读，来自最近一次上报；想长期保留就点「转为手动」）</div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
@@ -151,7 +170,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span></h2>
 <div class="hint">分组决定 Clash 里有哪些策略组，规则来源决定 <code>rule-providers</code> 和 <code>RULE-SET</code> 的顺序。规则文件由客户端自己下载（每 24 小时），服务端只发引用。改完点「保存规则」，客户端重新拉订阅即生效；点「恢复默认」回到内置的 ACL4SSR 那一套。</div>
-<div class="row" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button><label class="clash-only-live"><input type="checkbox" id="clash-hide-empty" /> 只看有节点的分组</label></div>
+<div class="row admin-only" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button><label class="clash-only-live"><input type="checkbox" id="clash-hide-empty" /> 只看有节点的分组</label></div>
 <div class="hint" style="margin-top:14px"><b>分组</b> <span class="tag auto" id="clash-group-count">0</span> 国家组只填「过滤」，功能组只填「成员」；两个都空的分组会被拒绝，没有任何节点匹配的分组不会输出</div>
 <div class="clash-head group-head"><span>分组名</span><span>类型</span><span>过滤（正则，匹配节点名）</span><span>成员（分组名，逗号分隔）</span><span></span></div>
 <div id="clash-groups" class="clash-table"></div>
@@ -161,7 +180,16 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <div id="clash-status" class="status"></div>
 </section>
 
-<section class="card">
+<section class="card admin-only" id="card-access">
+<h2>访问控制 <span class="tip">管理员密码可自定义，游客只读</span></h2>
+<div class="hint">管理员密码存在 D1 里（只存 SHA-256），登录后所有编辑操作都用它；订阅链接里的 TOKEN 是另一回事，只负责拉订阅。游客码只能看机器名、节点名和分组结构，<b>拿不到节点链接</b>，也改不了任何东西。</div>
+<div class="row" style="margin-top:12px"><label>新管理员密码</label><input id="admin-password" type="password" autocomplete="new-password" placeholder="至少 8 位" style="min-width:240px"><button id="save-password" class="primary" type="button">保存密码</button></div>
+<div class="row" style="margin-top:10px"><label><input id="guest-enabled" type="checkbox" style="width:15px;height:15px;vertical-align:-3px"> 开启游客只读</label><input id="guest-token" readonly spellcheck="false" placeholder="（游客码）" style="min-width:300px;font-family:ui-monospace,Consolas,monospace"><button id="toggle-guest" class="primary" type="button">保存</button><button id="rotate-guest" type="button">换一个游客码</button></div>
+<div class="hint">游客直接访问 <code>/ui</code>，点「以游客身份浏览」即可，不需要输入码。</div>
+<div id="access-status" class="status"></div>
+</section>
+
+<section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
 <div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button></div>
 <div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
@@ -173,7 +201,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <script>
 (function () {
   "use strict";
-  var TOKEN = decodeURIComponent((location.pathname.split("/").pop() || ""));
+  var TOKEN = "";
+  var ROLE = null;
   var state = { machines: [], current: "", nodes: [] };
   var $ = function (id) { return document.getElementById(id); };
 
@@ -809,7 +838,157 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .catch(function (error) { clashStatus("恢复失败：" + error.message, false); });
   };
 
-  renderUrls(); loadMachines(); loadClash();
+  /* ---------------- 登录 / 角色 ---------------- */
+  function storeToken(token) {
+    TOKEN = token || "";
+    try {
+      if (TOKEN) window.localStorage.setItem("sub-worker-token", TOKEN);
+      else window.localStorage.removeItem("sub-worker-token");
+    } catch (e) { /* 隐身模式忽略 */ }
+  }
+  function urlToken() {
+    var last = decodeURIComponent((location.pathname.split("/").pop() || ""));
+    return last && last !== "ui" ? last : "";
+  }
+  function savedToken() {
+    try { return window.localStorage.getItem("sub-worker-token") || ""; } catch (e) { return ""; }
+  }
+  function showLogin(show) {
+    var box = $("login");
+    if (!box) return;
+    box.style.display = show ? "flex" : "none";
+  }
+  function loginStatus(text, ok) {
+    var el = $("login-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+  function applyRole(role) {
+    ROLE = role;
+    var guest = role !== "admin";
+    document.body.className = guest ? "guest" : "";
+    var card = $("card-access");
+    if (card) card.style.display = guest ? "none" : "";
+  }
+
+  function boot() {
+    var token = urlToken() || savedToken();
+    if (!token) { showLogin(true); return; }
+    TOKEN = token;
+    api("/auth/session")
+      .then(function (data) {
+        storeToken(token);
+        applyRole(data.role);
+        showLogin(false);
+        start();
+      })
+      .catch(function () {
+        storeToken("");
+        showLogin(true);
+        loginStatus("登录已过期，请重新登录", false);
+      });
+  }
+  function start() {
+    renderUrls();
+    loadMachines();
+    loadClash();
+    loadAccess();
+  }
+
+  $("login-submit").onclick = function () {
+    var password = String($("login-password").value || "").trim();
+    if (!password) return loginStatus("请输入密码", false);
+    loginStatus("登录中…");
+    fetch("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: password }),
+    })
+      .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.data.ok) throw new Error(res.data.error || "登录失败");
+        $("login-password").value = "";
+        storeToken(res.data.token);
+        applyRole(res.data.role);
+        showLogin(false);
+        start();
+      })
+      .catch(function (error) { loginStatus(error.message, false); });
+  };
+  $("login-guest").onclick = function () {
+    loginStatus("进入游客模式…");
+    fetch("/api/v1/auth/guest")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) throw new Error("游客模式未开启，请让管理员在「访问控制」里打开");
+        storeToken(data.token);
+        applyRole("guest");
+        showLogin(false);
+        start();
+      })
+      .catch(function (error) { loginStatus(error.message, false); });
+  };
+  $("logout").onclick = function () {
+    storeToken("");
+    ROLE = null;
+    showLogin(true);
+    loginStatus("已退出登录", true);
+  };
+
+  /* ---------------- 访问控制（管理员） ---------------- */
+  function accessStatus(text, ok) {
+    var el = $("access-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+  function loadAccess() {
+    if (ROLE !== "admin") return;
+    api("/auth/guest")
+      .then(function (data) {
+        $("guest-enabled").checked = Boolean(data.enabled);
+        $("guest-token").value = data.token || "";
+        $("guest-token").placeholder = data.token ? "" : "（还没有游客码）";
+      })
+      .catch(function () { /* 首次还没有游客码 */ });
+  }
+  $("save-password").onclick = function () {
+    var password = String($("admin-password").value || "").trim();
+    if (password.length < 8) return accessStatus("密码至少 8 位", false);
+    accessStatus("保存中…");
+    api("/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: password }) })
+      .then(function () {
+        $("admin-password").value = "";
+        storeToken(password);
+        accessStatus("管理员密码已更新（下次登录用新密码）", true);
+      })
+      .catch(function (error) { accessStatus("保存失败：" + error.message, false); });
+  };
+  $("toggle-guest").onclick = function () {
+    var enabled = $("guest-enabled").checked;
+    accessStatus("保存中…");
+    api("/auth/guest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: enabled }) })
+      .then(function (data) {
+        $("guest-token").value = data.token || "";
+        $("guest-enabled").checked = Boolean(data.enabled);
+        accessStatus(data.enabled ? "游客模式已开启，把游客码发给对方即可只读浏览" : "游客模式已关闭", true);
+      })
+      .catch(function (error) { accessStatus("保存失败：" + error.message, false); });
+  };
+  $("rotate-guest").onclick = function () {
+    if (!window.confirm("换一个新的游客码？旧码立刻失效。")) return;
+    accessStatus("生成中…");
+    api("/auth/guest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rotate: true, enabled: true }) })
+      .then(function (data) {
+        $("guest-token").value = data.token || "";
+        $("guest-enabled").checked = true;
+        accessStatus("已换新游客码", true);
+      })
+      .catch(function (error) { accessStatus("生成失败：" + error.message, false); });
+  };
+
+  boot();
 })();
 </script>
 </body>
@@ -831,6 +1010,16 @@ async function handleRequest(request, env) {
 
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (request.method === "GET" && path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
+
+  // 会话先判：/api/v1/* 除登录、游客入口、上报外，统一在这里定角色
+  const openApi = /^\/api\/v1\/(auth\/(login|guest|session|password)|report\/)/.test(path);
+  let session = null;
+  if (path.startsWith("/api/v1/") && !openApi) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    session = await sessionOf(request, env);
+    if (!session) return unauthorized();
+    if (session.role !== "admin" && request.method !== "GET") return json({ ok: false, error: "read-only guest session" }, 403);
+  }
 
   if (request.method === "GET" && path === "/") {
     return json({
@@ -859,6 +1048,11 @@ async function handleRequest(request, env) {
     });
   }
 
+  if (path === "/ui" || path === "/ui/") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return html(UI_HTML);
+  }
+
   let m = path.match(/^\/ui\/([^/]+)$/);
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
@@ -867,11 +1061,78 @@ async function handleRequest(request, env) {
     return html(UI_HTML);
   }
 
+  // 登录：密码 = 管理员密码（或 TOKEN），也能用游客码登录
+  if (path === "/api/v1/auth/login") {
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    if (!dbEnv(env)) return missingConfig("DB");
+    let data = {};
+    try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+    const password = typeof data.password === "string" ? data.password.trim() : "";
+    if (!password) return json({ ok: false, error: "password is required" }, 400);
+    if (await isAdminToken(env, password)) return json({ ok: true, role: "admin", token: password });
+    if (await isGuestToken(env, password)) return json({ ok: true, role: "guest", token: password });
+    return json({ ok: false, error: "wrong password" }, 401);
+  }
+
+  // 游客入口：管理员开启了才能拿到只读码
+  if (path === "/api/v1/auth/guest") {
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method === "GET") {
+      const current = await sessionOf(request, env);
+      if (!current || current.role !== "admin") return unauthorized();
+      const guest = await guestConfig(env);
+      return json({ ok: true, enabled: guest.enabled, token: guest.token });
+    }
+    if (request.method === "POST") {
+      const current = await sessionOf(request, env);
+      if (!current || current.role !== "admin") return unauthorized();
+      let data = {};
+      try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+      const guest = await guestConfig(env);
+      let token = guest.token;
+      if (data && data.rotate) token = randomHex(16);
+      if (!token) token = randomHex(16);
+      const enabled = data && data.enabled === false ? false : true;
+      await putSetting(env, AUTH_GUEST_KEY, token);
+      await putSetting(env, AUTH_GUEST_ON, enabled ? "1" : "0");
+      return json({ ok: true, enabled, token });
+    }
+    return methodNotAllowed("GET, POST");
+  }
+
+  if (path === "/api/v1/auth/guest-token" && request.method === "POST") {
+    const current = await sessionOf(request, env);
+    if (!current || current.role !== "admin") return unauthorized();
+    const token = randomHex(16);
+    await putSetting(env, AUTH_GUEST_KEY, token);
+    return json({ ok: true, token, enabled: (await guestConfig(env)).enabled });
+  }
+
+  if (path === "/api/v1/auth/session") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    const current = await sessionOf(request, env);
+    if (!current) return unauthorized();
+    return json({ ok: true, role: current.role });
+  }
+
+  if (path === "/api/v1/auth/password") {
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    const current = await sessionOf(request, env);
+    if (!current || current.role !== "admin") return unauthorized();
+    let data = {};
+    try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+    const password = typeof data.password === "string" ? data.password.trim() : "";
+    if (password.length < 8) return json({ ok: false, error: "password must be at least 8 characters" }, 400);
+    if (password.length > 128) return json({ ok: false, error: "password is too long" }, 400);
+    if (checkToken(password, authToken(env))) return json({ ok: false, error: "password must differ from the subscription token" }, 400);
+    await putSetting(env, AUTH_ADMIN_KEY, await sha256Hex(password));
+    return json({ ok: true, role: "admin" });
+  }
+
   m = path.match(/^\/api\/v1\/admin\/schema$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     return initSchema(env);
   }
 
@@ -884,11 +1145,10 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     const machine = decodeURIComponent(m[1]);
     if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
-    if (request.method === "GET") return getNodeConfig(env, machine);
+    if (request.method === "GET") return getNodeConfig(env, machine, session ? session.role : null);
     if (request.method === "PUT") return putNodeConfig(request, env, machine);
     return methodNotAllowed("GET, PUT");
   }
@@ -896,7 +1156,6 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return resetMachine(env, decodeURIComponent(m[1]));
@@ -905,14 +1164,12 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/sources\/([^/]+)$/);
   if (m) {
     if (request.method !== "DELETE") return methodNotAllowed("DELETE");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     return deleteSource(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]));
   }
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/rename$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return renameMachine(request, env, decodeURIComponent(m[1]));
@@ -921,7 +1178,6 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/machines\/order$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return json({ ok: true, machine_order: await getMachineOrder(env) });
     if (request.method !== "PUT") return methodNotAllowed("GET, PUT");
@@ -931,7 +1187,6 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/machines(?:\/([^/]+))?$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET" && !m[1]) return listMachines(env);
     if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
@@ -941,7 +1196,6 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/clash\/rules$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return getClashRules(env);
     if (request.method === "PUT") return putClashRules(request, env);
@@ -952,7 +1206,6 @@ async function handleRequest(request, env) {
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     return json({ ok: true, defaults: true, ...defaultClashRules() });
   }
 
@@ -960,7 +1213,6 @@ async function handleRequest(request, env) {
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
     if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkBearer(request, authToken(env))) return unauthorized();
     if (!dbEnv(env)) return missingConfig("DB");
     await resetClashRules(env);
     const doc = await loadClashRules(env);
@@ -989,6 +1241,54 @@ async function handleRequest(request, env) {
 }
 
 function authToken(env) { return (env && env.TOKEN) || ""; }
+
+/* ---- 会话：管理员密码 / 游客只读码 ---- */
+const AUTH_ADMIN_KEY = "admin_password_sha";
+const AUTH_GUEST_KEY = "guest_token";
+const AUTH_GUEST_ON = "guest_enabled";
+
+function bearerOf(request) {
+  const header = request.headers.get("authorization") || "";
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : "";
+}
+async function adminPasswordHash(env) {
+  try { return await getSetting(env, AUTH_ADMIN_KEY); } catch { return null; }
+}
+async function isAdminToken(env, token) {
+  if (!token) return false;
+  if (checkToken(token, authToken(env))) return true;
+  const hash = await adminPasswordHash(env);
+  if (!hash) return false;
+  return checkToken(await sha256Hex(token), hash);
+}
+async function guestConfig(env) {
+  let token = "";
+  let flag = null;
+  try {
+    token = (await getSetting(env, AUTH_GUEST_KEY)) || "";
+    flag = await getSetting(env, AUTH_GUEST_ON);
+  } catch {
+    return { token: "", enabled: false };
+  }
+  return { token, enabled: flag === "1" && Boolean(token) };
+}
+async function isGuestToken(env, token) {
+  if (!token) return false;
+  const guest = await guestConfig(env);
+  return guest.enabled && checkToken(token, guest.token);
+}
+async function sessionOf(request, env) {
+  const token = bearerOf(request);
+  if (!token) return null;
+  if (await isAdminToken(env, token)) return { role: "admin", token };
+  if (await isGuestToken(env, token)) return { role: "guest", token };
+  return null;
+}
+// 游客只读：只给名字和协议，链接里是节点密码，不能下发
+function guestNodes(nodes) {
+  return (nodes || []).map((node) => ({ name: node.name, protocol: node.protocol, order: node.order }));
+}
 function baseUrl(request) { return new URL(request.url).origin; }
 function dbEnv(env) { return env && env.DB ? env.DB : null; }
 
@@ -1415,18 +1715,22 @@ async function putClashRules(request, env) {
   return json({ ok: true, custom: true, groups: saved.groups, rulesets: saved.rulesets, updated_at: saved.updated_at });
 }
 
-async function getNodeConfig(env, machine) {
+async function getNodeConfig(env, machine, role) {
+  const guest = role !== "admin";
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [] });
+  const nodes = await nodesOf(record);
+  const autoNodes = await autoNodesOf(record);
   return json({
     ok: true,
     machine,
+    role: guest ? "guest" : "admin",
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: await nodesOf(record),
-    manual_nodes: record.manual_nodes || [],
-    auto_nodes: await autoNodesOf(record),
+    nodes: guest ? guestNodes(nodes) : nodes,
+    manual_nodes: guest ? guestNodes(record.manual_nodes || []) : record.manual_nodes || [],
+    auto_nodes: guest ? guestNodes(autoNodes) : autoNodes,
     sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
   });
 }
@@ -2481,6 +2785,11 @@ function checkToken(actual, expected) {
   let diff = 0;
   for (let i = 0; i < actual.length; i++) diff |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return [...buf].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function sha256Hex(text) {
   const data = new TextEncoder().encode(text);
