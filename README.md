@@ -686,12 +686,35 @@ Worker 端**没有生成规则**：名字就是上报 URL 路径里那一段（`
 | `scripts/report.py --url --name 中文名` | 显式中文名，原样发送（路径自动编码） | `--name 香港-小叮当` |
 | `scripts/report.py --url --name` | 显式给的 `--name` | `--name hk-1` |
 | `scripts/report.py --source` | 上报来源（默认本机主机名） | `--source box-a` |
+| `scripts/report.py --links nodes.txt` | 机器名 = 这些节点名的**公共前缀** | 4 条 `…-荷兰阿姆斯特丹-*` → `小叮当-淡-荷兰阿姆斯特丹` |
 | singbox-manager | `sub_machine='...'` 配置值 | `sub_machine='sgw-1'` |
 | 自己写的客户端 | 自己拼的路径 | `curl .../api/v1/report/us-la` |
 
 `--from-hostname` 的转换规则：小写、非字母数字替换成 `-`、去掉首尾 `-`、截断到 63 字符；结果为空或首字符不是字母数字时补前缀 `machine-`。
 
 同一个名字 + 同一个 `source` 重复上报 = 覆盖那一份（内容 hash 不变则跳过写入）。名字在多机部署里建议写成 `地区-用途-序号`；万一两块机器同名，用 `?source=` 区分即可，不会互相覆盖。
+
+### 直接拿节点链接上报
+
+手上只有一串节点链接（没有订阅 URL）时，把链接写进文件用 `--links` 直接上报，机器名自动取这些节点名的公共前缀：
+
+```bash
+cat > nodes.txt <<'EOF'
+hysteria2://...@1.2.3.4:31004?...#小叮当-淡-荷兰阿姆斯特丹-hy2-NLEFNI
+tuic://...@1.2.3.4:31005?...#小叮当-淡-荷兰阿姆斯特丹-tuic-NLEFNI
+vless://...@1.2.3.4:31003?...#小叮当-淡-荷兰阿姆斯特丹-vless-reality-NLEFNI
+trojan://...@saas.example:8443?...#小叮当-淡-荷兰阿姆斯特丹-trojan-ws-tls-argo-NLEFNI-8443
+EOF
+
+pnpm exec python3 scripts/report.py --base https://<worker> --token $TOKEN \
+  --links nodes.txt --source nlefni
+# 节点 4 条 -> 机器「小叮当-淡-荷兰阿姆斯特丹」
+# 小叮当-淡-荷兰阿姆斯特丹: source=nlefni changed=True nodes=4
+```
+
+- 每行一条，空行和 `#` 开头的行跳过，重复链接自动去掉；
+- 机器名 = 所有 `#` 片段（URL 解码后）的公共前缀，去掉结尾的 `-` `_` `.` 空格；推不出来（没有片段或毫无共同前缀）就用 `--name` 指定；
+- 想先看会生成什么名字，加 `--dry-run`。
 
 ## 与 singbox-manager 集成
 

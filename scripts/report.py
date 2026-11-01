@@ -21,6 +21,7 @@ machines.json:
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -51,6 +52,52 @@ def is_valid_machine(name):
     return all(ch.isalnum() or ch in " _.-" for ch in name)
 
 
+def read_links(paths):
+    """读节点链接：每行一条，忽略空行和 # 开头的注释行，保留顺序去重。"""
+    links, seen = [], set()
+    for path in paths:
+        if path == "-":
+            text = sys.stdin.read()
+        else:
+            text = open(path, encoding="utf-8").read()
+        for raw in text.replace("\r", "").split("\n"):
+            line = raw.strip()
+            if not line or line.startswith("#") or "://" not in line:
+                continue
+            if line in seen:
+                continue
+            seen.add(line)
+            links.append(line)
+    if not links:
+        sys.exit("没有读到节点链接（每行一条，形如 hysteria2://...）")
+    return links
+
+
+def node_name(link):
+    """取链接 # 片段并 URL 解码，没有就空串。"""
+    if "#" not in link:
+        return ""
+    frag = link.split("#", 1)[1]
+    return urllib.parse.unquote(frag).strip()
+
+
+def name_from_links(links):
+    """机器名 = 所有节点名的公共前缀（去掉结尾的分隔符）。"""
+    names = [node_name(link) for link in links]
+    names = [name for name in names if name]
+    if not names:
+        return ""
+    prefix = names[0]
+    for name in names[1:]:
+        i = 0
+        while i < min(len(prefix), len(name)) and prefix[i] == name[i]:
+            i += 1
+        prefix = prefix[:i]
+        if not prefix:
+            break
+    return prefix.rstrip(" -_.|/")
+
+
 def curl(args):
     return subprocess.check_output(["curl", "-fsSL", *args])
 
@@ -60,6 +107,13 @@ def main():
     ap.add_argument("--base", default=os.environ.get("SUB_WORKER_BASE", ""))
     ap.add_argument("--token", default=os.environ.get("SUB_TOKEN", ""))
     ap.add_argument("--file", help="JSON: {machine: subscription_url}")
+    ap.add_argument(
+        "--links",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="节点链接文件（每行一条，可用 - 读 stdin）；机器名默认取这些节点名的公共前缀",
+    )
     ap.add_argument("--machine", action="append", default=[], help="machine=url（可重复）")
     ap.add_argument("--url", help="单机上报：订阅 URL，名字由 --name 或主机名决定")
     ap.add_argument("--name", help="配合 --url 指定机器名（留空则需 --from-hostname）")
@@ -84,6 +138,16 @@ def main():
         name, url = item.split("=", 1)
         machines[name] = url
 
+    if args.links:
+        links = read_links(args.links)
+        name = args.name or name_from_links(links)
+        if not name:
+            sys.exit("这些节点名没有公共前缀，请用 --name 指定机器名")
+        if not is_valid_machine(name):
+            sys.exit(f"从节点名推出的机器名不合法，请用 --name 指定：{name}")
+        machines[name] = links
+        print(f"节点 {len(links)} 条 -> 机器「{name}」")
+
     if args.url:
         name = args.name or (slugify(socket.gethostname()) if args.from_hostname else "")
         if not name:
@@ -101,7 +165,10 @@ def main():
 
     if args.dry_run:
         for name, url in machines.items():
-            print(f"{name} (source={source}) <- {url}")
+            if isinstance(url, list):
+                print(f"{name} (source={source}) <- {len(url)} 条节点链接")
+            else:
+                print(f"{name} (source={source}) <- {url}")
         print(f"dry-run: {len(machines)} 台，未发请求")
         return
 
@@ -109,7 +176,10 @@ def main():
     for name, url in machines.items():
         if not is_valid_machine(name):
             sys.exit(f"机器名不合法（字母/中文/数字/空格/_ . -，首字符需字母或数字，≤64）：{name}")
-        body = curl([url]).strip()
+        if isinstance(url, list):
+            body = base64.b64encode("\n".join(url).encode("utf-8"))
+        else:
+            body = curl([url]).strip()
         result = json.loads(
             curl(
                 [

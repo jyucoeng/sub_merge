@@ -14,7 +14,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "sub-worker-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "a74a3457-d486-414b-b5e2-89efc3cbf543"
 
 # 建表（二选一）：
 #   pnpm run db:init          # wrangler d1 execute --remote --file=scripts/schema.sql
