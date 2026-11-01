@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.14.2";
+const VERSION = "1.14.3";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1354,7 +1354,7 @@ async function deleteRecord(env, machine) {
 
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 10;
-const LOGIN_BLOCK_MS = 15 * 60 * 1000;
+const LOGIN_BLOCK_MS = 24 * 60 * 60 * 1000; // 锁 24 小时
 
 function normalizeUiPath(raw) {
   const value = typeof raw === "string" ? raw.trim() : "";

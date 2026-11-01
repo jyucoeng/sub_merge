@@ -1,6 +1,6 @@
 {
   "name": "sub-worker",
-  "version": "1.14.2",
+  "version": "1.14.3",
   "private": true,
   "type": "module",
   "description": "Fixed subscription endpoint for singbox-manager, backed by Cloudflare D1",
@@ -17,7 +17,8 @@
     "check": "wrangler deploy --dry-run --outdir dist",
     "test:ui": "node scripts/ui-flow.mjs",
     "bench:sub": "node scripts/bench-sub.mjs",
-    "vars:clean": "node scripts/clean-vars.mjs"
+    "vars:clean": "node scripts/clean-vars.mjs",
+    "unlock": "wrangler d1 execute sub-worker-db --remote --command \"DELETE FROM settings WHERE key LIKE 'login-fail:%'\""
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

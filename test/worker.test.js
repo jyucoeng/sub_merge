@@ -1303,7 +1303,7 @@ test("login is rate limited per IP after repeated failures", async () => {
   assert.equal(tenth.status, 429, "the 10th failure locks the IP");
   const blocked = await attempt("right-pass");
   assert.equal(blocked.status, 429, "even the right password is refused while locked");
-  assert.ok(Number(blocked.headers.get("retry-after")) > 0);
+  assert.ok(Number(blocked.headers.get("retry-after")) >= 86000, "lock lasts 24 hours");
 
   const other = await attempt("right-pass", "198.51.100.7");
   assert.equal(other.status, 200, "a different IP is not affected");

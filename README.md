@@ -223,7 +223,13 @@ pnpm exec wrangler deploy --keep-vars \
 | `POST /api/v1/auth/login` | `{password}` → `{role, token}` |
 | `GET /api/v1/auth/session` | 当前角色，附带 `sub_token`（页面用它拼订阅链接） |
 
-登录限速：同一 IP 10 分钟内失败 10 次锁 15 分钟（`429` + `retry-after`），成功登录清零，计数存在 D1 的 `settings` 表里（`login-fail:<ip>`）。
+登录限速：同一 IP 10 分钟内失败 10 次锁 **24 小时**（`429` + `retry-after`），成功登录清零，计数存在 D1 的 `settings` 表里（`login-fail:<ip>`）。
+
+自己把自己锁了的话（比如连错 10 次），清一下计数即可解锁：
+
+```bash
+pnpm run unlock   # DELETE FROM settings WHERE key LIKE 'login-fail:%'
+```
 
 ### 「转为手动」之后上报还会不会覆盖
 
