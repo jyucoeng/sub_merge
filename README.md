@@ -119,26 +119,29 @@ Workers & Pages → 你的 Worker → Settings → Domains & Routes → Add Cust
 7. Deploy；
 8. 需要自定义域名时，在 Domains & Routes 绑定。
 
-## 节点清单（逐节点排除）
+## 订阅中的节点（全站清单，决定谁进订阅）
 
-WebUI 的「节点清单」列出这台机器**全部节点**（手动 + 上报，按协议标色、标来源），点一行就能切换它进不进订阅：
+WebUI 里「节点配置」下面那张卡：
 
-- 勾选 = 进订阅，取消 = 不进（那一行变灰加删除线，立刻生效）；
-- 清单永远显示全部节点，随时可以点回来；
-- 排除的是「节点身份」= link 去掉 `#名字` 的部分，所以上游只改显示名不会让排除失效；换端口/换服务器就是另一条节点；
-- 和协议筛选叠加：先按协议筛，再逐条排除，两者都满足才进订阅。
+- **按机器顺序**（就是「机器排序」那张卡的顺序）分组列出**所有机器、所有节点**，每行带协议标签和来源（手动 / 上报）；
+- 勾上的才进订阅，默认全勾；点一行即切换，立刻生效；
+- **全选 / 反选 / 只选筛出来的 / 全不选** 四个批量操作，作用于「当前筛出来的节点」；
+- **按协议多选**、**按机器多选**（芯片可多选叠加）、**按节点名或链接搜索**，三者组合后再批量勾选，就是「搜索 → 二次选定」；
+- 顶部徽章实时显示 `已选 / 总数`，每台机器前面的小徽章显示这台机器的 `已选 / 总数`。
 
 ```bash
-# 看清单（all_nodes 里 enabled=false 就是被排除的）
-curl -H "Authorization: Bearer <SUB_TOKEN>" https://sub.dingdang.de5.net/api/v1/nodes/<机器名>
+# 看全站清单（machines 按机器顺序，nodes 里 in_sub=false 就是被排除的）
+curl -H "Authorization: Bearer <SUB_TOKEN>" https://sub.dingdang.de5.net/api/v1/sub/nodes
 
-# 设置排除清单（传节点身份数组，空数组 = 全部恢复）
-curl -X PUT https://sub.dingdang.de5.net/api/v1/nodes/<机器名>/disabled \
+# 设置排除清单（节点身份数组，空数组 = 全部恢复）
+curl -X PUT https://sub.dingdang.de5.net/api/v1/sub/disabled \
   -H "Authorization: Bearer <SUB_TOKEN>" -H "content-type: application/json" \
   -d '{"disabled":["hysteria2://pw@jp.example.io:443?sni=x"]}'
 ```
 
-存储同样在 `settings` 表（`disabled:<机器名>`），不占 machines 表、老库不迁移；缓存键带上排除数量，改完立刻生效。
+- 排除记录存的是「节点身份」= link 去掉 `#名字` 的部分，上游只改显示名不会让排除失效；换端口/换服务器算另一条节点（默认可见）。
+- 存 `settings` 表全局键 `disabled`；老的单机键 `disabled:<机器>` 会自动并进来并删除。写入时会丢掉已经不存在的节点身份，删机器不会留垃圾。
+- 单机订阅、合并订阅、clash 订阅都按这份清单；缓存键带上排除数量，改完立刻生效。
 
 ## 协议筛选（每台机器单独选）
 
