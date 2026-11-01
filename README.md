@@ -119,6 +119,27 @@ Workers & Pages → 你的 Worker → Settings → Domains & Routes → Add Cust
 7. Deploy；
 8. 需要自定义域名时，在 Domains & Routes 绑定。
 
+## 节点清单（逐节点排除）
+
+WebUI 的「节点清单」列出这台机器**全部节点**（手动 + 上报，按协议标色、标来源），点一行就能切换它进不进订阅：
+
+- 勾选 = 进订阅，取消 = 不进（那一行变灰加删除线，立刻生效）；
+- 清单永远显示全部节点，随时可以点回来；
+- 排除的是「节点身份」= link 去掉 `#名字` 的部分，所以上游只改显示名不会让排除失效；换端口/换服务器就是另一条节点；
+- 和协议筛选叠加：先按协议筛，再逐条排除，两者都满足才进订阅。
+
+```bash
+# 看清单（all_nodes 里 enabled=false 就是被排除的）
+curl -H "Authorization: Bearer <SUB_TOKEN>" https://sub.dingdang.de5.net/api/v1/nodes/<机器名>
+
+# 设置排除清单（传节点身份数组，空数组 = 全部恢复）
+curl -X PUT https://sub.dingdang.de5.net/api/v1/nodes/<机器名>/disabled \
+  -H "Authorization: Bearer <SUB_TOKEN>" -H "content-type: application/json" \
+  -d '{"disabled":["hysteria2://pw@jp.example.io:443?sni=x"]}'
+```
+
+存储同样在 `settings` 表（`disabled:<机器名>`），不占 machines 表、老库不迁移；缓存键带上排除数量，改完立刻生效。
+
 ## 协议筛选（每台机器单独选）
 
 一台机器上报的节点常常混着好几种协议（vless / hysteria2 / tuic / trojan …），可以只让其中一部分进订阅：

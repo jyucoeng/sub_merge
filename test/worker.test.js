@@ -64,9 +64,10 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
-    if (/^SELECT key, value FROM settings WHERE key LIKE 'protocols:%'$/i.test(this.sql)) {
+    if (/^SELECT key, value FROM settings WHERE key LIKE '(protocols|disabled):%'$/i.test(this.sql)) {
+      const prefix = this.sql.match(/'(protocols|disabled):%/)[1] + ":";
       const rows = [...this.db.settings.entries()]
-        .filter(([key]) => key.startsWith("protocols:"))
+        .filter(([key]) => key.startsWith(prefix))
         .map(([key, value]) => ({ key, value }));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
@@ -1483,4 +1484,45 @@ test("protocol filter decides which protocols reach the subscription", async () 
   const cleared = await call(env, "PUT", "/api/v1/nodes/box-pf/protocols", JSON.stringify({ protocols: [] }), { "content-type": "application/json", authorization: `Bearer ${TOKEN}` });
   assert.equal((await cleared.json()).nodes, 3, "清空 = 全部显示");
   assert.equal((await (await call(env, "GET", "/api/v1/nodes/box-pf", null, { authorization: `Bearer ${TOKEN}` })).json()).protocols.length, 0);
+});
+
+test("single nodes can be excluded from the subscription", async () => {
+  const env = makeEnv();
+  const a = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-A";
+  const b = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-B";
+  const c = "trojan://pw@sg.example.io:443?security=tls#新加坡-C";
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+
+  await call(env, "PUT", "/api/v1/nodes/box-ex", JSON.stringify({ nodes: [{ link: a }, { link: b }, { link: c }] }), auth);
+  const start = await (await call(env, "GET", "/api/v1/nodes/box-ex", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.equal(start.all_nodes.length, 3);
+  assert.ok(start.all_nodes.every((item) => item.enabled), "默认全部勾选");
+  assert.deepEqual(start.all_nodes.map((item) => item.label), ["VLESS", "Hysteria2", "Trojan"]);
+
+  const idB = start.all_nodes[1].id;
+  const off = await call(env, "PUT", "/api/v1/nodes/box-ex/disabled", JSON.stringify({ disabled: [idB] }), auth);
+  const offBody = await off.json();
+  assert.equal(offBody.nodes, 2);
+  assert.equal(offBody.every, 3);
+  assert.equal(offBody.all_nodes[1].enabled, false);
+
+  const sub = unb64(await (await call(env, "GET", `/sub/box-ex/${TOKEN}`)).text()).split("\n").filter(Boolean);
+  assert.equal(sub.length, 2);
+  assert.ok(!sub.some((line) => line.startsWith("hysteria2://")));
+
+  // 和协议筛选叠加：排除 B 之后只留 vless，就只剩 1 个
+  await call(env, "PUT", "/api/v1/nodes/box-ex/protocols", JSON.stringify({ protocols: ["vless"] }), auth);
+  assert.equal((await (await call(env, "GET", `/sub/box-ex/${TOKEN}`)).text()).trim().split("\n").filter(Boolean).length, 1);
+
+  const restore = await call(env, "PUT", "/api/v1/nodes/box-ex/disabled", JSON.stringify({ disabled: [] }), auth);
+  assert.equal((await restore.json()).every, 3);
+  const bad = await call(env, "PUT", "/api/v1/nodes/box-ex/disabled", JSON.stringify({ disabled: "nope" }), auth);
+  assert.equal(bad.status, 400);
+
+  // 上报节点也能被排除：新上报的节点默认可见
+  await call(env, "PUT", "/api/v1/nodes/box-ex/protocols", JSON.stringify({ protocols: [] }), auth);
+  const d = "tuic://11111111-1111-4111-8111-111111111111:pw@us.example.io:443?sni=x#美国-D";
+  await call(env, "POST", "/api/v1/report/box-ex", b64(d), { authorization: "Bearer " + TOKEN });
+  const afterReport = await (await call(env, "GET", "/api/v1/nodes/box-ex", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.ok(afterReport.all_nodes.some((item) => item.source === "auto" && item.enabled), "上报节点默认可见");
 });

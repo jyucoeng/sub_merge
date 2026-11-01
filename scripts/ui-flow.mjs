@@ -707,6 +707,29 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const sub = await (await netFetch(`${BASE}/sub/ui-proto/${encodeURIComponent(TOKEN)}`)).text();
   check("协议筛选：订阅里只剩一个节点", atob(sub).trim().split("\n").filter(Boolean).length === 1, sub.slice(0, 40));
 
+  // 节点清单：逐节点排除
+  const nlRows = () => el("node-list").children;
+  check("节点清单：列出全部节点", nlRows().length === 2, `${nlRows().length} 行`);
+  check("节点清单：默认全部勾选", nlRows().every((row) => !row.className.includes("off")), nlRows().map((r) => r.className).join("|"));
+
+  const secondRow = nlRows()[1];
+  secondRow.onclick.call(secondRow);
+  await idle();
+  check("节点清单：取消勾选后变灰", nlRows()[1].className.includes("off"), nlRows()[1].className);
+  check("节点清单：状态栏报排除数量", /排除/.test(text("status")), text("status"));
+
+  const afterExclude = await api("/nodes/ui-proto");
+  check("节点清单：接口记录排除项", afterExclude.data.disabled.length === 1 && afterExclude.data.all_nodes.filter((n) => !n.enabled).length === 1, JSON.stringify(afterExclude.data.disabled));
+  check("节点清单：清单仍然给出全部节点", afterExclude.data.all_nodes.length === 2, String(afterExclude.data.all_nodes.length));
+
+  const afterSub = atob(await (await netFetch(`${BASE}/sub/ui-proto/${encodeURIComponent(TOKEN)}`)).text()).trim().split("\n").filter(Boolean);
+  check("节点清单：订阅里少了一个", afterSub.length === 1, String(afterSub.length));
+
+  const backRow = nlRows()[1];
+  backRow.onclick.call(backRow);
+  await idle();
+  check("节点清单：再点一下恢复", !nlRows()[1].className.includes("off"), nlRows()[1].className);
+
   const back = protoChips().find((chip) => chip.className.includes("off"));
   back.onclick.call(back);
   await idle();

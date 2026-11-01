@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.19.0";
+const VERSION = "1.20.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -128,6 +128,15 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 .proto.off{color:#94a3b8;border-style:dashed;background:#fcfcfd;text-decoration:line-through}
 .proto .n{font-size:11px;opacity:.8}
+.node-list{display:grid;gap:6px;margin-top:8px}
+.nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
+.nlrow:hover{border-color:#c7d5e8}
+.nlrow.off{opacity:.45;background:#fbfbfc}
+.nlrow.off .nlname{text-decoration:line-through}
+.nlrow input{width:15px;height:15px;margin:0;cursor:pointer}
+.nlrow .ptag{font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);align-items:center;justify-content:center;padding:20px;z-index:50}
 #login .box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px rgba(15,23,42,.28)}
@@ -166,6 +175,8 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div class="hint" style="margin-top:16px"><b>协议筛选</b>（只有勾上的协议会进这台机器的订阅；全勾或不勾 = 全部显示）</div>
 <div id="protocols" class="protocols"></div>
+<div class="hint" style="margin-top:16px"><b>节点清单</b>（这台机器全部节点；取消勾选的节点不会进订阅，改完立即生效）</div>
+<div id="node-list" class="node-list"></div>
 <div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
 <div id="nodes" class="nodes"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
@@ -202,7 +213,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], protocols: [], protocolStats: [] };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], protocols: [], protocolStats: [], allNodes: [], disabled: [] };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -560,6 +571,51 @@ body.locked .wrap{display:none}
       box.appendChild(chip);
     });
   }
+  /* 节点清单：勾选 = 进订阅。取消勾选的节点身份存进 state.disabled，立即 PUT。 */
+  function renderNodeList() {
+    var box = $("node-list"); if (!box) return;
+    box.innerHTML = "";
+    var entries = state.allNodes || [];
+    if (!entries.length) {
+      var empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = state.current ? "这台机器还没有节点" : "先选择一台机器";
+      box.appendChild(empty);
+      return;
+    }
+    entries.forEach(function (item) {
+      var row = document.createElement("div");
+      row.className = "nlrow" + (item.enabled ? "" : " off");
+      row.title = item.link;
+      var tick = document.createElement("input");
+      tick.type = "checkbox"; tick.checked = Boolean(item.enabled);
+      var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = item.label;
+      var name = document.createElement("div"); name.className = "nlname"; name.textContent = item.name || item.link;
+      var src = document.createElement("div"); src.className = "nlsrc"; src.textContent = item.source === "manual" ? "手动" : "上报";
+      row.onclick = function () { toggleNode(item); };
+      row.appendChild(tick); row.appendChild(tag); row.appendChild(name); row.appendChild(src);
+      box.appendChild(row);
+    });
+  }
+  function toggleNode(item) {
+    if (!state.current) return;
+    var set = (state.disabled || []).slice();
+    var at = set.indexOf(item.id);
+    if (at === -1) set.push(item.id); else set.splice(at, 1);
+    api("/nodes/" + encodeURIComponent(state.current) + "/disabled", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled: set }),
+    }).then(function (data) {
+      state.disabled = data.disabled || [];
+      state.allNodes = data.all_nodes || [];
+      renderNodeList();
+      var hidden = state.disabled.length;
+      setStatus(hidden
+        ? ("已排除 " + hidden + " 个节点，这台机器订阅里现在 " + data.nodes + " 个（共 " + data.every + " 个）")
+        : ("已恢复全部节点，这台机器订阅里 " + data.nodes + " 个"), true);
+      loadMachines(true);
+    }).catch(function (err) { setStatus(err.message, false); });
+  }
   function toggleProtocol(kind) {
     if (!state.current) return;
     var all = (state.protocolStats || []).map(function (item) { return item.kind; });
@@ -664,7 +720,7 @@ body.locked .wrap{display:none}
     $("url-singbox").textContent = base + "?format=singbox";
   }
   function loadNodes(quiet) {
-    if (!state.current) { state.nodes = []; state.autoNodes = []; state.protocols = []; state.protocolStats = []; render(); renderAutoNodes(); renderProtocols(); return Promise.resolve(); }
+    if (!state.current) { state.nodes = []; state.autoNodes = []; state.protocols = []; state.protocolStats = []; state.allNodes = []; state.disabled = []; render(); renderAutoNodes(); renderProtocols(); renderNodeList(); return Promise.resolve(); }
     if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
@@ -672,7 +728,9 @@ body.locked .wrap{display:none}
       state.sources = data.sources || [];
       state.protocols = data.protocols || [];
       state.protocolStats = data.protocol_stats || [];
-      render(); renderAutoNodes(); renderProtocols();
+      state.allNodes = data.all_nodes || [];
+      state.disabled = data.disabled || [];
+      render(); renderAutoNodes(); renderProtocols(); renderNodeList();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
@@ -1180,6 +1238,14 @@ async function handleRequest(request, env) {
     return methodNotAllowed("GET, PUT");
   }
 
+  m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/disabled$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "PUT") return methodNotAllowed("PUT");
+    return putDisabled(request, env, decodeURIComponent(m[1]));
+  }
+
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/protocols$/);
   if (m) {
     if (!authToken(env)) return missingConfig("TOKEN");
@@ -1611,7 +1677,9 @@ const PROTOCOL_LABELS = {
   socks: "SOCKS", socks5: "SOCKS5", http: "HTTP", wireguard: "WireGuard", ssh: "SSH",
 };
 
+const DISABLED_KEY_PREFIX = "disabled:";
 function protocolKey(machine) { return PROTOCOL_KEY_PREFIX + machine; }
+function disabledKey(machine) { return DISABLED_KEY_PREFIX + machine; }
 function protocolLabel(kind) { return PROTOCOL_LABELS[kind] || String(kind || "unknown").toUpperCase(); }
 
 function nodeKind(node) {
@@ -1661,6 +1729,66 @@ async function saveAllowedProtocols(env, machine, kinds) {
   }
   await putSetting(env, protocolKey(machine), JSON.stringify(clean));
   return clean;
+}
+
+function parseDisabled(raw) {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter((item) => typeof item === "string" && item.length && item.length <= 1024) : [];
+  } catch { return []; }
+}
+
+async function loadDisabledNodes(env, machine) {
+  return parseDisabled(await getSetting(env, disabledKey(machine)));
+}
+
+async function loadDisabledMap(env) {
+  const map = new Map();
+  const db = dbEnv(env);
+  if (!db) return map;
+  const result = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'disabled:%'").all();
+  for (const row of (result && result.results) || []) {
+    map.set(String(row.key).slice(DISABLED_KEY_PREFIX.length), parseDisabled(row.value));
+  }
+  return map;
+}
+
+async function saveDisabledNodes(env, machine, identities) {
+  const clean = [...new Set((identities || []).filter((item) => typeof item === "string" && item.length && item.length <= 1024))];
+  if (!clean.length) {
+    await dbEnv(env).prepare("DELETE FROM settings WHERE key = ?1").bind(disabledKey(machine)).run();
+    return [];
+  }
+  await putSetting(env, disabledKey(machine), JSON.stringify(clean));
+  return clean;
+}
+
+/* 一台机器里「全部节点」的清单：手动在前、自动在后，按 link 去重，带协议和来源，
+ * disabled 是用户取消勾选的节点身份（link 去掉 #名字）。UI 的节点清单直接用它。 */
+async function nodeEntries(record, disabled) {
+  const list = disabled instanceof Set ? disabled : new Set(disabled || []);
+  const seen = new Set();
+  const out = [];
+  const push = (node, source) => {
+    if (!node || !node.link) return;
+    const id = linkIdentity(node.link);
+    if (seen.has(id)) return;
+    seen.add(id);
+    const kind = nodeKind(node);
+    out.push({
+      id,
+      link: node.link,
+      name: node.name || "",
+      kind,
+      label: protocolLabel(kind),
+      source,
+      enabled: !list.has(id),
+    });
+  };
+  for (const node of (record && record.manual_nodes) || []) push(node, "manual");
+  for (const node of await autoNodesOf(record)) push(node, "auto");
+  return out;
 }
 
 /* 只保留勾选的协议；allowed 为空 = 不筛选 */
@@ -1760,7 +1888,7 @@ async function deleteSource(env, machine, source) {
     auto_content: null,
   };
   await saveRecord(env, record);
-  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine)) });
+  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine)) });
 }
 
 /* ---------------- handlers ---------------- */
@@ -1851,12 +1979,13 @@ async function getOne(env, machine, token, request) {
   const format = formatOf(request);
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const allowed = await loadAllowedProtocols(env, machine);
-  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(","), format, [], [record]);
+  const disabled = await loadDisabledNodes(env, machine);
+  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(",") + "|" + disabled.length, format, [], [record]);
   const hit = subCacheGet(key);
   if (hit) {
     return cachedSubResponse(hit, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
   }
-  const nodes = await nodesOf(record, allowed);
+  const nodes = await nodesOf(record, allowed, disabled);
   const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
   return cachedSubResponse(rendered, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(nodes.length), "x-sub-cache": "miss" });
 }
@@ -1872,7 +2001,8 @@ async function getAll(env, token, request) {
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
-  const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";");
+  const disabledMap = await loadDisabledMap(env);
+  const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}/${(disabledMap.get(r.machine) || []).length}`).join(";");
   const key = subCacheKey("all" + (rules ? ":" + rules.rev : "") + "|" + protocolKey, format, order, records);
   const hit = subCacheGet(key);
   if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
@@ -1881,7 +2011,7 @@ async function getAll(env, token, request) {
   const items = [];
   for (const record of records) {
     const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
-    const nodes = await nodesOf(record, protocolMap.get(record.machine) || []);
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabledMap.get(record.machine) || []);
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
@@ -1921,14 +2051,35 @@ async function getNodeConfig(env, machine) {
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine)),
+    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine)),
     manual_nodes: record.manual_nodes || [],
     auto_nodes: await autoNodesOf(record),
     sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
     protocols: await loadAllowedProtocols(env, machine),
     protocol_stats: protocolStats([...((record && record.manual_nodes) || []), ...(await autoNodesOf(record))]),
+    // 全量节点清单：all_nodes 里带 enabled，取消勾选的不会进订阅
+    disabled: await loadDisabledNodes(env, machine),
+    all_nodes: await nodeEntries(record, await loadDisabledNodes(env, machine)),
   });
+}
+
+/* 逐节点排除：传进「不要的节点身份」（link 去掉 #名字），空数组 = 恢复全部。 */
+async function putDisabled(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  const body = await request.text();
+  if (body.length > 512 * 1024) return json({ ok: false, error: "body too large" }, 413);
+  let data;
+  try { data = JSON.parse(body); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  if (!data || !Array.isArray(data.disabled)) return json({ ok: false, error: "disabled must be an array" }, 400);
+  if (data.disabled.length > 2000) return json({ ok: false, error: "too many disabled nodes" }, 400);
+  const saved = await saveDisabledNodes(env, machine, data.disabled);
+  const record = await loadRecord(env, machine);
+  if (!record) return json({ ok: true, machine, disabled: saved, nodes: 0, every: 0, all_nodes: [] });
+  const allowed = await loadAllowedProtocols(env, machine);
+  const nodes = await nodesOf(record, allowed, saved);
+  const entries = await nodeEntries(record, saved);
+  return json({ ok: true, machine, disabled: saved, nodes: nodes.length, every: entries.length, all_nodes: entries });
 }
 
 /* 勾选哪些协议进订阅。空数组（或不传）等于「全部显示」，直接删掉这条设置。 */
@@ -1984,7 +2135,7 @@ async function putNodeConfig(request, env, machine) {
       auto_content: null,
     };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
   return json({ ok: true, machine, manual: record.manual, nodes, manual_nodes: manualNodes, auto_nodes: record.nodes || [] });
 }
 
@@ -1995,7 +2146,7 @@ async function resetMachine(env, machine) {
   const cleared = Array.isArray(old.manual_nodes) && old.manual_nodes.length > 0;
   const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
   return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });
 }
 
@@ -2021,7 +2172,7 @@ async function renameMachine(request, env, machine) {
     order[idx] = to;
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
-  const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
+  const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
@@ -2031,7 +2182,7 @@ async function listMachines(env) {
   const rank = new Map(order.map((m, i) => [m, i]));
   const machines = [];
   for (const record of records) {
-    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine));
+    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
     machines.push({
       machine: record.machine,
       bytes: record.bytes,
@@ -2206,7 +2357,7 @@ function sortNodes(nodes, useRank) {
 }
 
 /* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */
-async function nodesOf(record, allowed) {
+async function nodesOf(record, allowed, disabled) {
   const manual = record && Array.isArray(record.manual_nodes) ? record.manual_nodes.slice() : [];
   const auto = await autoNodesOf(record);
   const seen = new Set();
@@ -2226,7 +2377,9 @@ async function nodesOf(record, allowed) {
     seen.add(id);
     autoPart.push(node);
   }
-  const merged = [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)];
+  const hide = disabled instanceof Set ? disabled : new Set(disabled || []);
+  const merged = [...sortNodes(manualPart, false), ...sortNodes(autoPart, true)]
+    .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
 
