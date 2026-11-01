@@ -712,7 +712,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 按协议筛选
   const protoChipsAll = () => el("sub-protos").children;
-  const hy2Chip = protoChipsAll().find((chip) => chip.textContent.indexOf("Hysteria2") === 0);
+  const hy2Chip = protoChipsAll().find((chip) => chip.textContent.indexOf("Hysteria2") !== -1);
   hy2Chip.onclick.call(hy2Chip);
   await idle();
   check("订阅清单：按协议多选", nodeRows().length === 1 && visibleNames()[0].indexOf("东京") >= 0, visibleNames().join("|"));
@@ -775,7 +775,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const parseTotal = (chip) => Number((chip.textContent.match(/·\s*(\d+)\/(\d+)/) || [0, "0", "0"])[2]);
   const mineChip = () => Array.from(el("sub-machine-chips").children).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
   // 默认（没有任何筛选）时芯片是中性样式，不是「划掉」的样子
-  check("订阅清单：没筛选时芯片不显示为排除态", protoChips().every((chip) => chip.className.indexOf("off") === -1), protoChips().map((c) => c.className).join(","));
+  check("订阅清单：没筛选时芯片不变淡", protoChips().every((chip) => chip.className.indexOf("dim") === -1), protoChips().map((c) => c.className).join(","));
+  check("订阅清单：默认全部节点在订阅，芯片都是「全选」态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));
 
   mineChip().onclick.call(mineChip());
   await idle();
@@ -797,7 +798,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const lightChip = protoChips().filter((chip) => chip.textContent.indexOf("VLESS") !== -1)[0];
   check("订阅清单：选中的芯片有勾和选中态", lightChip.textContent.trim().indexOf("✓") === 0 && lightChip.className.indexOf("on") !== -1, `${lightChip.className} / ${lightChip.textContent}`);
   const offChip = protoChips().filter((chip) => chip.textContent.indexOf("VLESS") === -1)[0];
-  check("订阅清单：没选的芯片不是划掉的样子", offChip.className.indexOf("off") !== -1 && offChip.className.indexOf("on") === -1, offChip.className);
+  check("订阅清单：被筛掉的芯片变淡", offChip.className.indexOf("dim") !== -1, offChip.className);
   check("订阅清单：筛选说明写清了看了几个", el("sub-shown").textContent.indexOf("1 / 4") === 0 && el("sub-shown").textContent.indexOf("VLESS") !== -1, el("sub-shown").textContent);
   const afterPick = await api("/sub/nodes");
   check("订阅清单：只看 VLESS 时订阅内容没变", afterPick.data.stats.enabled === afterPick.data.stats.total, `${afterPick.data.stats.enabled}/${afterPick.data.stats.total}`);
@@ -808,7 +809,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const rowTag = nodeRows()[0].children[1];
   rowTag.onclick.call(rowTag, { stopPropagation() {} });
   await idle();
-  const afterTag = protoChips().filter((chip) => chip.textContent.indexOf("✓") === 0);
+  const afterTag = protoChips().filter((chip) => chip.className.indexOf("picked") !== -1);
   check("订阅清单：点节点上的协议标签也能筛", afterTag.length === 1 && el("sub-shown").textContent.indexOf(" / 4 个节点（协议 ") !== -1, el("sub-shown").textContent);
   rowTag.onclick.call(rowTag, { stopPropagation() {} });
   await idle();
@@ -818,6 +819,31 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅清单：点分组标题只看这台机器", el("sub-shown").textContent.indexOf("机器 ") !== -1, el("sub-shown").textContent);
   click("sub-clear");
   await idle();
+  // 全不选 / 全选：芯片状态跟着变
+  click("sub-none");
+  await idle();
+  check("订阅清单：全不选后芯片都不在订阅", protoChips().every((chip) => chip.className.indexOf("on") === -1 && chip.className.indexOf("part") === -1), protoChips().map((c) => c.className).join(","));
+  click("sub-all");
+  await idle();
+  check("订阅清单：全选后芯片全部回到订阅态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));
+
+  // 单个节点取消勾选 → 它那台机器的芯片变半选
+  const machineChipBox = () => el("sub-machine-chips").children;
+  const pickChip = () => Array.from(machineChipBox()).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
+  pickChip().onclick.call(pickChip());
+  await idle();
+  const mineRows = nodeRows();
+  mineRows[0].onclick.call(mineRows[0]);
+  await idle();
+  await new Promise((r) => setTimeout(r, 120));
+  await idle();
+  const partChips = Array.from(machineChipBox()).filter((chip) => chip.className.indexOf("part") !== -1);
+  check("订阅清单：取消一个节点后它那台机器芯片变半选", partChips.length === 1 && partChips[0].textContent.indexOf("ui-proto") !== -1, Array.from(machineChipBox()).map((c) => c.className + "|" + c.textContent).join(" , "));
+  click("sub-all");
+  await idle();
+  click("sub-clear");
+  await idle();
+
   check("订阅清单：清除筛选按钮恢复全部", el("sub-shown").textContent.indexOf("4 / 4 个节点") === 0 && el("sub-shown").textContent.indexOf("没有筛选") !== -1, el("sub-shown").textContent);
   lightChip.onclick.call(lightChip);
   await idle();

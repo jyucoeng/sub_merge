@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.5";
+const VERSION = "1.21.7";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -128,8 +128,9 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .sub-group{cursor:pointer;width:max-content}
 .sub-group:hover{color:var(--ink)}
 .proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
-.proto.off{color:#64748b;border-style:dashed;background:#fff}
-.proto.sel{box-shadow:inset 0 -2px 0 #bfdbfe}
+.proto.part{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+.proto.dim{opacity:.5;border-style:dashed}
+
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
 .sub-list{display:grid;gap:6px;margin-top:10px}
@@ -622,22 +623,27 @@ body.locked .wrap{display:none}
       rows.forEach(function (item) {
         var key = keyOf(item);
         var hit = map.filter(function (x) { return x.key === key; })[0];
-        if (!hit) { hit = { key: key, total: 0, shown: 0, label: "", machine: item.machine }; map.push(hit); }
+        if (!hit) { hit = { key: key, total: 0, shown: 0, inSub: 0, label: "", machine: item.machine }; map.push(hit); }
         hit.total += 1;
+        if (item.node.in_sub) hit.inSub += 1;
         if (shownSet[rowKey(item)]) hit.shown += 1;
         if (!hit.label && item.node.label) hit.label = item.node.label;
       });
       return map;
     }
-    function chip(kind, label, shown, total, on, onClick, hint) {
+    function chip(label, shown, total, inSub, picked, onClick, hint) {
       var el = document.createElement("button");
       el.type = "button";
+      // 状态跟着「下面节点的勾选」走：全在订阅=蓝，部分=琥珀，都不在=灰
       var cls = "proto";
-      if (on) cls += " on";
-      else if (filtering) cls += " off";
+      if (total && inSub === total) cls += " on";
+      else if (inSub > 0) cls += " part";
+      if (picked) cls += " picked";
+      if (filtering && shown === 0) cls += " dim";
       el.className = cls;
-      el.textContent = (on ? "✓ " : "") + label + " · " + shown + "/" + total;
-      el.title = (on ? "取消这个筛选" : hint) + "（" + shown + " 个列出来了，共 " + total + " 个）";
+      var mark = (total && inSub === total) ? "✓ " : (inSub > 0 ? "◐ " : "");
+      el.textContent = (picked && mark ? mark : (picked ? "✓ " : mark)) + label + " · " + shown + "/" + total;
+      el.title = (picked ? "取消只看这个" : hint) + "（" + shown + " 个列出来了 / 共 " + total + " 个；已在订阅 " + inSub + " 个）";
       el.onclick = onClick;
       return el;
     }
@@ -652,7 +658,7 @@ body.locked .wrap{display:none}
       }
       byProto.forEach(function (item) {
         var on = (state.sub.protos || []).indexOf(item.key) !== -1;
-        protoBox.appendChild(chip(item.key, item.label || item.key, item.shown, item.total, on, function () {
+        protoBox.appendChild(chip(item.label || item.key, item.shown, item.total, item.inSub, on, function () {
           var list = (state.sub.protos || []).slice();
           var at = list.indexOf(item.key);
           if (at === -1) list.push(item.key); else list.splice(at, 1);
@@ -665,11 +671,11 @@ body.locked .wrap{display:none}
       var byMachine = [];
       (state.sub.machines || []).forEach(function (machine) {
         var hit = tally(function (item) { return item.machine; }).filter(function (x) { return x.key === machine.machine; })[0];
-        byMachine.push({ key: machine.machine, label: machine.machine, shown: hit ? hit.shown : 0, total: hit ? hit.total : 0 });
+        byMachine.push({ key: machine.machine, label: machine.machine, shown: hit ? hit.shown : 0, total: hit ? hit.total : 0, inSub: hit ? hit.inSub : 0 });
       });
       byMachine.forEach(function (item) {
         var on = (state.sub.machinesF || []).indexOf(item.key) !== -1;
-        machineBox.appendChild(chip(item.key, item.label, item.shown, item.total, on, function () {
+        machineBox.appendChild(chip(item.label, item.shown, item.total, item.inSub, on, function () {
           var list = (state.sub.machinesF || []).slice();
           var at = list.indexOf(item.key);
           if (at === -1) list.push(item.key); else list.splice(at, 1);
