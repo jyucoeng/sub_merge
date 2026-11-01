@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.2.3";
+const VERSION = "1.2.4";
 const MAX_BODY = 512 * 1024;
 const MACHINE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -83,7 +83,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 </head>
 <body>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。</div></div><span class="ver" id="version">v${VERSION}</span></div>
+<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><span class="ver" id="version">v${VERSION}</span></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅</span></h2>
@@ -94,8 +94,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
-<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
-<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名：小写字母/数字/中划线，如 hk-node-1" style="min-width:300px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">没有机器上报时，用这里建一台再粘贴节点</span></div>
+<div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" type="button">重命名</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
+<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
@@ -300,9 +300,16 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
+  function autoMachineName() {
+    var have = {};
+    state.machines.forEach(function (m) { have[m.machine] = 1; });
+    for (var i = 1; i < 1000; i++) { if (!have["manual-" + i]) return "manual-" + i; }
+    return "manual-" + Date.now().toString(36);
+  }
   $("create-machine").onclick = function () {
     var box = $("new-machine");
-    var name = String(box.value || "").trim().toLowerCase();
+    var typed = String(box.value || "").trim().toLowerCase();
+    var name = typed || autoMachineName();
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return setStatus("机器名只能用小写字母、数字和中划线，且以字母或数字开头", false);
     var exist = null;
     state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
@@ -331,6 +338,23 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
         });
       })
       .catch(function (e) { setStatus("创建失败：" + e.message, false); });
+  };
+  $("rename").onclick = function () {
+    if (!state.current) return setStatus("先选一台机器", false);
+    var to = window.prompt("把 " + state.current + " 重命名为：", state.current);
+    if (to === null) return;
+    to = String(to).trim().toLowerCase();
+    if (!to || to === state.current) return;
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(to)) return setStatus("机器名只能用小写字母、数字和中划线，且以字母或数字开头", false);
+    var old = state.current;
+    api("/machines/" + encodeURIComponent(old) + "/rename", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: to })
+    }).then(function (data) {
+      if (data.renamed === false) { setStatus("名字没变", true); return; }
+      state.current = to;
+      return loadMachines().then(function () { state.current = to; $("machine").value = to; return loadNodes(); })
+        .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
+    }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
     if (!state.current || !confirm("恢复后会用最近一次自动上报的节点覆盖手动配置，确定？")) return;
@@ -383,6 +407,7 @@ async function handleRequest(request, env) {
         "GET /sub/:token",
         "GET/PUT /api/v1/nodes/:machine",
         "POST /api/v1/machines/:machine/reset",
+        "POST /api/v1/machines/:machine/rename",
         "GET/PUT /api/v1/machines/order",
         "GET /api/v1/machines",
         "POST /api/v1/admin/schema",
@@ -432,6 +457,15 @@ async function handleRequest(request, env) {
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return resetMachine(env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/machines\/([^/]+)\/rename$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!checkBearer(request, authToken(env))) return unauthorized();
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    return renameMachine(request, env, decodeURIComponent(m[1]));
   }
 
   m = path.match(/^\/api\/v1\/machines\/order$/);
@@ -670,6 +704,28 @@ async function resetMachine(env, machine) {
   const record = { ...old, nodes, manual: false, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
   return json({ ok: true, machine, manual: false, nodes });
+}
+
+async function renameMachine(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  let data;
+  try { data = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  const to = String((data && data.to) || "").trim();
+  if (!MACHINE_RE.test(to)) return json({ ok: false, error: "invalid target machine name" }, 400);
+  if (to === machine) return json({ ok: true, machine, renamed: false });
+  const old = await loadRecord(env, machine);
+  if (!old) return json({ ok: false, error: "subscription not found" }, 404);
+  if (await loadRecord(env, to)) return json({ ok: false, error: "target machine already exists" }, 409);
+  const record = { ...old, machine: to, updated_at: new Date().toISOString() };
+  await saveRecord(env, record);
+  await deleteRecord(env, machine);
+  const order = await getMachineOrder(env);
+  const idx = order.indexOf(machine);
+  if (idx >= 0) {
+    order[idx] = to;
+    await putSetting(env, "machine_order", JSON.stringify(order));
+  }
+  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: (record.nodes || []).length, manual: Boolean(record.manual) });
 }
 
 async function listMachines(env) {

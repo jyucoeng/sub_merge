@@ -538,6 +538,62 @@ test("manual machines and reporting machines share one merged subscription", asy
   assert.ok(ordered.indexOf(SAMPLE_LINKS[1]) < ordered.indexOf(SAMPLE_LINKS[0]));
 });
 
+test("rename moves a machine, its nodes and its order slot", async () => {
+  const env = makeEnv();
+
+  await call(env, "POST", "/api/v1/report/report-hk", b64(SAMPLE_LINKS[0]), { authorization: `Bearer ${TOKEN}` });
+  await call(env, "PUT", "/api/v1/nodes/manual-jp", JSON.stringify({
+    nodes: [{ link: SAMPLE_LINKS[1] }, { link: SAMPLE_LINKS[2] }],
+  }), { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" });
+  await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: ["manual-jp", "report-hk"] }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+
+  // 重命名手动机器：节点、manual 标记、排序位置一起搬过去
+  let res = await call(env, "POST", "/api/v1/machines/manual-jp/rename", JSON.stringify({ to: "tokyo-box" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  const renamed = await res.json();
+  assert.equal(renamed.renamed, true);
+  assert.equal(renamed.machine, "tokyo-box");
+  assert.equal(renamed.nodes, 2);
+  assert.equal(renamed.manual, true);
+
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
+  const list = await res.json();
+  assert.equal(list.count, 2);
+  assert.deepEqual(list.machines.map((m) => m.machine).sort(), ["report-hk", "tokyo-box"]);
+  res = await call(env, "GET", "/api/v1/nodes/manual-jp", null, { authorization: `Bearer ${TOKEN}` });
+  assert.deepEqual((await res.json()).nodes, []); // 旧名字已不存在（GET 对未知机器返回空列表）
+  res = await call(env, "GET", "/api/v1/nodes/tokyo-box", null, { authorization: `Bearer ${TOKEN}` });
+  const moved = await res.json();
+  assert.deepEqual(moved.nodes.map((n) => n.link), [SAMPLE_LINKS[1], SAMPLE_LINKS[2]]);
+  res = await call(env, "GET", "/api/v1/machines/order", null, { authorization: `Bearer ${TOKEN}` });
+  assert.deepEqual((await res.json()).machine_order, ["tokyo-box", "report-hk"]);
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  assert.ok((await res.text()).length > 0);
+
+  // 冲突与非法输入
+  res = await call(env, "POST", "/api/v1/machines/tokyo-box/rename", JSON.stringify({ to: "report-hk" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 409);
+  res = await call(env, "POST", "/api/v1/machines/tokyo-box/rename", JSON.stringify({ to: "Bad Name" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 400);
+  res = await call(env, "POST", "/api/v1/machines/nope/rename", JSON.stringify({ to: "other" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 404);
+  res = await call(env, "POST", "/api/v1/machines/tokyo-box/rename", JSON.stringify({ to: "tokyo-box" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).renamed, false);
+});
+
 test("root reports d1 storage and advertises admin endpoints", async () => {
   const res = await call(makeEnv(), "GET", "/");
   assert.equal(res.status, 200);
