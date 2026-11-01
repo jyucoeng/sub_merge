@@ -1066,6 +1066,43 @@ test("subscription output is cached until the content changes", async () => {
   assert.equal(await allAgain.text(), all);
 });
 
+test("empty clash groups are dropped instead of turning into DIRECT", async () => {
+  const env = makeEnv();
+  // 只有一个美国节点：香港组匹配不到，引用它的组也要跟着收敛，规则不能悬空
+  await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@us.example.com:443?security=tls&sni=pypi.org#美国-LAX-01"), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  const custom = {
+    groups: [
+      { name: "🚀 主组", type: "select", members: ["🇭🇰 香港节点", "DIRECT"] },
+      { name: "🇭🇰 香港节点", type: "select", filter: "(?i)香港|HK" },
+      { name: "👻 幽灵组", type: "select", members: ["根本不存在的分组"] },
+      { name: "🪢 只挂幽灵组", type: "select", members: ["👻 幽灵组"] },
+    ],
+    rulesets: [
+      { name: "hkonly", group: "🇭🇰 香港节点", url: "https://example.com/hk.list" },
+      { name: "ghost", group: "👻 幽灵组", url: "https://example.com/ghost.list" },
+      { name: "main", group: "🚀 主组", url: "https://example.com/main.list" },
+    ],
+  };
+  const res = await call(env, "PUT", "/api/v1/clash/rules", JSON.stringify(custom), {
+    authorization: `Bearer ${TOKEN}`,
+    "content-type": "application/json",
+  });
+  assert.equal(res.status, 200, await res.clone().text());
+
+  const yaml = await (await call(env, "GET", `/sub/all/${TOKEN}?format=clash`)).text();
+  assert.ok(yaml.includes('"🚀 主组"'), "the group that still has a member survives");
+  assert.ok(yaml.includes('      - "DIRECT"'), "its DIRECT member is kept");
+  for (const name of ["🇭🇰 香港节点", "👻 幽灵组", "🪢 只挂幽灵组"]) {
+    assert.ok(!yaml.includes(`"${name}"`), `${name} must not appear with an empty proxies list`);
+  }
+  assert.ok(!yaml.includes("RULE-SET,hkonly"), "rules pointing at dropped groups are skipped");
+  assert.ok(!yaml.includes("RULE-SET,ghost"));
+  assert.ok(yaml.includes("RULE-SET,main,🚀 主组"));
+  assert.ok(/MATCH,🚀 主组/.test(yaml), "MATCH falls back to the first surviving group");
+});
+
 test("clash groups and rule-providers are editable and fall back to defaults", async () => {
   const env = makeEnv();
   await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls&sni=pypi.org#香港-HK-01"), {

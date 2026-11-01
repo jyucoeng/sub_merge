@@ -565,6 +565,13 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   click("clash-add-group");
   check("分流规则：新增分组立刻出现在表里", groupRows().length === defaultGroups + 1, `${groupRows().length}`);
+  click("clash-save");
+  await idle();
+  check(
+    "分流规则：空分组（既没过滤也没成员）保存被拦下",
+    /既没填过滤也没填成员/.test(text("clash-status")) && text("clash-badge") === "默认",
+    text("clash-status"),
+  );
   const added = groupRows()[defaultGroups].children;
   added[0].value = "⚡ 自定义组";
   added[0].oninput.call(added[0]);

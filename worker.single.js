@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.1";
+const VERSION = "1.9.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -664,8 +664,36 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     renderClashRulesets();
     clashStatus("新规则来源加好了，填 URL 再保存", true);
   };
+  function clashProblems() {
+    var problems = [];
+    var known = {};
+    clash.groups.forEach(function (group) { known[String(group.name || "").trim()] = true; });
+    clash.groups.forEach(function (group, index) {
+      var label = "第 " + (index + 1) + " 个分组";
+      var name = String(group.name || "").trim();
+      if (!name) { problems.push(label + "没填名字"); return; }
+      var filter = String(group.filter || "").trim();
+      var members = (group.members || []).filter(Boolean);
+      if (!filter && !members.length) { problems.push(label + "「" + name + "」既没填过滤也没填成员，保存后会是空组"); return; }
+      if (filter) return;
+      var unknown = members.filter(function (member) {
+        return member !== "DIRECT" && member !== "REJECT" && member !== "PASS" && !known[member];
+      });
+      if (unknown.length) problems.push(label + "「" + name + "」的成员 " + unknown.join("、") + " 不是已定义的分组名（写 DIRECT / REJECT / PASS 或别的分组）");
+    });
+    clash.rulesets.forEach(function (ruleset, index) {
+      if (!String(ruleset.group || "").trim()) problems.push("第 " + (index + 1) + " 个规则来源没选分组");
+      if (!/^https?:\\/\\//i.test(String(ruleset.url || "").trim())) problems.push("第 " + (index + 1) + " 个规则来源的 URL 不是 http(s)");
+    });
+    return problems;
+  }
   $("clash-save").onclick = function () {
     var btn = $("clash-save");
+    var problems = clashProblems();
+    if (problems.length) {
+      clashStatus(problems[0] + (problems.length > 1 ? "（还有 " + (problems.length - 1) + " 处）" : ""), false);
+      return;
+    }
     btn.disabled = true;
     clashStatus("保存中…");
     api("/clash/rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(clashPayload()) })
@@ -1959,6 +1987,7 @@ const CLASH_GEOX = {
 
 const CLASH_RULES_KEY = "clash_rules";
 const CLASH_GROUP_TYPES = ["select", "url-test", "fallback", "load-balance", "relay"];
+const CLASH_BUILTIN_TARGETS = new Set(["DIRECT", "REJECT", "PASS"]);
 const CLASH_PROVIDER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 function clashProviderName(url, used) {
@@ -1994,7 +2023,12 @@ function normalizeGroup(raw, index) {
   const type = String(raw.type || "select");
   if (!CLASH_GROUP_TYPES.includes(type)) throw new Error(`groups[${index}].type must be one of ${CLASH_GROUP_TYPES.join(", ")}`);
   const group = { name, type };
-  const filter = raw.filter == null ? "" : String(raw.filter).trim();
+  // 前端/配置里常见 (?i) 前缀，JS 正则不支持内联 flag，这里直接吃掉（匹配时本来就带 i）
+  const filter = String(raw.filter == null ? "" : raw.filter)
+    .trim()
+    .replace(/^\(\?i\)/, "")
+    .replace(/^\(\?i:(.*)\)$/s, "$1")
+    .trim();
   const members = Array.isArray(raw.members) ? raw.members.map((m) => String(m).trim()).filter(Boolean) : [];
   if (filter && members.length) throw new Error(`groups[${index}] has both filter and members`);
   if (!filter && !members.length) throw new Error(`groups[${index}] needs either filter or members`);
@@ -2105,6 +2139,12 @@ function clashRegionRegex(filter) {
   return new RegExp(parts.join("|") || "$^", "i");
 }
 
+function resolveClashGroupMembers(spec, present, alive) {
+  return (spec.members || spec.proxies || []).filter(
+    (peer) => peer !== spec.name && (CLASH_BUILTIN_TARGETS.has(peer) || alive.has(peer) || present.has(peer)),
+  );
+}
+
 function resolveClashGroups(names, specs) {
   const present = new Set(names);
   const hits = new Map();
@@ -2114,16 +2154,25 @@ function resolveClashGroups(names, specs) {
     const matched = names.filter((name) => re.test(name));
     if (matched.length) hits.set(spec.name, matched);
   }
-  const kept = new Set(specs.filter((g) => !g.filter || hits.has(g.name)).map((g) => g.name));
+  // 没匹配到节点的过滤组、成员全被丢掉的成员组都整组省略（Clash 空 proxies 会直接报错），
+  // 并且要反复收敛：某组被省略后，引用它的组可能也跟着变空。
+  const alive = new Set(specs.filter((spec) => !spec.filter || hits.has(spec.name)).map((spec) => spec.name));
+  for (let guard = 0; guard < specs.length; guard += 1) {
+    let changed = false;
+    for (const spec of specs) {
+      if (!alive.has(spec.name) || spec.filter) continue;
+      if (!resolveClashGroupMembers(spec, present, alive).length) {
+        alive.delete(spec.name);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
   const groups = [];
   for (const spec of specs) {
-    if (spec.filter) {
-      if (!hits.has(spec.name)) continue;
-      groups.push({ name: spec.name, type: spec.type, members: hits.get(spec.name), url: spec.url, interval: spec.interval, tolerance: spec.tolerance });
-      continue;
-    }
-    const members = (spec.members || spec.proxies || []).filter((p) => p === "DIRECT" || p === "REJECT" || p === "PASS" || kept.has(p) || present.has(p));
-    groups.push({ name: spec.name, type: spec.type, url: spec.url, interval: spec.interval, tolerance: spec.tolerance, members: members.length ? members : ["DIRECT"] });
+    if (!alive.has(spec.name)) continue;
+    const members = spec.filter ? hits.get(spec.name) : resolveClashGroupMembers(spec, present, alive);
+    groups.push({ name: spec.name, type: spec.type, members, url: spec.url, interval: spec.interval, tolerance: spec.tolerance });
   }
   return groups;
 }
@@ -2181,7 +2230,10 @@ function toClashConfig(nodes, rules) {
   const entries = uniqueNodeEntries(nodes, clashReserved(doc));
   const names = entries.map((entry) => entry.name);
   const groups = resolveClashGroups(names, doc.groups);
-  const providers = clashProviders(doc.rulesets);
+  const liveGroups = new Set(groups.map((group) => group.name));
+  // 规则来源指向的分组如果这一轮被省略（没节点匹配），这条规则就没意义了；
+  // 留着会让 mihomo 报 "proxy group not found"。
+  const providers = clashProviders(doc.rulesets).filter((provider) => liveGroups.has(provider.group));
   const lines = clashHeaderLines();
   lines.push(...clashProxyLines(entries));
   lines.push("");
@@ -2212,7 +2264,7 @@ function toClashConfig(nodes, rules) {
   lines.push("");
   lines.push("rules:");
   for (const provider of providers) lines.push(`  - ${yamlString("RULE-SET," + provider.name + "," + provider.group)}`);
-  const groupNames = new Set(groups.map((group) => group.name));
+  const groupNames = liveGroups;
   if (groupNames.has("🎯 全球直连")) lines.push(`  - ${yamlString("GEOIP,CN,🎯 全球直连")}`);
   const fallback = groupNames.has("🐟 漏网之鱼") ? "🐟 漏网之鱼" : groups.length ? groups[0].name : "DIRECT";
   lines.push(`  - ${yamlString("MATCH," + fallback)}`);

@@ -286,6 +286,10 @@ curl -X POST -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/clash/rul
 }
 ```
 
+**空分组不会被留空输出**：过滤组一个节点都没匹配到、或者成员全指向不存在的分组时，整组直接省略（Clash 里空的 `proxies:` 会直接报错），并且引用它的分组会跟着收敛，指向它的 `RULE-SET` 规则也一起跳过，`MATCH` 自动落到还活着的第一个分组上。WebUI 保存前也会先自查一遍：某组既没过滤也没成员、成员不是已定义分组名、规则来源没选分组或 URL 不是 `http(s)`，都会当场提示，不会先发请求再吃 400。
+
+过滤正则可以直接写 `(?i)` 前缀（会忽略，匹配本来就区分大小写不敏感），`(?i:xxx)` 也会被拆掉。
+
 校验挺严，写错了会直接 400 并说清第几条哪里不对：分组重名、`filter` 不是合法正则、`filter` 和 `members` 同时给、`rulesets` 引用了不存在的分组、URL 不是 `http(s)`、条目超过 200 条，都会被拦下。规则存在 `settings` 表里（key `clash_rules`），跟着 D1 走，升级不用额外建表。
 
 只想要节点列表、自己配分组的话用 `?format=proxies`，它输出的是纯 `proxies:` 片段。
