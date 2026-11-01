@@ -573,6 +573,34 @@ python3 scripts/report.py \
 
 脚本依赖 `curl`，避免部分 Python 默认 User-Agent 被 Cloudflare 安全策略拦截。
 
+单机不想维护映射文件时，可以让名字取自主机名：
+
+```bash
+python3 scripts/report.py \
+  --base https://<worker> --token "$TOKEN" \
+  --url https://sub.example.com/sub.txt --from-hostname
+# 本机主机名 HK-Node_1.local → 上报到 /api/v1/report/hk-node-1-local
+```
+
+加 `--dry-run` 只打印「机器名 ← URL」不发请求，先确认名字对不对。
+
+### 上报时机器名从哪来
+
+Worker 端**没有生成规则**：名字就是上报 URL 路径里那一段（`POST /api/v1/report/<machine>`），服务端只做格式校验 `[a-z0-9][a-z0-9-]{0,63}`，不合格返回 `400 invalid machine name`。所以名字由上报端决定：
+
+| 上报端 | 名字来源 | 例子 |
+| --- | --- | --- |
+| `scripts/report.py --file machines.json` | JSON 的 key | `"sgw-oracle-nat": "https://..."` |
+| `scripts/report.py --machine` | `=` 左边 | `--machine sjc-1=https://...` |
+| `scripts/report.py --url --from-hostname` | 本机主机名 slug 化 | `HK-Node_1.local` → `hk-node-1-local` |
+| `scripts/report.py --url --name` | 显式给的 `--name` | `--name hk-1` |
+| singbox-manager | `sub_machine='...'` 配置值 | `sub_machine='sgw-1'` |
+| 自己写的客户端 | 自己拼的路径 | `curl .../api/v1/report/us-la` |
+
+`--from-hostname` 的转换规则：小写、非字母数字替换成 `-`、去掉首尾 `-`、截断到 63 字符；结果为空或首字符不是字母数字时补前缀 `machine-`。
+
+同一个名字重复上报 = 覆盖同一行（内容 hash 不变则跳过写入），所以名字在多机部署里要唯一，建议 `地区-用途-序号` 这种可读又不会撞的写法。
+
 ## 与 singbox-manager 集成
 
 管理器生成订阅后调用上报接口即可。建议的约定：
