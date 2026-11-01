@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.5.1";
+const VERSION = "1.6.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -40,7 +40,8 @@ export const SCHEMA_STATEMENTS = [
   bytes      INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   nodes_json TEXT NOT NULL DEFAULT '[]',
-  manual     INTEGER NOT NULL DEFAULT 0
+  manual     INTEGER NOT NULL DEFAULT 0,
+  auto_content TEXT
 )`,
   "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
   `CREATE TABLE IF NOT EXISTS settings (
@@ -48,6 +49,11 @@ export const SCHEMA_STATEMENTS = [
   value TEXT NOT NULL
 )`,
 ];
+
+/* 老库补列：D1 的 ALTER TABLE 没有 IF NOT EXISTS，重复执行会报 duplicate column，这里按幂等处理。
+ * auto_content 保存「最近一次自动上报的原文」，手动编辑时不动它，恢复自动上报时用它。
+ * 老库里这一列是 NULL，等价于「没有可恢复的上报」，行为退化成旧逻辑。 */
+export const MIGRATION_STATEMENTS = ["ALTER TABLE machines ADD COLUMN auto_content TEXT"];
 
 const UI_HTML = `<!doctype html>
 <html lang="zh-CN">
@@ -383,9 +389,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
-    if (!state.current || !confirm("恢复后会用最近一次自动上报的节点覆盖手动配置，确定？")) return;
+    if (!state.current || !confirm("恢复自动上报？节点会换回这台机器最近一次自动上报的内容，手改的内容会丢，确定？")) return;
     api("/machines/" + encodeURIComponent(state.current) + "/reset", { method: "POST" })
-      .then(function () { setStatus("已恢复自动上报", true); return loadMachines(true); })
+      .then(function (data) {
+        setStatus(data && data.restored === false
+          ? "这台机器还没有自动上报记录，已取消手动标记，节点保持不变"
+          : "已恢复自动上报，节点取自最近一次上报", true);
+        return loadMachines(true);
+      })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
   };
   document.addEventListener("click", function (ev) {
@@ -541,7 +552,7 @@ function dbEnv(env) { return env && env.DB ? env.DB : null; }
 
 /* ---------------- storage: Cloudflare D1 ---------------- */
 
-const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual";
+const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content";
 
 function rowToRecord(row) {
   let nodes = [];
@@ -554,6 +565,7 @@ function rowToRecord(row) {
     updated_at: row.updated_at,
     nodes: Array.isArray(nodes) ? nodes : [],
     manual: Boolean(Number(row.manual)),
+    auto_content: row.auto_content == null ? null : String(row.auto_content),
   };
 }
 
@@ -566,6 +578,7 @@ function recordValues(record) {
     record.updated_at,
     JSON.stringify(record.nodes || []),
     record.manual ? 1 : 0,
+    record.auto_content == null ? null : String(record.auto_content),
   ];
 }
 
@@ -588,15 +601,16 @@ async function saveRecord(env, record) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
   await db.prepare(
-    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
      ON CONFLICT(machine) DO UPDATE SET
        content = excluded.content,
        hash = excluded.hash,
        bytes = excluded.bytes,
        updated_at = excluded.updated_at,
        nodes_json = excluded.nodes_json,
-       manual = excluded.manual`,
+       manual = excluded.manual,
+       auto_content = excluded.auto_content`,
   ).bind(...recordValues(record)).run();
   return record;
 }
@@ -626,7 +640,17 @@ async function putSetting(env, key, value) {
 async function initSchema(env) {
   if (!dbEnv(env)) return missingConfig("DB");
   for (const statement of SCHEMA_STATEMENTS) await dbEnv(env).prepare(statement).run();
-  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length });
+  let migrated = 0;
+  for (const statement of MIGRATION_STATEMENTS) {
+    try {
+      await dbEnv(env).prepare(statement).run();
+      migrated += 1;
+    } catch (error) {
+      const message = String((error && error.message) || error);
+      if (!/duplicate column|already exists/i.test(message)) throw error;
+    }
+  }
+  return json({ ok: true, storage: "d1", statements: SCHEMA_STATEMENTS.length, migrations: migrated });
 }
 
 /* ---------------- handlers ---------------- */
@@ -654,7 +678,18 @@ async function report(request, env, machine) {
     ? old.nodes
     : await normalizeNodes(links, old && Array.isArray(old.nodes) ? old.nodes : []);
   const updatedAt = new Date().toISOString();
-  const record = { machine, content, hash, bytes: content.length, updated_at: updatedAt, nodes, manual: Boolean(old && old.manual) };
+  const manual = Boolean(old && old.manual);
+  const record = {
+    machine,
+    content,
+    hash,
+    bytes: content.length,
+    updated_at: updatedAt,
+    nodes,
+    manual,
+    // 自动上报永远是最新的「真实配置」：手动机器把它存进 auto_content，供“恢复自动上报”回退
+    auto_content: manual ? content : null,
+  };
   await saveRecord(env, record);
   return json({ ok: true, changed: true, machine, bytes: content.length, hash, nodes: nodes.length, manual: record.manual, updated_at: updatedAt });
 }
@@ -728,7 +763,17 @@ async function putNodeConfig(request, env, machine) {
   const old = await loadRecord(env, machine);
   const nodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.nodes) ? old.nodes : [], inputs);
   const content = encodeBase64(nodes.map((n) => n.link).join("\n"));
-  const record = { machine, content, hash: await sha256Hex(content), bytes: content.length, updated_at: new Date().toISOString(), nodes, manual: true };
+  const record = {
+    machine,
+    content,
+    hash: await sha256Hex(content),
+    bytes: content.length,
+    updated_at: new Date().toISOString(),
+    nodes,
+    manual: true,
+    // 第一次改成手动时，用编辑前的 content 当恢复点；之后保留已有的恢复点
+    auto_content: old ? old.auto_content || old.content : null,
+  };
   await saveRecord(env, record);
   return json({ ok: true, machine, manual: true, nodes });
 }
@@ -737,10 +782,21 @@ async function resetMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
-  const nodes = await normalizeNodes(splitLinks(decodeSafe(old.content)), []);
-  const record = { ...old, nodes, manual: false, updated_at: new Date().toISOString() };
+  const base = old.auto_content || old.content;
+  const nodes = await normalizeNodes(splitLinks(decodeSafe(base)), []);
+  const record = {
+    ...old,
+    content: base,
+    hash: await sha256Hex(base),
+    bytes: base.length,
+    nodes,
+    manual: false,
+    auto_content: null,
+    updated_at: new Date().toISOString(),
+  };
   await saveRecord(env, record);
-  return json({ ok: true, machine, manual: false, nodes });
+  const restored = Boolean(old.auto_content);
+  return json({ ok: true, machine, manual: false, restored, nodes });
 }
 
 async function renameMachine(request, env, machine) {

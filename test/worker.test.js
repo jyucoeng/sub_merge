@@ -35,6 +35,7 @@ function mockRow(args) {
     updated_at: args[4],
     nodes_json: args[5],
     manual: args[6],
+    auto_content: args[7] == null ? null : args[7],
   };
 }
 
@@ -81,6 +82,11 @@ class MockStatement {
       return { success: true, meta: { changes: 1 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
+    if (/^ALTER TABLE machines ADD COLUMN auto_content TEXT$/i.test(this.sql)) {
+      if (this.db.hasAutoContent) throw new Error("duplicate column name: auto_content");
+      this.db.hasAutoContent = true;
+      return { success: true, meta: { changes: 0 } };
+    }
     throw new Error(`MockD1: unsupported run() -> ${this.sql}`);
   }
 }
@@ -420,12 +426,55 @@ test("webui can edit links/order and reports do not overwrite manual config", as
   const merged = unb64(await res.text());
   assert.ok(merged.indexOf(SAMPLE_LINKS[1]) < merged.indexOf(SAMPLE_LINKS[0]));
 
-  // reset 后恢复自动上报内容
+  // reset 后恢复的是最近一次自动上报的内容（不是手改的那条）
   res = await call(env, "POST", "/api/v1/machines/edit/reset", null, { authorization: `Bearer ${TOKEN}` });
   assert.equal(res.status, 200);
   data = await res.json();
   assert.equal(data.manual, false);
+  assert.equal(data.restored, true);
   assert.equal(data.nodes.length, 1);
+  assert.match(data.nodes[0].link, /#New$/);
+  assert.notEqual(data.nodes[0].link, SAMPLE_LINKS[1]);
+});
+
+test("restore keeps nodes when a manual machine never reported", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const link = "vless://dddddddd-1111-4111-8111-444444444444@203.0.113.9:443?security=reality&sni=pypi.org&pbk=x&sid=y#手写节点";
+  let res = await call(env, "PUT", "/api/v1/nodes/never-reported", JSON.stringify({ nodes: [{ link }] }), { ...auth, "content-type": "application/json" });
+  assert.equal(res.status, 200);
+
+  res = await call(env, "POST", "/api/v1/machines/never-reported/reset", null, auth);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.manual, false);
+  assert.equal(data.restored, false);
+  assert.equal(data.nodes.length, 1, "no report to restore, manual nodes stay");
+  assert.equal(data.nodes[0].link, link);
+});
+
+test("a later report becomes the new restore point for a manual machine", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const first = "vless://eeeeeeee-1111-4111-8111-555555555555@203.0.113.11:443?security=reality&sni=pypi.org&pbk=x&sid=y#上报一";
+  const second = "vless://ffffffff-1111-4111-8111-666666666666@203.0.113.12:443?security=reality&sni=pypi.org&pbk=x&sid=y#上报二";
+  await call(env, "POST", "/api/v1/report/restore-pt", b64(first), auth);
+  await call(env, "POST", "/api/v1/report/restore-pt", b64(second), auth);
+  const hand = "vless://99999999-1111-4111-8111-777777777777@203.0.113.13:443?security=reality&sni=pypi.org&pbk=x&sid=y#手改";
+  await call(env, "PUT", "/api/v1/nodes/restore-pt", JSON.stringify({ nodes: [{ link: hand }] }), { ...auth, "content-type": "application/json" });
+
+  let res = await call(env, "POST", "/api/v1/machines/restore-pt/reset", null, auth);
+  let data = await res.json();
+  assert.equal(data.restored, true);
+  assert.match(data.nodes[0].link, /#上报二$/);
+
+  // 恢复之后再改手动、再上报，恢复点跟着最新上报走
+  await call(env, "PUT", "/api/v1/nodes/restore-pt", JSON.stringify({ nodes: [{ link: hand }] }), { ...auth, "content-type": "application/json" });
+  const third = "vless://12345678-1111-4111-8111-888888888888@203.0.113.14:443?security=reality&sni=pypi.org&pbk=x&sid=y#上报三";
+  await call(env, "POST", "/api/v1/report/restore-pt", b64(third), auth);
+  res = await call(env, "POST", "/api/v1/machines/restore-pt/reset", null, auth);
+  data = await res.json();
+  assert.match(data.nodes[0].link, /#上报三$/);
 });
 
 test("link fragments become node names, duplicates and blanks are dropped", async () => {

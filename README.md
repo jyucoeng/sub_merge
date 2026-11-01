@@ -138,7 +138,7 @@ https://<worker>/ui/<TOKEN>
 - 调整节点顺序：序号输入框直接填目标位置（回车生效），或用 ↑/↓ 一行一行挪；
 - 添加、删除节点；
 - 保存后订阅立即按新顺序生成；
-- “恢复自动上报”会清除手动配置，重新采用最近一次上报内容。
+- **“恢复自动上报”**：节点换回这台机器**最近一次自动上报**的内容（手动改的那份会丢，所以会先弹确认）；从没上报过的机器则只取消“手动”标记、节点保持不变，界面会直接说明；
 
 手动保存后，机器继续自动上报也不会覆盖已编辑节点；需要恢复自动更新时点“恢复自动上报”。
 名称留空也能保存：服务端会按同样的规则（`#` 片段 → `协议-服务器`）补齐，不会出现空名字的节点。
@@ -235,7 +235,8 @@ CREATE TABLE IF NOT EXISTS machines (
   bytes      INTEGER NOT NULL DEFAULT 0, -- base64 长度
   updated_at TEXT NOT NULL,              -- ISO 8601 时间
   nodes_json TEXT NOT NULL DEFAULT '[]', -- [{id,name,link,protocol,order}]
-  manual     INTEGER NOT NULL DEFAULT 0  -- 1 = WebUI 手动编辑过，自动上报不覆盖
+  manual     INTEGER NOT NULL DEFAULT 0, -- 1 = WebUI 手动编辑过，自动上报不覆盖
+  auto_content TEXT                      -- 最近一次自动上报的原文，供“恢复自动上报”回退
 );
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
@@ -245,6 +246,10 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL                    -- JSON 文本
 );
 ```
+
+`auto_content` 只在需要时占用空间：自动上报的机器它是 `NULL`（`content` 本身就是上报内容），手动编辑过的机器才多存一份最近上报，用来回退。
+
+老库升级不用改 SQL：`POST /api/v1/admin/schema` 会顺带跑 `ALTER TABLE machines ADD COLUMN auto_content TEXT`（重复执行时报 `duplicate column` 会被忽略），升级前的老数据这一列是 `NULL`，行为退化成“没有可恢复的上报”。
 
 写入路径只有两条：上报和 WebUI 保存节点，都是 `INSERT ... ON CONFLICT(machine) DO UPDATE`；读取路径也只有两条：单机 `WHERE machine = ?1`、合并订阅 `SELECT * FROM machines`（一次查询，机器数量不影响往返次数）。
 

@@ -397,6 +397,35 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const { data } = await api("/nodes/" + encodeURIComponent("香港-备用"));
   check("reset 确认：节点改用最近一次上报的内容", (data.nodes || []).length === 1, `${(data.nodes || []).length} 个`);
   check("reset 确认：徽章变「上报」", findMachineRow("香港-备用").children[1].textContent.includes("上报"));
+  check("reset 确认：提示说明取了最近一次上报", text("status").includes("节点取自最近一次上报"), text("status"));
+}
+
+// L2. 从没上报过的机器：reset 只取消手动标记，节点保持
+{
+  el("new-machine").value = "没上报过";
+  click("create-machine");
+  await idle();
+  await api("/nodes/" + encodeURIComponent("没上报过"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: HY2 }] }),
+  });
+  await idle();
+  findMachineRow("没上报过").children[5].onclick();
+  await idle();
+  const before = nodeRows().length;
+  confirms.push(true);
+  click("reset");
+  await idle();
+  check("未上报过：提示没有可恢复内容", text("status").includes("还没有自动上报记录"), text("status"));
+  const { data } = await api("/nodes/" + encodeURIComponent("没上报过"));
+  check("未上报过：节点保持不变", (data.nodes || []).length === before && before === 1, `${(data.nodes || []).length} vs ${before}`);
+  check("未上报过：手动标记已取消", data.manual === false, String(data.manual));
+  // 收尾：删掉这台临时机器
+  confirms.push(true);
+  findMachineRow("没上报过").children[6].onclick();
+  await idle();
+  check("未上报过：临时机器已删除", !findMachineRow("没上报过"));
 }
 
 // M. 删除机器（confirm 守卫）
