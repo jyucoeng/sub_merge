@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.14";
+const VERSION = "1.22.15";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -93,8 +93,10 @@ button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
-.node.auto-row{grid-template-columns:minmax(0,1fr) 96px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.node.auto-row{grid-template-columns:minmax(0,1fr) 104px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
 .node.auto-row input.link{grid-column:1/-1}
+.node.auto-row.copied .name{color:#94a3b8}
+.node.auto-row .srctag{justify-self:end;margin-right:2px;white-space:nowrap;font-size:11px}
 .node.auto-row input[readonly]{background:#fbfbfc;color:#555;cursor:text}
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
@@ -494,7 +496,7 @@ body.locked .wrap{display:none}
     var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "×"; del.title = "删除";
     up.onclick = function () { if (index > 0) { var t = state.nodes[index - 1]; state.nodes[index - 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
     down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
-    del.onclick = function () { state.nodes.splice(index, 1); markDirty(); render(); };
+    del.onclick = function () { state.nodes.splice(index, 1); markDirty(); renderManual(); };
     link.oninput = function () { state.nodes[index].link = link.value; markDirty(); };
     link.onpaste = function (ev) {
       var text = ev.clipboardData && ev.clipboardData.getData("text");
@@ -597,6 +599,8 @@ body.locked .wrap{display:none}
   function snapshotNodes() { state.saved = JSON.parse(JSON.stringify(state.nodes || [])); }
   function markDirty() { state.dirty = true; syncDirty(); }
   function markClean() { state.dirty = false; snapshotNodes(); syncDirty(); }
+  /* 手动层变化会改变 ② 里「已在 ① 手动」的标记，改完两边一起刷 */
+  function renderManual() { render(); renderAutoNodes(); }
   function render() {
     counts(); syncDirty();
     var box = $("nodes"); box.innerHTML = "";
@@ -866,18 +870,27 @@ body.locked .wrap{display:none}
       box.appendChild(e);
       return;
     }
+    var manualKeys = state.nodes.map(function (x) { return (x.link || "").split("#")[0]; });
     state.autoNodes.forEach(function (n) {
-      var row = document.createElement("div"); row.className = "node auto-row";
+      var here = (n.link || "").split("#")[0];
+      var copied = manualKeys.indexOf(here) !== -1;
+      var row = document.createElement("div"); row.className = "node auto-row" + (copied ? " copied" : "");
       var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = n.link || "";
       var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || ""; name.readOnly = true; name.title = n.name || "";
-      var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转 ① 手动"; keep.title = "把这条复制进 ① 手动节点（还要点 ① 的保存）";
-      keep.onclick = function () {
-        if (state.nodes.some(function (x) { return x.link.split("#")[0] === n.link.split("#")[0]; })) return;
-        state.nodes.push({ link: n.link, name: n.name || "" });
-        markDirty(); render();
-        setStatus("已复制到 ① 手动节点（还没保存）：点 ① 的「保存配置」才写进库", true);
-      };
-      row.appendChild(link); row.appendChild(name); row.appendChild(keep);
+      row.appendChild(link); row.appendChild(name);
+      if (copied) {
+        var tag = document.createElement("span"); tag.className = "srctag manual"; tag.textContent = "已在 ① 手动";
+        tag.title = "这条已经复制进 ① 手动节点了，要改就去上面 ① 改（这里仍然只读）";
+        row.appendChild(tag);
+      } else {
+        var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转 ① 手动"; keep.title = "把这条复制进 ① 手动节点（还要点 ① 的保存）";
+        keep.onclick = function () {
+          state.nodes.push({ link: n.link, name: n.name || "" });
+          markDirty(); renderManual();
+          setStatus("已复制到 ① 手动节点（还没保存）：点 ① 的「保存配置」才写进库", true);
+        };
+        row.appendChild(keep);
+      }
       box.appendChild(row);
     });
   }
@@ -1131,7 +1144,7 @@ body.locked .wrap{display:none}
     if (!state.current) return setStatus("先选一台机器", false);
     if (!state.nodes.length) return setStatus("① 里没有手动节点，不用清空", false);
     if (!window.confirm("清空 ① 手动节点？点「保存配置」前可以用「撤销修改」还原，确定？")) return;
-    state.nodes = []; markDirty(); render();
+    state.nodes = []; markDirty(); renderManual();
     setStatus("① 已清空，点「保存配置」才会写进库", true);
   };
   $("reset").onclick = function () {

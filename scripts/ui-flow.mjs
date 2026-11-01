@@ -457,6 +457,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("转为手动：手动区出现一条", nodeRows().length === 1, `rows=${nodeRows().length}`);
   check("转 ① 手动：提示要保存", text("status").includes("已复制到 ① 手动节点"), text("status"));
+  {
+    const first = autoRows()[0];
+    check("转 ① 手动：该行不再显示按钮", first.children.length === 3 && first.children[2].tagName?.toUpperCase?.() !== "BUTTON", `children=${first.children.length} / ${first.children[2] && first.children[2].textContent}`);
+    check("转 ① 手动：该行改成「已在 ① 手动」标签", first.className.includes("copied") && first.children[2].textContent === "已在 ① 手动", `${first.className} / ${first.children[2].textContent}`);
+  }
   click("save");
   await idle();
   {

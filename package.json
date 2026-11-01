@@ -1,6 +1,6 @@
 {
   "name": "sub-worker",
-  "version": "1.22.14",
+  "version": "1.22.15",
   "private": true,
   "type": "module",
   "description": "Fixed subscription endpoint for singbox-manager, backed by Cloudflare D1",
