@@ -13,7 +13,7 @@
 - 按内容 SHA-256 去重，相同内容不重复写；
 - 读取强一致：上报后立即能在合并订阅里读到；合并订阅是一次 `SELECT`，无 N+1；
 - **WebUI 可以编辑节点链接、节点名称、机器顺序和节点顺序**；
-- **自动适配 base64 / Clash / sing-box 订阅格式**；
+- **自动适配 base64 / Clash / sing-box 订阅格式**；Clash 输出的是完整配置（ACL4SSR 分组 + rule-providers），不是只有 `proxies:` 的片段；
 - 手动编辑后，机器自动上报不会覆盖手动配置；
 - 支持 `workers.dev` 默认域名和自定义域名；
 - 自动从请求 `Origin` 推断对外域名，无需配置 `PUBLIC_BASE_URL`；
@@ -181,18 +181,34 @@ https://<worker>/ui/<TOKEN>
 | 客户端 / 参数 | 格式 |
 |---|---|
 | V2RayN、默认 | base64 URI |
-| Clash、Mihomo、Meta | Clash YAML |
+| Clash、Mihomo、Meta | Clash 完整配置（`proxies` + `proxy-groups` + `rule-providers` + `rules`） |
 | sing-box / singbox | sing-box JSON |
 
 也可以显式指定：
 
 ```text
 /sub/all/<TOKEN>?format=base64
-/sub/all/<TOKEN>?format=clash
+/sub/all/<TOKEN>?format=clash      # 完整配置：分组 + 规则
+/sub/all/<TOKEN>?format=proxies    # 片段：只有 proxies:，给 proxy-provider 用
 /sub/all/<TOKEN>?format=singbox
 /sub/all/<TOKEN>?clash
 /sub/all/<TOKEN>?singbox
 ```
+
+### Clash 完整配置里的分组和规则
+
+`?format=clash` 输出的是一份能直接导入 mihomo / Clash.Meta 的完整配置：
+
+- **代理分组**：沿用 ACL4SSR 的命名与顺序 —— `🚀 节点选择`、`☑️ 手动切换`、`♻️ 自动选择`（url-test，300s / tolerance 50）、`📹 油管视频`、`🎥 奈飞视频`、`🌍 国外媒体`、`📲 电报信息`、`🤖 OpenAi`、`🛸 Antigravity`、`Ⓜ️ 微软服务`、`🍎 苹果服务`、`📢 谷歌FCM`、`🎯 全球直连`、`🛑 全球拦截`、`🍃 应用净化`、`🐟 漏网之鱼`，以及 ~35 个国家分组；
+- **国家分组按节点名匹配**：香港 / 香港节点 / HK / HKG、美国 / 洛杉矶 / 圣何塞 / US / LAX…，中文机器名和中文节点名都能命中。短英文代号（`DE`、`US`、`HK`…）要求整词匹配，所以 `Node-1` 不会被误判成德国；
+- **空分组自动省略**：没匹配到节点的国家分组不会输出，引用它的分组里也不留空引用（Clash 空 `proxies:` 会直接报错）；
+- **节点名去重**：不同机器里出现同名节点（或同一条链接）时自动加 ` 2`、` 3` 后缀，避免 Clash 因重名拒绝加载；
+- **规则以 `rule-providers` 下发**：28 个 ACL4SSR 规则集（`BanAD`、`BanProgramAD`、`GoogleCN`、`Microsoft`、`Apple`、`Telegram`、`OpenAi`、`YouTube`、`Netflix`、`ChinaDomain`、`ChinaCompanyIp`、`zdy` 等）只写 URL 和 `RULE-SET,<name>,<group>`，`behavior: classical` + `format: text`，客户端自己拉取并缓存 24 小时。Worker 里**不抓取、不内联**规则 —— 30 个 .list 内联下来是几 MB、几十次 subrequest，免费版（CPU 10 ms / subrequest 50）根本跑不动；
+- **收尾规则**固定是 `GEOIP,CN,🎯 全球直连` 和 `MATCH,🐟 漏网之鱼`；`geodata-mode: true` + `geo-auto-update: true`，`geox-url` 指向 MetaCubeX 的 geoip/geosite/mmdb/asn。
+
+分组与规则定义来自 [ACL4SSR](https://github.com/ACL4SSR/ACL4SSR) 生态（跟 [clash-sub-converter](https://github.com/jyucoeng/clash-sub-converter) 的默认规则一致），DNS 段用 fake-ip + 国内 DoH，需要 **mihomo / Clash.Meta**（老版 Clash Premium 不认识 `rule-providers`、`fake-ip`、`geodata-mode` 这些字段）。
+
+只想要节点列表、自己配分组的话用 `?format=proxies`，它输出的是纯 `proxies:` 片段。
 
 支持转换的节点链接包括：
 
@@ -546,7 +562,7 @@ curl -X PUT \
 curl https://<worker>/sub/machine-a/<TOKEN>
 ```
 
-默认返回 `text/plain` 的 base64 订阅内容；带 `?format=clash` 或 `?format=singbox` 返回对应格式。
+默认返回 `text/plain` 的 base64 订阅内容；`?format=clash` 返回带分组与规则的完整 Clash 配置，`?format=proxies` 只返回 `proxies:` 片段，`?format=singbox` 返回 sing-box JSON。
 
 ## 多机上报
 
@@ -640,7 +656,7 @@ sub_machine='machine-a'
 - D1 只有主副本可写，写入延迟取决于 Worker 与主区域的网络距离；读取强一致，合并订阅是单次 `SELECT * FROM machines`，机器再多也不会有 N+1；
 - WebUI 采用 `TOKEN` 路径认证，请勿把 `/ui/<TOKEN>` 发给他人；
 - 手动编辑后不会自动合并新上报节点，需要点“恢复自动上报”才会恢复；
-- `?format=clash` 输出的是只有 `proxies:` 的订阅片段，按「proxy-provider / 机场订阅」导入客户端可用；直接当完整 Clash 配置导入会因缺少 `proxy-groups` / `rules` 而失败；
+- `?format=clash` 是给 mihomo / Clash.Meta 的完整配置；老的 Clash Premium 或只认 `proxies:` 的客户端请用 `?format=proxies` 片段自己套分组；规则集是客户端联网拉的（首次启动会下载 28 个 .list 和 geo 数据），离线环境需要提前放好缓存；
 - `workers.dev` 域名在部分地区可能不可达，建议绑定自定义域名。
 
 ## 开发

@@ -343,11 +343,25 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /yaml/);
   const clash = await res.text();
-  assert.match(clash, /^proxies:/);
+  assert.match(clash, /^# sub-worker/);
+  assert.match(clash, /^mixed-port: 7890$/m);
+  assert.match(clash, /^proxies:$/m);
+  assert.match(clash, /^proxy-groups:$/m);
+  assert.match(clash, /^rule-providers:$/m);
+  assert.match(clash, /^rules:$/m);
   assert.match(clash, /type: vless/);
   assert.match(clash, /type: anytls/);
   assert.match(clash, /type: tuic/);
   assert.match(clash, /type: hysteria2/);
+
+  // 片段模式：只有 proxies:，给 proxy-provider 用
+  res = await call(env, "GET", `/sub/fmt/${TOKEN}?format=proxies`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /yaml/);
+  const fragment = await res.text();
+  assert.match(fragment, /^proxies:/);
+  assert.ok(!fragment.includes("proxy-groups:"));
+  assert.ok(!fragment.includes("rules:"));
 
   res = await call(env, "GET", `/sub/fmt/${TOKEN}?format=singbox`);
   assert.equal(res.status, 200);
@@ -359,7 +373,7 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(singbox.outbounds[3].type, "tuic");
 
   res = await call(env, "GET", `/sub/fmt/${TOKEN}`, null, { "user-agent": "clash-meta/1.0" });
-  assert.match(await res.text(), /^proxies:/);
+  assert.match(await res.text(), /^rule-providers:$/m);
   res = await call(env, "GET", `/sub/fmt/${TOKEN}`, null, { "user-agent": "sing-box/1.13" });
   assert.equal(JSON.parse(await res.text()).outbounds.length, 4);
 });
@@ -744,4 +758,65 @@ test("scripts/schema.sql matches SCHEMA_STATEMENTS", () => {
   }
   assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 2);
   assert.ok(sql.includes("manual INTEGER NOT NULL DEFAULT 0"));
+});
+
+test("clash config carries ACL4SSR groups and rule-providers that resolve", async () => {
+  const env = makeEnv();
+  const links = [
+    "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=reality&sni=pypi.org&pbk=abc&sid=dead#香港-HK-01",
+    "vless://22222222-2222-4222-8222-222222222222@la.example.com:443?security=tls&sni=pypi.org#洛杉矶-US-01",
+    "vless://33333333-3333-4333-8333-333333333333@de.example.com:443?security=tls&sni=pypi.org#德国-法兰克福-01",
+    "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-JP-01",
+    "tuic://44444444-4444-4444-8444-444444444444:pw@sg.example.net:443?sni=deb.debian.org&congestion_control=bbr#狮城-SG-01",
+  ];
+  let res = await call(env, "POST", "/api/v1/report/asia", b64(links.join("\n")), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  assert.equal(res.status, 200);
+  // 另一台机器放一条同名但不同链路的节点，验证 clash 名称唯一
+  res = await call(env, "POST", "/api/v1/report/eu", b64("vless://55555555-5555-4555-8555-555555555555@hk2.example.com:443?security=tls&sni=pypi.org#香港-HK-01"), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  assert.equal(res.status, 200);
+
+  res = await call(env, "GET", `/sub/all/${TOKEN}?format=clash`);
+  assert.equal(res.status, 200);
+  const yaml = await res.text();
+
+  const names = [...yaml.matchAll(/^  - name: "(.+)"$/gm)].map((m) => m[1]);
+  const groupNames = names.filter((n) => /^[\p{Emoji}\u2600-\u27bf]/u.test(n) || n.includes("节点选择"));
+  // 代理名唯一
+  const proxyNames = names.slice(0, names.length - groupNames.length);
+  assert.equal(new Set(proxyNames).size, proxyNames.length);
+  assert.ok(proxyNames.includes("香港-HK-01"));
+  assert.ok(proxyNames.includes("香港-HK-01 2"), "same name from two machines must be uniqued");
+
+  // 国家分组按名字命中，空分组不输出
+  const hkGroup = yaml.split('  - name: "🇭🇰 香港节点"')[1] || "";
+  assert.match(hkGroup.slice(0, 400), /香港-HK-01/);
+  assert.ok(!yaml.includes('  - name: "🇲🇴 澳门节点"'), "empty country groups are dropped");
+  assert.match(yaml, /"🇺🇸 美国节点"/);
+  assert.match(yaml, /"🇩🇪 德国节点"/);
+  assert.match(yaml, /"🇯🇵 日本节点"/);
+  assert.match(yaml, /"🇸🇬 狮城节点"/);
+  // short codes are word-bounded: something like "Node" must not be treated as DE
+  assert.ok(!/"德国节点"\n    type: "select"\n    proxies:\n      - "洛杉矶/.test(yaml));
+
+  // 每个 RULE-SET 都有对应 provider，且目标分组真实存在
+  const providers = [...yaml.matchAll(/^  "([A-Za-z0-9_-]+)":$/gm)].map((m) => m[1]);
+  assert.equal(new Set(providers).size, providers.length);
+  assert.ok(providers.includes("BanAD"));
+  assert.ok(providers.includes("YouTube"));
+  const rules = [...yaml.matchAll(/^  - "RULE-SET,([^,]+),(.+)"$/gm)].map((m) => [m[1], m[2]]);
+  assert.ok(rules.length >= 25);
+  for (const [provider, group] of rules) {
+    assert.ok(providers.includes(provider), `missing provider ${provider}`);
+    assert.ok(yaml.includes(`  - name: "${group}"`), `missing group ${group}`);
+  }
+  const ruleLines = [...yaml.matchAll(/^  - "(.+)"$/gm)].map((m) => m[1]).filter((r) => /RULE-SET|GEOIP|MATCH/.test(r));
+  assert.equal(ruleLines[ruleLines.length - 1], "MATCH,🐟 漏网之鱼");
+  assert.ok(ruleLines.includes("GEOIP,CN,🎯 全球直连"));
+
+  // 分组里不能出现空 proxies:
+  assert.ok(!/proxies:\n\n/.test(yaml));
 });

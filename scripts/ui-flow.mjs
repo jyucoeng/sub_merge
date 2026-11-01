@@ -390,8 +390,17 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("合并订阅：条数等于各机器之和", decoded.length === expected, `${decoded.length} vs ${expected}`);
   check("合并订阅：可解码且首条是 hysteria2/tuic", /^(hysteria2|tuic):\/\//.test(decoded[0]), decoded[0].slice(0, 24));
   const clash = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}?format=clash`)).text();
-  check("clash 输出：proxies 列表可用", clash.startsWith("proxies:") && /type: (hysteria2|tuic|vless)/.test(clash), `${clash.length} B`);
-  if (!clash.includes("proxy-groups:")) console.log("  ⚠ clash 输出只有 proxies:，没有 proxy-groups/rules —— 作为 proxy-provider 片段可用，直接当完整配置导入会失败");
+  check(
+    "clash 完整配置：分组 + 规则 + 节点都在",
+    clash.includes("proxy-groups:") && clash.includes("rule-providers:") && clash.includes("rules:") && /type: (hysteria2|tuic|vless)/.test(clash),
+    `${clash.length} B`,
+  );
+  check("clash 规则以 rule-providers 下发，不内联", /^  "BanAD":$/m.test(clash) && !/^  - DOMAIN,/.test(clash));
+  check("clash 规则最后是 MATCH 且 GEOIP,CN 在", /MATCH,🐟 漏网之鱼/.test(clash) && /GEOIP,CN/.test(clash));
+  const frag = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}?format=proxies`)).text();
+  check("clash 片段模式只有 proxies:", frag.startsWith("proxies:") && !frag.includes("proxy-groups:"), `${frag.length} B`);
+  const uiHtml = await (await netFetch(`${BASE}/ui/${encodeURIComponent(TOKEN)}`)).text();
+  check("UI 给出片段链接", uiHtml.includes("url-proxies") && uiHtml.includes("?format=proxies"));
   const singbox = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}?format=singbox`)).text();
   let sb = null;
   try { sb = JSON.parse(singbox); } catch {}

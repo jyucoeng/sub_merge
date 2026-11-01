@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -114,9 +114,10 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
 <div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button></div>
 <div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button></div>
-<div class="hint">也可以显式使用 <code>?format=clash</code>、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
+<div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
 </div>
 <script>
@@ -265,6 +266,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     var base = location.origin + "/sub/all/" + encodeURIComponent(TOKEN);
     $("url-base").textContent = base;
     $("url-clash").textContent = base + "?format=clash";
+    $("url-proxies").textContent = base + "?format=proxies";
     $("url-singbox").textContent = base + "?format=singbox";
   }
   function loadNodes(quiet) {
@@ -408,7 +410,7 @@ async function handleRequest(request, env) {
       version: VERSION,
       storage: "d1",
       subscription_base: baseUrl(request),
-      formats: ["base64", "clash", "singbox"],
+      formats: ["base64", "clash", "proxies", "singbox"],
       ui: "/ui/:token",
       endpoints: [
         "POST /api/v1/report/:machine",
@@ -998,8 +1000,10 @@ function formatOf(request) {
   const u = new URL(request.url);
   const raw = (u.searchParams.get("format") || "").toLowerCase();
   if (raw === "clash" || raw === "mihomo" || raw === "yaml") return "clash";
+  if (raw === "proxies" || raw === "clash-proxies" || raw === "provider") return "proxies";
   if (raw === "singbox" || raw === "sing-box" || raw === "json") return "singbox";
   if (raw === "base64" || raw === "b64" || raw === "uri" || raw === "v2rayn") return "base64";
+  if (u.searchParams.has("proxies") || u.searchParams.has("provider")) return "proxies";
   if (u.searchParams.has("clash")) return "clash";
   if (u.searchParams.has("singbox") || u.searchParams.has("sing-box")) return "singbox";
   if (u.searchParams.has("b64") || u.searchParams.has("base64")) return "base64";
@@ -1013,7 +1017,8 @@ function subResponse(nodes, request, extraHeaders) {
   const format = formatOf(request);
   let body;
   let type = "text/plain; charset=utf-8";
-  if (format === "clash") { body = toClash(nodes); type = "text/yaml; charset=utf-8"; }
+  if (format === "clash") { body = toClashConfig(nodes); type = "text/yaml; charset=utf-8"; }
+  else if (format === "proxies") { body = toClash(nodes); type = "text/yaml; charset=utf-8"; }
   else if (format === "singbox") { body = toSingbox(nodes); type = "application/json; charset=utf-8"; }
   else body = encodeBase64(nodes.map((n) => n.link).join("\n"));
   return new Response(body, {
@@ -1023,12 +1028,31 @@ function subResponse(nodes, request, extraHeaders) {
 
 function yamlString(value) { return JSON.stringify(String(value == null ? "" : value)); }
 
-function toClash(nodes) {
+function uniqueNodeEntries(nodes, reserved) {
+  const entries = [];
+  const usedLinks = new Set();
+  const usedNames = new Set(reserved || []);
+  for (const node of nodes || []) {
+    const link = String((node && node.link) || "");
+    if (link && usedLinks.has(link)) continue;
+    const proxy = (node && node.proxy) || parseLink(link);
+    if (!proxy) continue;
+    if (link) usedLinks.add(link);
+    let base = String((node && node.name) || proxy.name || "").trim();
+    if (!base) base = proxy.kind.toUpperCase() + "-" + proxy.server;
+    let name = base;
+    for (let i = 2; usedNames.has(name); i += 1) name = base + " " + i;
+    usedNames.add(name);
+    entries.push({ name: name, proxy: proxy });
+  }
+  return entries;
+}
+
+function clashProxyLines(entries) {
   const lines = ["proxies:"];
-  for (const node of nodes) {
-    const p = node.proxy || parseLink(node.link);
-    if (!p) continue;
-    lines.push(`  - name: ${yamlString(node.name || p.name)}`);
+  for (const entry of entries) {
+    const p = entry.proxy;
+    lines.push(`  - name: ${yamlString(entry.name)}`);
     lines.push(`    type: ${p.kind === "hy2" ? "hysteria2" : p.kind}`);
     lines.push(`    server: ${yamlString(p.server)}`);
     lines.push(`    port: ${p.port}`);
@@ -1092,6 +1116,245 @@ function toClash(nodes) {
       }
     }
   }
+  return lines;
+}
+
+function toClash(nodes) {
+  // 片段：只有 proxies:，给 proxy-provider 用
+  return clashProxyLines(uniqueNodeEntries(nodes)).join("\n") + "\n";
+}
+
+/* ---------------- clash：完整配置（ACL4SSR 分组 + rule-providers） ----------------
+ * 规则集来自 ACL4SSR 生态（clash-sub-converter 默认规则），但不在 Worker 里抓取内联：
+ * 只输出 rule-providers，让客户端自己拉 .list（Workers 的 CPU 与 subrequest 都省）。
+ */
+
+const CLASH_PROXY_GROUPS = [
+  { name: "🚀 节点选择", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇲🇴 澳门节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇰🇷 韩国节点", "🇺🇸 美国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇷🇺 俄罗斯节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇮🇳 印度节点", "DIRECT"] },
+  { name: "☑️ 手动切换", type: "select", filter: ".*" },
+  { name: "♻️ 自动选择", type: "url-test", filter: ".*", url: "http://www.gstatic.com/generate_204", interval: 300, tolerance: 50 },
+  { name: "📹 油管视频", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "DIRECT"] },
+  { name: "🎥 奈飞视频", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "🇨🇦 加拿大节点", "DIRECT"] },
+  { name: "🌍 国外媒体", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "DIRECT"] },
+  { name: "📲 电报信息", type: "select", proxies: ["🚀 节点选择", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇳🇱 荷兰节点", "🇮🇳 印度节点", "🇹🇷 土耳其节点", "DIRECT"] },
+  { name: "🤖 OpenAi", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇺🇸 美国节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇳🇱 荷兰节点", "🇮🇪 爱尔兰节点", "🇫🇮 芬兰节点", "🇸🇪 瑞典节点", "DIRECT"] },
+  { name: "🛸 Antigravity", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇷🇺 俄罗斯节点", "🇮🇳 印度节点", "🇹🇷 土耳其节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇫🇮 芬兰节点", "🇸🇪 瑞典节点", "🇨🇭 瑞士节点", "DIRECT"] },
+  { name: "Ⓜ️ 微软服务", type: "select", proxies: ["🎯 全球直连", "🚀 节点选择", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇳🇱 荷兰节点", "🇮🇪 爱尔兰节点", "DIRECT"] },
+  { name: "🍎 苹果服务", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "DIRECT"] },
+  { name: "📢 谷歌FCM", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇮🇳 印度节点", "DIRECT"] },
+  { name: "🎯 全球直连", type: "select", proxies: ["DIRECT", "🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换"] },
+  { name: "🛑 全球拦截", type: "select", proxies: ["REJECT", "DIRECT"] },
+  { name: "🍃 应用净化", type: "select", proxies: ["REJECT", "DIRECT"] },
+  { name: "🐟 漏网之鱼", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇮🇳 印度节点", "🇫🇮 芬兰节点", "DIRECT"] },
+  { name: "🇭🇰 香港节点", type: "select", filter: "(港|HK|hk|Hong Kong|HongKong|hongkong|HKG)" },
+  { name: "🇲🇴 澳门节点", type: "select", filter: "(澳门|MO|Macau|macao)" },
+  { name: "🇹🇼 台湾节点", type: "select", filter: "(台|新北|彰化|TW|Taiwan|taipei)" },
+  { name: "🇯🇵 日本节点", type: "select", filter: "(日本|川日|东京|大阪|泉日|埼玉|沪日|深日|JP|Japan|tokyo|osaka)" },
+  { name: "🇰🇷 韩国节点", type: "select", filter: "(韩国|韩|KR|Korea|KOR|首尔|seoul|春川)" },
+  { name: "🇸🇬 狮城节点", type: "select", filter: "(新加坡|坡|狮城|SG|Singapore)" },
+  { name: "🇺🇸 美国节点", type: "select", filter: "(美国|美|波特兰|达拉斯|俄勒冈|凤凰城|费利蒙|硅谷|拉斯维加斯|洛杉矶|圣何塞|圣克拉拉|西雅图|芝加哥|US|USA|United States|ATL|BUF|DFW|EWR|IAD|LAX|MCI|MIA|ORD|PHX|PDX|SEA|SJC)" },
+  { name: "🇬🇧 英国节点", type: "select", filter: "(英国|UK|GB|United Kingdom|Britain|伦敦|London|曼彻斯特)" },
+  { name: "🇩🇪 德国节点", type: "select", filter: "(德国|DE|Germany|法兰克福|柏林|慕尼黑|Frankfurt)" },
+  { name: "🇫🇷 法国节点", type: "select", filter: "(法国|FR|France|巴黎|Paris|马赛)" },
+  { name: "🇳🇱 荷兰节点", type: "select", filter: "(荷兰|NL|Netherlands|阿姆斯特丹|Amsterdam)" },
+  { name: "🇷🇺 俄罗斯节点", type: "select", filter: "(俄罗斯|俄|RU|Russia|莫斯科|圣彼得堡|Moscow)" },
+  { name: "🇨🇦 加拿大节点", type: "select", filter: "(加拿大|CA|Canada|多伦多|温哥华|蒙特利尔)" },
+  { name: "🇦🇺 澳洲节点", type: "select", filter: "(澳洲|澳大利亚|AU|Australia|悉尼|墨尔本|Sydney|Melbourne)" },
+  { name: "🇮🇳 印度节点", type: "select", filter: "(印度|India|孟买|新德里|Mumbai|Delhi)" },
+  { name: "🇹🇷 土耳其节点", type: "select", filter: "(土耳其|Turkey|伊斯坦布尔|安卡拉)" },
+  { name: "🇮🇪 爱尔兰节点", type: "select", filter: "(爱尔兰|Ireland|都柏林)" },
+  { name: "🇫🇮 芬兰节点", type: "select", filter: "(芬兰|Finland|赫尔辛基)" },
+  { name: "🇸🇪 瑞典节点", type: "select", filter: "(瑞典|Sweden|斯德哥尔摩)" },
+  { name: "🇨🇭 瑞士节点", type: "select", filter: "(瑞士|Switzerland|苏黎世|日内瓦)" },
+  { name: "🇲🇾 马来节点", type: "select", filter: "(马来西亚|马来|MY|Malaysia|吉隆坡)" },
+  { name: "🇹🇭 泰国节点", type: "select", filter: "(泰国|TH|Thailand|曼谷)" },
+  { name: "🇻🇳 越南节点", type: "select", filter: "(越南|VN|Vietnam|胡志明|河内)" },
+  { name: "🇵🇭 菲律宾节点", type: "select", filter: "(菲律宾|PH|Philippines|马尼拉)" },
+  { name: "🇮🇩 印尼节点", type: "select", filter: "(印度尼西亚|印尼|ID|Indonesia|雅加达)" },
+  { name: "🇧🇷 巴西节点", type: "select", filter: "(巴西|Brazil|圣保罗|里约)" },
+  { name: "🇦🇷 阿根廷节点", type: "select", filter: "(阿根廷|Argentina|布宜诺斯艾利斯)" },
+  { name: "🇲🇽 墨西哥节点", type: "select", filter: "(墨西哥|Mexico|墨城)" },
+  { name: "🇿🇦 南非节点", type: "select", filter: "(南非|South Africa|约翰内斯堡|开普敦)" },
+  { name: "🇪🇬 埃及节点", type: "select", filter: "(埃及|Egypt|开罗)" },
+  { name: "🇳🇬 尼日利亚节点", type: "select", filter: "(尼日利亚|Nigeria|拉各斯)" },
+  { name: "🇰🇪 肯尼亚节点", type: "select", filter: "(肯尼亚|Kenya|内罗毕)" },
+  { name: "🇦🇪 阿联酋节点", type: "select", filter: "(阿联酋|United Arab Emirates|迪拜|Dubai|阿布扎比)" },
+  { name: "🇸🇦 沙特节点", type: "select", filter: "(沙特|Saudi Arabia|沙特阿拉伯|利雅得)" },
+  { name: "🇮🇱 以色列节点", type: "select", filter: "(以色列|Israel|特拉维夫)" },
+  { name: "🇳🇿 新西兰节点", type: "select", filter: "(新西兰|New Zealand|奥克兰)" },
+];
+
+const CLASH_RULESETS = [
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/CFnat.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/LocalAreaNetwork.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/UnBan.list" },
+  { group: "🛑 全球拦截", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list" },
+  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanProgramAD.list" },
+  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/adobe.list" },
+  { group: "🍃 应用净化", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/IDM.list" },
+  { group: "📢 谷歌FCM", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/GoogleFCM.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/GoogleCN.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/SteamCN.list" },
+  { group: "Ⓜ️ 微软服务", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Microsoft.list" },
+  { group: "🍎 苹果服务", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Apple.list" },
+  { group: "📲 电报信息", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Telegram.list" },
+  { group: "🤖 OpenAi", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/OpenAi.list" },
+  { group: "🤖 OpenAi", url: "https://gh-proxy.com/https://raw.githubusercontent.com/juewuy/ShellClash/master/rules/ai.list" },
+  { group: "🤖 OpenAi", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Copilot.list" },
+  { group: "🤖 OpenAi", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/GithubCopilot.list" },
+  { group: "🤖 OpenAi", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Claude.list" },
+  { group: "🛸 Antigravity", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ryty1/ACL4SSR/master/Clash/antigravity.list" },
+  { group: "📹 油管视频", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/YouTube.list" },
+  { group: "🎥 奈飞视频", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/Netflix.list" },
+  { group: "🌍 国外媒体", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ProxyMedia.list" },
+  { group: "🌍 国外媒体", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/Emby.list" },
+  { group: "🚀 节点选择", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ProxyLite.list" },
+  { group: "🚀 节点选择", url: "https://gh-proxy.com/https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/CMBlog.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ChinaDomain.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/ChinaCompanyIp.list" },
+  { group: "🎯 全球直连", url: "https://gh-proxy.com/https://raw.githubusercontent.com/ryty1/ACL4SSR/master/Clash/zdy.list" },
+];
+
+const CLASH_RESERVED = new Set(CLASH_PROXY_GROUPS.map((g) => g.name));
+
+const CLASH_GEOX = {
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat",
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat",
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb",
+  asn: "https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb",
+};
+
+function clashProviderName(url, used) {
+  const base = String(url).split("/").pop().replace(/\.list.*$/, "").replace(/[^A-Za-z0-9_-]+/g, "-") || "rules";
+  let name = base;
+  for (let i = 2; used.has(name); i += 1) name = base + "-" + i;
+  used.add(name);
+  return name;
+}
+
+function clashProviders() {
+  const used = new Set();
+  return CLASH_RULESETS.map((rs) => ({ group: rs.group, url: rs.url, name: clashProviderName(rs.url, used) }));
+}
+
+function clashRegionRegex(filter) {
+  const inner = String(filter).replace(/^\(/, "").replace(/\)$/, "");
+  const parts = inner.split("|").filter(Boolean).map((part) => {
+    const lit = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // 短英文代号（DE/US/HK/HKG/LAX…）必须整词命中，否则 "Node" 会被当成德国
+    return /^[A-Za-z]{1,4}$/.test(part) ? "(?<![A-Za-z])" + lit + "(?![A-Za-z])" : lit;
+  });
+  return new RegExp(parts.join("|") || "$^", "i");
+}
+
+function resolveClashGroups(names) {
+  const present = new Set(names);
+  const hits = new Map();
+  for (const spec of CLASH_PROXY_GROUPS) {
+    if (!spec.filter) continue;
+    const re = clashRegionRegex(spec.filter);
+    const matched = names.filter((name) => re.test(name));
+    if (matched.length) hits.set(spec.name, matched);
+  }
+  const kept = new Set(CLASH_PROXY_GROUPS.filter((g) => !g.filter || hits.has(g.name)).map((g) => g.name));
+  const groups = [];
+  for (const spec of CLASH_PROXY_GROUPS) {
+    if (spec.filter) {
+      if (!hits.has(spec.name)) continue;
+      groups.push({ name: spec.name, type: spec.type, members: hits.get(spec.name) });
+      continue;
+    }
+    const members = spec.proxies.filter((p) => p === "DIRECT" || p === "REJECT" || p === "PASS" || kept.has(p) || present.has(p));
+    groups.push({ name: spec.name, type: spec.type, url: spec.url, interval: spec.interval, tolerance: spec.tolerance, members: members.length ? members : ["DIRECT"] });
+  }
+  return groups;
+}
+
+function clashHeaderLines() {
+  const lines = [
+    "# sub-worker · Clash / mihomo 完整配置",
+    "# 分组与规则取自 ACL4SSR（与 clash-sub-converter 默认规则一致）；规则以 rule-providers 下发，客户端自行拉取",
+    "mixed-port: 7890",
+    "allow-lan: false",
+    "mode: rule",
+    "log-level: info",
+    "external-controller: 127.0.0.1:9090",
+    "ipv6: true",
+    "geodata-mode: true",
+    "geo-auto-update: true",
+    "geodata-loader: standard",
+    "geo-update-interval: 24",
+    "geox-url:",
+    `  geoip: ${yamlString(CLASH_GEOX.geoip)}`,
+    `  geosite: ${yamlString(CLASH_GEOX.geosite)}`,
+    `  mmdb: ${yamlString(CLASH_GEOX.mmdb)}`,
+    `  asn: ${yamlString(CLASH_GEOX.asn)}`,
+    "dns:",
+    "  enable: true",
+    "  ipv6: true",
+    "  respect-rules: true",
+    "  enhanced-mode: fake-ip",
+    "  fake-ip-range: 198.18.0.1/16",
+    "  fake-ip-filter:",
+    `    - ${yamlString("*.lan")}`,
+    `    - ${yamlString("*.local")}`,
+    `    - ${yamlString("time.*.com")}`,
+    `    - ${yamlString("ntp.*.com")}`,
+    `    - ${yamlString("+.pool.ntp.org")}`,
+    "  nameserver:",
+    "    - https://120.53.53.53/dns-query",
+    "    - https://223.5.5.5/dns-query",
+    "  proxy-server-nameserver:",
+    "    - https://120.53.53.53/dns-query",
+    "    - https://223.5.5.5/dns-query",
+    "  nameserver-policy:",
+    `    ${yamlString("geosite:cn,private")}:`,
+    "      - https://120.53.53.53/dns-query",
+    "      - https://223.5.5.5/dns-query",
+    `    ${yamlString("geosite:geolocation-!cn")}:`,
+    "      - https://dns.cloudflare.com/dns-query",
+    "      - https://dns.google/dns-query",
+  ];
+  return lines;
+}
+
+function toClashConfig(nodes) {
+  const entries = uniqueNodeEntries(nodes, CLASH_RESERVED);
+  const names = entries.map((entry) => entry.name);
+  const groups = resolveClashGroups(names);
+  const providers = clashProviders();
+  const lines = clashHeaderLines();
+  lines.push(...clashProxyLines(entries));
+  lines.push("");
+  lines.push("proxy-groups:");
+  for (const group of groups) {
+    lines.push(`  - name: ${yamlString(group.name)}`);
+    lines.push(`    type: ${yamlString(group.type)}`);
+    if (group.url) {
+      lines.push(`    url: ${yamlString(group.url)}`);
+      lines.push(`    interval: ${group.interval}`);
+      lines.push(`    tolerance: ${group.tolerance}`);
+    }
+    lines.push("    proxies:");
+    for (const member of group.members) lines.push(`      - ${yamlString(member)}`);
+  }
+  lines.push("");
+  lines.push("rule-providers:");
+  for (const provider of providers) {
+    lines.push(`  ${yamlString(provider.name)}:`);
+    lines.push("    type: http");
+    lines.push("    behavior: classical");
+    lines.push("    format: text");
+    lines.push(`    url: ${yamlString(provider.url)}`);
+    lines.push(`    path: ${yamlString("./ruleset/" + provider.name + ".list")}`);
+    lines.push("    interval: 86400");
+    lines.push("    proxy: DIRECT");
+  }
+  lines.push("");
+  lines.push("rules:");
+  for (const provider of providers) lines.push(`  - ${yamlString("RULE-SET," + provider.name + "," + provider.group)}`);
+  lines.push(`  - ${yamlString("GEOIP,CN,🎯 全球直连")}`);
+  lines.push(`  - ${yamlString("MATCH,🐟 漏网之鱼")}`);
   return lines.join("\n") + "\n";
 }
 
