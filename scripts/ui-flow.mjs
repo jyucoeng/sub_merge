@@ -735,11 +735,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   el("sub-search").oninput.call(el("sub-search"));
   await idle();
 
-  click("sub-invert");
-  await idle();
-  const inverted = await api("/sub/nodes");
-  const invMine = inverted.data.machines.filter((m) => m.machine === "ui-proto")[0];
-  check("订阅清单：反选作用在筛出来的节点上", invMine.enabled === 1, `${invMine.enabled}/${invMine.total}`);
+  check("订阅清单：没有反选按钮了", !html.includes('id="sub-invert"') && !html.includes("反选"), "");
 
   click("sub-all");
   await idle();

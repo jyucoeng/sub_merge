@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.8";
+const VERSION = "1.21.9";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -203,7 +203,6 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:10px">
   <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
   <button id="sub-all" type="button">全选</button>
-  <button id="sub-invert" type="button">反选</button>
   <button id="sub-only" type="button">只选筛出来的</button>
   <button id="sub-none" class="danger" type="button">全不选</button>
   <button id="sub-clear" type="button">清除筛选</button>
@@ -212,7 +211,7 @@ body.locked .wrap{display:none}
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
 <div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
-<div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 列出来的 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 反选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
+<div class="hint" style="margin-top:8px">芯片前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；芯片上的数字 = 列出来的 / 全部。搜索和芯片筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div id="sub-list" class="sub-list"></div>
 <div id="sub-status" class="status"></div>
 </section>
@@ -789,13 +788,12 @@ body.locked .wrap{display:none}
     var allIds = subRows().map(function (item) { return item.node.id; });
     var set = new Set(state.sub.disabled || []);
     if (mode === "all") visibleIds.forEach(function (id) { set.delete(id); });
-    if (mode === "invert") visibleIds.forEach(function (id) { if (set.has(id)) set.delete(id); else set.add(id); });
     if (mode === "only") { allIds.forEach(function (id) { if (!visibleIds.has(id)) set.add(id); }); visibleIds.forEach(function (id) { set.delete(id); }); }
     if (mode === "none") allIds.forEach(function (id) { set.add(id); });
     var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length) ? "筛出来的 " + visible.length + " 个" : "全部";
     putSubDisabled([...set]).then(function () {
       var stats = state.sub.stats || {};
-      var label = mode === "all" ? "全选" : mode === "invert" ? "反选" : mode === "only" ? "只选筛出来的" : "全不选";
+      var label = mode === "all" ? "全选" : mode === "only" ? "只选筛出来的" : "全不选";
       subStatusText(label + "（" + scope + "）完成，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
       loadMachines(true);
     });
@@ -920,7 +918,6 @@ body.locked .wrap{display:none}
   $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
-  $("sub-invert").onclick = function () { applySubBulk("invert"); };
   $("sub-only").onclick = function () { applySubBulk("only"); };
   $("sub-none").onclick = function () { applySubBulk("none"); };
   $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); render(); };
