@@ -485,6 +485,59 @@ test("webui can create an empty machine and rejects invalid machine names", asyn
   }
 });
 
+test("manual machines and reporting machines share one merged subscription", async () => {
+  const env = makeEnv();
+
+  // 一台机器自动上报
+  let res = await call(env, "POST", "/api/v1/report/auto-hk", b64(SAMPLE_LINKS[0]), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  assert.equal(res.status, 200);
+
+  // 一台纯手动机器，一次带两个节点
+  res = await call(env, "PUT", "/api/v1/nodes/manual-jp", JSON.stringify({
+    nodes: [{ link: SAMPLE_LINKS[1] }, { link: SAMPLE_LINKS[2] }],
+  }), { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).nodes.length, 2);
+
+  // 两台都在列表里，来源可区分
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
+  const list = await res.json();
+  assert.equal(list.count, 2);
+  const byName = new Map(list.machines.map((m) => [m.machine, m]));
+  assert.equal(byName.get("auto-hk").manual, false);
+  assert.equal(byName.get("manual-jp").manual, true);
+  assert.equal(byName.get("manual-jp").nodes, 2);
+
+  // 合并订阅里两种来源的节点都在
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  const merged = unb64(await res.text());
+  const lines = merged.split("\n");
+  assert.equal(lines.length, 3);
+  for (const link of SAMPLE_LINKS.slice(0, 3)) assert.ok(lines.includes(link), link);
+
+  // 手动机器继续被上报时，节点保持手动版本
+  res = await call(env, "POST", "/api/v1/report/manual-jp", b64("vless://other@example.com:443?sni=pypi.org#Other"), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  const reported = await res.json();
+  assert.equal(reported.manual, true);
+  assert.equal(reported.nodes, 2);
+  res = await call(env, "GET", "/api/v1/nodes/manual-jp", null, { authorization: `Bearer ${TOKEN}` });
+  const pinned = await res.json();
+  assert.deepEqual(pinned.nodes.map((n) => n.link), [SAMPLE_LINKS[1], SAMPLE_LINKS[2]]);
+
+  // 排序把手动机器放前面，合并订阅跟着变
+  res = await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: ["manual-jp", "auto-hk"] }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  const ordered = unb64(await res.text());
+  assert.ok(ordered.indexOf(SAMPLE_LINKS[1]) < ordered.indexOf(SAMPLE_LINKS[0]));
+});
+
 test("root reports d1 storage and advertises admin endpoints", async () => {
   const res = await call(makeEnv(), "GET", "/");
   assert.equal(res.status, 200);

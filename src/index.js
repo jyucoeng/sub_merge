@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.2.2";
+const VERSION = "1.2.3";
 const MAX_BODY = 512 * 1024;
 const MACHINE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -70,7 +70,10 @@ button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:gri
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
 textarea:focus{border-color:var(--acc)}
-.bulk{margin-top:12px}.bulk .tip{margin-left:6px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.bulk{margin-top:12px}.bulk .tip{margin-left:6px}
+.tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
+.tag.manual{color:#b45309;border-color:#fcd34d;background:#fffbeb}
+.tag.auto{color:#1d4ed8;border-color:#bfdbfe;background:#eff6ff}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:34px 1fr 90px 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
 .machine .idx{color:var(--sub);font:12px ui-monospace,Consolas,monospace;text-align:center}.machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub)}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
@@ -83,7 +86,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。</div></div><span class="ver" id="version">v${VERSION}</span></div>
 
 <section class="card">
-<h2>机器排序 <span class="tip">这里决定合并订阅里机器出现的先后顺序</span></h2>
+<h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅</span></h2>
 <div id="machine-list" class="machine-list"></div>
 <div class="row" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
 <div id="order-status" class="status"></div>
@@ -226,7 +229,11 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     state.machines.forEach(function (m, index) {
       var row = document.createElement("div"); row.className = "machine";
       var idx = document.createElement("div"); idx.className = "idx"; idx.textContent = String(index + 1);
-      var name = document.createElement("div"); name.className = "mname"; name.textContent = m.machine + (m.manual ? "（手动）" : "");
+      var name = document.createElement("div"); name.className = "mname";
+      var tag = document.createElement("span"); tag.className = "tag " + (m.manual ? "manual" : "auto");
+      tag.textContent = m.manual ? "手动" : "上报";
+      tag.title = m.manual ? "手动配置：自动上报不会覆盖这里编辑的节点" : "来自机器自动上报";
+      name.appendChild(document.createTextNode(m.machine)); name.appendChild(tag);
       var count = document.createElement("div"); count.className = "mcount"; count.textContent = (m.nodes || 0) + " 节点";
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
@@ -301,13 +308,28 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
     if (exist) {
       state.current = name; $("machine").value = name; loadNodes();
-      return setStatus("机器已存在，已切换到 " + name, true);
+      return setStatus("机器已存在，已切换到 " + name + (exist.manual ? "（手动配置）" : "（正在自动上报，保存节点后会接管，上报不再覆盖）"), true);
     }
+    var pending = splitLinkText($("bulk").value || "");
     setStatus("创建中...");
-    api("/nodes/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: [] }) })
-      .then(function () { box.value = ""; return loadMachines(); })
-      .then(function () { state.current = name; $("machine").value = name; return loadNodes(); })
-      .then(function () { setStatus("已创建 " + name + "，粘贴节点后点保存配置", true); })
+    api("/nodes/" + encodeURIComponent(name), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nodes: pending.map(function (link) { return { link: link }; }) })
+    })
+      .then(function (data) {
+        box.value = "";
+        if (pending.length) $("bulk").value = "";
+        return loadMachines().then(function () {
+          state.current = name; $("machine").value = name; return loadNodes();
+        }).then(function () {
+          var tip = $("bulk-status"); if (tip) tip.textContent = "";
+          state.nodes.forEach(function (n) { if (!n.name) n.name = ""; });
+          setStatus(pending.length
+            ? "已创建 " + name + "，带入 " + data.nodes.length + " 个节点，记得点保存配置确认顺序"
+            : "已创建 " + name + "，粘贴节点后点保存配置", true);
+        });
+      })
       .catch(function (e) { setStatus("创建失败：" + e.message, false); });
   };
   $("reset").onclick = function () {
