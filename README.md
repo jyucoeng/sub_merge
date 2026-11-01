@@ -7,7 +7,7 @@
 ## 特性
 
 - 固定订阅 URL，重启/重新部署 Worker 不变；
-- 一个 `TOKEN` 同时用于上报和读取；
+- `SUB_TOKEN` 拉订阅、`REPORT_TOKEN` 上报（两者可分开，老部署只有 `TOKEN` 也能跑）；
 - 每台机器一个 `machine` 名称（可用中文），支持单机和合并订阅；
 - **Cloudflare D1（SQLite）单一存储**，两张表 `machines` / `settings`，不依赖 KV 或 R2；
 - 按内容 SHA-256 去重，相同内容不重复写；
@@ -208,8 +208,8 @@ UI 打开就是登录页，只有管理员一种身份。口令全部来自 Clou
 | --- | --- |
 | `ADMIN_PASSWORD` | 管理员口令，进 UI 后可读可写 |
 | `ADMIN_USERNAME` | 可选，配了就必须「用户名 + 口令」都对才能登录（用户名本身当秘密用，别写 admin） |
-| `REPORT_TOKEN` | 可选，机器上报专用凭证；配了就只认它，`TOKEN` 不再能写数据 |
-| `TOKEN` | 订阅/上报 token，也能当管理员口令登录 |
+| `REPORT_TOKEN` | 可选，机器上报专用凭证；配了就只认它，`SUB_TOKEN` 不再能写数据 |
+| `SUB_TOKEN` | 订阅 token（老的 `TOKEN` 仍兼容，同名部署里优先用 `SUB_TOKEN`） |
 
 ```bash
 pnpm exec wrangler deploy --keep-vars \
@@ -229,7 +229,7 @@ pnpm exec wrangler deploy --keep-vars \
 
 配了 `ADMIN_USERNAME` 后登录页会自动多出一个用户名输入框（页面靠 `GET /api/v1/auth/mode` 判断，不泄露任何秘密）。用户名或口令任一不对都算一次失败，同样计入锁定。
 
-**机器上报用什么凭证**：默认沿用 `TOKEN`（订阅和上报同一串）。想要「订阅链接外泄也写不了数据」，配一个独立的 `REPORT_TOKEN`：
+**机器上报用什么凭证**：默认沿用 `SUB_TOKEN`（订阅和上报同一串）。想要「订阅链接外泄也写不了数据」，配一个独立的 `REPORT_TOKEN`：
 
 ```bash
 OPENSSL=$(openssl rand -hex 24)

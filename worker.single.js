@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.17.0";
+const VERSION = "1.18.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1075,7 +1075,7 @@ async function handleRequest(request, env) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     const known = {
       DB: "D1 数据库绑定",
-      TOKEN: "订阅/上报 token，也能当管理员口令登录",
+      SUB_TOKEN: "订阅 token（老的 TOKEN 仍兼容）",
       ADMIN_PASSWORD: "管理员口令",
       REPORT_TOKEN: "机器上报专用凭证（可选）",
     };
@@ -1210,7 +1210,8 @@ async function handleRequest(request, env) {
 }
 
 
-function authToken(env) { return (env && env.TOKEN) || ""; }
+// 订阅/上报用的 token。现在叫 SUB_TOKEN；老的 TOKEN 仍认，方便平滑改名。
+function authToken(env) { return ((env && env.SUB_TOKEN) || (env && env.TOKEN)) || ""; }
 
 /* ---- 会话：管理员口令 ---- */
 

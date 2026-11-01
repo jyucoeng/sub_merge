@@ -6,13 +6,13 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const KEEP = ["ADMIN_PASSWORD", "TOKEN", "DB"];
+const KEEP = ["ADMIN_PASSWORD", "SUB_TOKEN", "REPORT_TOKEN", "DB"];
 const write = process.argv.includes("--write");
 const toml = readFileSync("wrangler.toml", "utf8");
 const name = toml.match(/^name\s*=\s*"([^"]+)"/m)[1];
 const dbId = toml.match(/^database_id\s*=\s*"([^"]+)"/m)[1];
 const adminPassword = process.env.ADMIN_PASSWORD || process.env.SUB_ADMIN_PASSWORD || "";
-const token = process.env.TOKEN || process.env.SUB_TOKEN || "";
+const token = process.env.SUB_TOKEN || process.env.TOKEN || "";
 
 function oauthToken() {
   const candidates = [
@@ -61,10 +61,10 @@ const next = bindings.filter((b) => KEEP.includes(b.name)).map((b) => {
 });
 for (const b of next) if (b.type === "plain_text" && !b.text) {
   if (b.name === "ADMIN_PASSWORD") b.text = adminPassword;
-  if (b.name === "TOKEN") b.text = token;
+  if (b.name === "SUB_TOKEN" || b.name === "TOKEN") b.text = token;
 }
 if (next.some((b) => b.type === "plain_text" && !b.text)) {
-  throw new Error("保留的变量少了值，先设置 ADMIN_PASSWORD / TOKEN 环境变量再执行");
+  throw new Error("保留的变量少了值，先设置 ADMIN_PASSWORD / SUB_TOKEN / REPORT_TOKEN 环境变量再执行");
 }
 
 const form = new FormData();

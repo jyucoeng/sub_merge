@@ -1293,14 +1293,14 @@ test("unknown paths get a 404 page, /api still answers JSON", async () => {
 });
 
 test("admin env report lists known variables and flags leftovers", async () => {
-  const env = makeEnv({ ADMIN_PASSWORD: "pw", GUEST_CODE: "leftover" });
-  const res = await call(env, "GET", "/api/v1/admin/env", null, { authorization: `Bearer ${TOKEN}` });
+  const env = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "sub-token-abc", GUEST_CODE: "leftover" });
+  const res = await call(env, "GET", "/api/v1/admin/env", null, { authorization: "Bearer sub-token-abc" });
   assert.equal(res.status, 200);
   const data = await res.json();
   const names = data.used.map((item) => item.name);
-  assert.deepEqual(names.sort(), ["ADMIN_PASSWORD", "DB", "REPORT_TOKEN", "TOKEN"]);
+  assert.deepEqual(names.sort(), ["ADMIN_PASSWORD", "DB", "REPORT_TOKEN", "SUB_TOKEN"]);
   assert.ok(data.used.filter((item) => item.name !== "REPORT_TOKEN").every((item) => item.set), "known variables are set in the test env");
-  assert.deepEqual(data.unused, ["GUEST_CODE"], "leftover variables must be reported");
+  assert.deepEqual(data.unused.sort(), ["GUEST_CODE", "TOKEN"], "leftover variables must be reported");
 
   const anon = await call(env, "GET", "/api/v1/admin/env");
   assert.equal(anon.status, 401);
@@ -1425,4 +1425,16 @@ test("REPORT_TOKEN becomes the only credential machines may report with", async 
   const legacy = makeEnv({});
   const old = await call(legacy, "POST", "/api/v1/report/box-legacy", body, { authorization: `Bearer ${TOKEN}` });
   assert.equal(old.status, 200);
+});
+
+test("SUB_TOKEN is the new name and TOKEN still works as a fallback", async () => {
+  const renamed = makeEnv({ ADMIN_PASSWORD: "pw" });
+  renamed.SUB_TOKEN = renamed.TOKEN;
+  delete renamed.TOKEN;
+  assert.equal((await call(renamed, "GET", "/sub/all/" + renamed.SUB_TOKEN)).status, 200, "SUB_TOKEN must drive subscriptions");
+  assert.equal((await call(renamed, "GET", "/api/v1/machines", null, { authorization: `Bearer ${renamed.SUB_TOKEN}` })).status, 200);
+
+  const both = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "new-token-value", TOKEN: "old-token-value" });
+  assert.equal((await call(both, "GET", "/sub/all/new-token-value")).status, 200, "SUB_TOKEN wins when both exist");
+  assert.equal((await call(both, "GET", "/sub/all/old-token-value")).status, 401, "the old token stops working once SUB_TOKEN is set");
 });
