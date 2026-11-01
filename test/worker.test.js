@@ -1196,38 +1196,42 @@ test("clash rules endpoints require the token", async () => {
   }
 });
 
-test("admin password login, guest read-only session", async () => {
-  const env = makeEnv();
+test("admin password comes from the environment and the UI token is separate", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc" });
   const admin = { authorization: `Bearer ${TOKEN}` };
   await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01"), admin);
 
-  // 未设置密码时只有 TOKEN 能登录
+  // 密码在环境变量里：对就是管理员
   let res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "Sh94ghdf@" }), { "content-type": "application/json" });
-  assert.equal(res.status, 401);
-
-  // 设置管理员密码
-  res = await call(env, "POST", "/api/v1/auth/password", JSON.stringify({ password: "Sh94ghdf@" }), { ...admin, "content-type": "application/json" });
-  assert.equal(res.status, 200);
-
-  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "Sh94ghdf@" }), { "content-type": "application/json" });
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.role, "admin");
   assert.equal(data.token, "Sh94ghdf@");
 
-  // 游客模式没开：/auth/guest 不能拿到码
-  res = await call(env, "GET", "/api/v1/auth/guest", null, { authorization: "Bearer Sh94ghdf@" });
-  assert.equal(res.status, 200);
-  data = await res.json();
-  assert.equal(data.enabled, false);
+  // 错的还是 401；TOKEN 本身也仍然能登录
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
+  assert.equal(res.status, 401);
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
+  assert.equal((await res.json()).role, "admin");
 
-  // 开启游客
+  // 界面上改不了密码：这个接口已经不存在
+  res = await call(env, "POST", "/api/v1/auth/password", JSON.stringify({ password: "whatever-123" }), { ...admin, "content-type": "application/json" });
+  assert.equal(res.status, 404);
+
+  // UI 口令来自 UI_TOKEN，老 TOKEN 链接也还能开
+  assert.equal((await call(env, "GET", "/ui/ui-token-abc")).status, 200);
+  assert.equal((await call(env, "GET", `/ui/${TOKEN}`)).status, 200);
+  assert.equal((await call(env, "GET", "/ui/not-the-token")).status, 401);
+
+  // 会话里没有 ADMIN_PASSWORD 时退回 TOKEN，不至于把自己锁死
+  const bare = makeEnv();
+  assert.equal((await call(bare, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" })).status, 200);
+
+  // 游客：只读、无 link
   res = await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: true }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
-  assert.equal(res.status, 200);
   const guestToken = (await res.json()).token;
   assert.ok(guestToken && guestToken.length >= 8);
 
-  // 游客：读得到机器，但节点里没有 link
   res = await call(env, "GET", "/api/v1/nodes/box", null, { authorization: `Bearer ${guestToken}` });
   assert.equal(res.status, 200);
   data = await res.json();
@@ -1236,18 +1240,10 @@ test("admin password login, guest read-only session", async () => {
   assert.equal(data.nodes[0].link, undefined);
   assert.equal(data.nodes[0].name, "香港-01");
 
-  // 游客：写操作 403
   res = await call(env, "PUT", "/api/v1/nodes/box", JSON.stringify({ nodes: [] }), { authorization: `Bearer ${guestToken}`, "content-type": "application/json" });
   assert.equal(res.status, 403);
-  data = await res.json();
-  assert.equal(data.error, "read-only guest session");
+  assert.equal((await res.json()).error, "read-only guest session");
 
-  // 游客码也能当登录密码用（登录页/直达都行）
-  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: guestToken }), { "content-type": "application/json" });
-  assert.equal(res.status, 200);
-  assert.equal((await res.json()).role, "guest");
-
-  // 关掉游客后旧码立刻失效
   await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: false }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
   res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${guestToken}` });
   assert.equal(res.status, 401);

@@ -662,7 +662,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("会话：管理员角色", session.status === 200 && session.data.role === "admin", JSON.stringify(session.data));
   check("登录浮层：管理员登录后隐藏", el("login").style.display === "none", el("login").style.display);
   check("登录浮层：页面里有密码框和游客按钮", Boolean(el("login-password")) && Boolean(el("login-guest")));
-  check("访问控制卡：页面里有密码/游客码输入", html.includes('id="card-access"') && html.includes('id="admin-password"') && html.includes('id="guest-token"'));
+  check("访问控制卡：页面里有游客码，没有改密码输入", html.includes('id="card-access"') && html.includes('id="guest-token"') && !html.includes('id="admin-password"') && !html.includes('id="save-password"'));
   check("订阅链接卡：对游客隐藏（admin-only）", /id="card-sub"/.test(html) && /class="card admin-only" id="card-sub"/.test(html));
   check("游客样式：guest 时隐藏管理动作", html.includes("body.guest .admin-only{display:none!important}"));
 

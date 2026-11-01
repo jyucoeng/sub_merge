@@ -200,22 +200,27 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 
 ## 登录、管理员与游客
 
-WebUI 现在有两种身份：
+WebUI 有两种身份，**管理员密码和 UI 口令都放在 Cloudflare 后台**，界面上不提供改密码，也不把口令写进 D1：
+
+```bash
+pnpm exec wrangler secret put ADMIN_PASSWORD   # 管理员登录密码，建议 12 位以上
+pnpm exec wrangler secret put UI_TOKEN         # 可选：/ui/<UI_TOKEN> 直接进后台的口令
+```
+
+- `ADMIN_PASSWORD`：`/ui` 登录页输入它 → 管理员。没配时退回用 `TOKEN` 登录，避免把自己锁在门外。
+- `UI_TOKEN`：`/ui/<UI_TOKEN>` 免密码直进。没配时用 `TOKEN`；配了之后 `TOKEN` 的旧书签也还能开。
+- `TOKEN`：只负责拉订阅（`/sub/<TOKEN>`）和节点上报，跟登录无关。
+- 游客码存在 D1 的 `settings.guest_token`，是运行期开关，可以在界面上开/关/换。
 
 | 身份 | 怎么进 | 能干什么 |
 | --- | --- | --- |
-| 管理员 | `/ui` 输入管理员密码，或直接用 `/ui/<TOKEN>` | 全部读写：改机器、改节点、改分流规则、改密码 |
-| 游客 | `/ui` 点「以游客身份浏览」（需要管理员先开启） | 只看：机器列表、节点名和协议、分组结构；**节点链接不会下发**，任何写操作返回 `403 read-only guest session` |
-
-- 管理员密码存在 D1 的 `settings.admin_password_sha`（只存 SHA-256），在 `访问控制` 卡片里随时改；原来的 `TOKEN` 继续只负责拉订阅（`/sub/<TOKEN>`），两者互不影响。
-- 游客码是 `settings.guest_token`，管理员点「开启游客只读」时生成，可以「换一个游客码」让旧码立刻失效；关掉开关后游客码立即作废。
-- 登录态存在浏览器的 `localStorage`，点右上角「退出登录」清掉。
+| 管理员 | `/ui` 输 `ADMIN_PASSWORD`，或直接开 `/ui/<UI_TOKEN>` | 全部读写：机器、节点、分流规则、游客开关 |
+| 游客 | `/ui` 点「以游客身份浏览」（需管理员先开启） | 只看：机器列表、节点名和协议、分组结构；**节点链接不下发**，写操作返回 `403 read-only guest session` |
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /api/v1/auth/login` | `{password}` → `{role, token}`，密码或游客码都行 |
+| `POST /api/v1/auth/login` | `{password}` → `{role, token}`，管理员密码或游客码都行 |
 | `GET /api/v1/auth/session` | 当前 Bearer 是什么角色 |
-| `POST /api/v1/auth/password` | 改管理员密码（管理员） |
 | `GET/POST /api/v1/auth/guest` | 查看/开关游客模式、重置游客码（管理员） |
 
 ### 「转为手动」之后上报还会不会覆盖

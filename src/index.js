@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.10.1";
+const VERSION = "1.11.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -174,9 +174,8 @@ body.guest .node button,body.guest .clash-row button{display:none}
 </section>
 
 <section class="card admin-only" id="card-access">
-<h2>访问控制 <span class="tip">管理员密码可自定义，游客只读</span></h2>
-<div class="hint">管理员密码存在 D1 里（只存 SHA-256），登录后所有编辑操作都用它；订阅链接里的 TOKEN 是另一回事，只负责拉订阅。游客码只能看机器名、节点名和分组结构，<b>拿不到节点链接</b>，也改不了任何东西。</div>
-<div class="row" style="margin-top:12px"><label>新管理员密码</label><input id="admin-password" type="password" autocomplete="new-password" placeholder="至少 8 位" style="min-width:240px"><button id="save-password" class="primary" type="button">保存密码</button></div>
+<h2>访问控制 <span class="tip">管理员密码在 Cloudflare 后台配，游客只读</span></h2>
+<div class="hint">管理员密码和 UI 口令都来自 Cloudflare 的后台变量（<code>wrangler secret put ADMIN_PASSWORD</code> / <code>UI_TOKEN</code>），这个界面不提供改密码，也不把口令写进 D1。游客码只能看机器名、节点名和分组结构，<b>拿不到节点链接</b>，也改不了任何东西。</div>
 <div class="row" style="margin-top:10px"><label><input id="guest-enabled" type="checkbox" style="width:15px;height:15px;vertical-align:-3px"> 开启游客只读</label><input id="guest-token" readonly spellcheck="false" placeholder="（游客码）" style="min-width:300px;font-family:ui-monospace,Consolas,monospace"><button id="toggle-guest" class="primary" type="button">保存</button><button id="rotate-guest" type="button">换一个游客码</button></div>
 <div class="hint">游客直接访问 <code>/ui</code>，点「以游客身份浏览」即可，不需要输入码。</div>
 <div id="access-status" class="status"></div>
@@ -593,8 +592,10 @@ body.guest .node button,body.guest .clash-row button{display:none}
       box.appendChild(row);
     });
   }
+  var SUB_TOKEN = "";
   function renderUrls() {
-    var base = location.origin + "/sub/all/" + encodeURIComponent(TOKEN);
+    if (!SUB_TOKEN) return;
+    var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
     $("url-base").textContent = base;
     $("url-clash").textContent = base + "?format=clash";
     $("url-proxies").textContent = base + "?format=proxies";
@@ -872,6 +873,7 @@ body.guest .node button,body.guest .clash-row button{display:none}
     api("/auth/session")
       .then(function (data) {
         storeToken(token);
+        SUB_TOKEN = data.sub_token || "";
         applyRole(data.role);
         showLogin(false);
         start();
@@ -903,9 +905,11 @@ body.guest .node button,body.guest .clash-row button{display:none}
         if (!res.ok || !res.data.ok) throw new Error(res.data.error || "登录失败");
         $("login-password").value = "";
         storeToken(res.data.token);
+        SUB_TOKEN = "";
         applyRole(res.data.role);
         showLogin(false);
-        start();
+        api("/auth/session").then(function (info) { SUB_TOKEN = info.sub_token || ""; start(); })
+          .catch(function () { start(); });
       })
       .catch(function (error) { loginStatus(error.message, false); });
   };
@@ -946,18 +950,6 @@ body.guest .node button,body.guest .clash-row button{display:none}
       })
       .catch(function () { /* 首次还没有游客码 */ });
   }
-  $("save-password").onclick = function () {
-    var password = String($("admin-password").value || "").trim();
-    if (password.length < 8) return accessStatus("密码至少 8 位", false);
-    accessStatus("保存中…");
-    api("/auth/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: password }) })
-      .then(function () {
-        $("admin-password").value = "";
-        storeToken(password);
-        accessStatus("管理员密码已更新（下次登录用新密码）", true);
-      })
-      .catch(function (error) { accessStatus("保存失败：" + error.message, false); });
-  };
   $("toggle-guest").onclick = function () {
     var enabled = $("guest-enabled").checked;
     accessStatus("保存中…");
@@ -1035,6 +1027,7 @@ async function handleRequest(request, env) {
         "GET/PUT /api/v1/clash/rules",
         "POST /api/v1/clash/rules/reset",
         "GET /api/v1/machines",
+        "POST /api/v1/auth/login",
         "POST /api/v1/admin/schema",
         "GET /health",
       ],
@@ -1049,8 +1042,11 @@ async function handleRequest(request, env) {
   let m = path.match(/^\/ui\/([^/]+)$/);
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    if (!authToken(env)) return missingConfig("TOKEN");
-    if (!checkToken(decodeURIComponent(m[1]), authToken(env))) return unauthorized();
+    const given = decodeURIComponent(m[1]);
+    const expected = uiToken(env);
+    if (!expected) return missingConfig("TOKEN");
+    // UI_TOKEN 与订阅 TOKEN 都认，换掉 UI_TOKEN 时老书签不会立刻失效
+    if (!checkToken(given, expected) && !checkToken(given, authToken(env))) return unauthorized();
     return html(UI_HTML);
   }
 
@@ -1105,21 +1101,9 @@ async function handleRequest(request, env) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     const current = await sessionOf(request, env);
     if (!current) return unauthorized();
+    // 订阅链接固定用 TOKEN；管理员才拿得到，游客页面本来也不显示订阅链接
+    if (current.role === "admin") return json({ ok: true, role: current.role, sub_token: authToken(env) });
     return json({ ok: true, role: current.role });
-  }
-
-  if (path === "/api/v1/auth/password") {
-    if (request.method !== "POST") return methodNotAllowed("POST");
-    const current = await sessionOf(request, env);
-    if (!current || current.role !== "admin") return unauthorized();
-    let data = {};
-    try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
-    const password = typeof data.password === "string" ? data.password.trim() : "";
-    if (password.length < 8) return json({ ok: false, error: "password must be at least 8 characters" }, 400);
-    if (password.length > 128) return json({ ok: false, error: "password is too long" }, 400);
-    if (checkToken(password, authToken(env))) return json({ ok: false, error: "password must differ from the subscription token" }, 400);
-    await putSetting(env, AUTH_ADMIN_KEY, await sha256Hex(password));
-    return json({ ok: true, role: "admin" });
   }
 
   m = path.match(/^\/api\/v1\/admin\/schema$/);
@@ -1236,7 +1220,6 @@ async function handleRequest(request, env) {
 function authToken(env) { return (env && env.TOKEN) || ""; }
 
 /* ---- 会话：管理员密码 / 游客只读码 ---- */
-const AUTH_ADMIN_KEY = "admin_password_sha";
 const AUTH_GUEST_KEY = "guest_token";
 const AUTH_GUEST_ON = "guest_enabled";
 
@@ -1245,15 +1228,15 @@ function bearerOf(request) {
   const m = header.match(/^Bearer\s+(.+)$/i);
   return m ? m[1].trim() : "";
 }
-async function adminPasswordHash(env) {
-  try { return await getSetting(env, AUTH_ADMIN_KEY); } catch { return null; }
-}
+// 管理员密码和 UI 口令都只从 Cloudflare 后台（wrangler secret / 环境变量）读，
+// 界面上不放“改密码”，免得拿到会话的人顺手把主人关在门外。
+function adminPassword(env) { return (env && env.ADMIN_PASSWORD) || ""; }
+function uiToken(env) { return (env && env.UI_TOKEN) || authToken(env); }
 async function isAdminToken(env, token) {
   if (!token) return false;
-  if (checkToken(token, authToken(env))) return true;
-  const hash = await adminPasswordHash(env);
-  if (!hash) return false;
-  return checkToken(await sha256Hex(token), hash);
+  if (adminPassword(env) && checkToken(token, adminPassword(env))) return true;
+  if (env && env.UI_TOKEN && checkToken(token, env.UI_TOKEN)) return true;
+  return checkToken(token, authToken(env));
 }
 async function guestConfig(env) {
   let token = "";

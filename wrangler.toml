@@ -16,6 +16,11 @@ binding = "DB"
 database_name = "sub-worker-db"
 database_id = "a74a3457-d486-414b-b5e2-89efc3cbf543"
 
+# 口令都放后台变量，不要写进代码或 D1：
+#   pnpm exec wrangler secret put TOKEN            # 订阅/上报用的 token
+#   pnpm exec wrangler secret put ADMIN_PASSWORD   # WebUI 管理员登录密码
+#   pnpm exec wrangler secret put UI_TOKEN         # 可选：/ui/<UI_TOKEN> 免密码直进
+
 # 建表（二选一）：
 #   pnpm run db:init          # wrangler d1 execute --remote --file=scripts/schema.sql
 #   curl -X POST -H "Authorization: Bearer $TOKEN" https://<worker>/api/v1/admin/schema
