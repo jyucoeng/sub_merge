@@ -222,6 +222,10 @@ pnpm exec wrangler deploy --keep-vars \
 | --- | --- |
 | `POST /api/v1/auth/login` | `{password}` → `{role, token}` |
 | `GET /api/v1/auth/session` | 当前角色，附带 `sub_token`（页面用它拼订阅链接） |
+| `GET /api/v1/admin/logins` | 谁在猜口令：失败次数、是否被锁、解锁时间 |
+| `GET /api/v1/admin/env` | 变量自检：已用 / 多余 |
+
+登录成功发的是**签名会话 token**（`sk1.<过期时间>.<HMAC>`，7 天有效），不是口令本身：改 `ADMIN_PASSWORD` 会让所有旧会话立刻失效。脚本仍可直接用 `TOKEN` 或 `ADMIN_PASSWORD` 当 bearer，但 **`TOKEN` 不能用来登录界面**（订阅链接外泄不等于后台外泄）。明文 HTTP 请求会 308 跳 HTTPS。
 
 登录限速：同一 IP 10 分钟内失败 10 次锁 **24 小时**（`429` + `retry-after`），成功登录清零，计数存在 D1 的 `settings` 表里（`login-fail:<ip>`）。
 

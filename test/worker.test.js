@@ -53,6 +53,10 @@ class MockStatement {
   }
   async first() {
     if (/^SELECT .+ FROM machines WHERE machine = \?1$/i.test(this.sql)) return this.db.machines.get(this.args[0]) || null;
+    if (/^SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'$/i.test(this.sql)) {
+      const value = this.db.settings.get(this.args[0]);
+      return value === undefined ? null : { value };
+    }
     if (/^SELECT value FROM settings WHERE key = \?1$/i.test(this.sql)) {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
@@ -60,6 +64,12 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'$/i.test(this.sql)) {
+      const rows = [...this.db.settings.entries()]
+        .filter(([key]) => key.startsWith("login-fail:"))
+        .map(([key, value]) => ({ key, value }));
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT .+ FROM machines$/i.test(this.sql)) {
       return { results: [...this.db.machines.values()], success: true, meta: { changes: 0 } };
     }
@@ -1220,11 +1230,18 @@ test("only admins can log in, and the password comes from the environment", asyn
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.role, "admin");
-  assert.equal(data.token, "Sh94ghdf@");
+  assert.match(data.token, /^sk1\.\d+\.([a-f0-9]{64})$/, "login must hand out a signed session token, not the password");
+  assert.ok(data.expires_in > 0);
+  const session = { authorization: `Bearer ${data.token}` };
+  let me = await call(env, "GET", "/api/v1/auth/session", null, session);
+  assert.equal((await me.json()).role, "admin", "the session token must work like a bearer token");
 
-  // 订阅 token 也能登录；错的 401
+  // 订阅 token 不再能当登录口令（订阅链接泄露不等于后台泄露），但仍是合法的 API bearer
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
-  assert.equal((await res.json()).role, "admin");
+  assert.equal(res.status, 401, "TOKEN must not log into the UI");
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200, "TOKEN still authenticates API calls");
+
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
   assert.equal(res.status, 401);
 
@@ -1249,7 +1266,7 @@ test("only admins can log in, and the password comes from the environment", asyn
 });
 
 test("login failure says so when no admin password is configured", async () => {
-  const res = await call(makeEnv(), "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
+  const res = await call(makeEnv({ ADMIN_PASSWORD: "pw-123456" }), "POST", "/api/v1/auth/login", JSON.stringify({ password: "pw-123456" }), { "content-type": "application/json" });
   assert.equal(res.status, 200);
   const bare = makeEnv({});
   bare.TOKEN = "";
@@ -1329,4 +1346,41 @@ test("UI_PATH moves the entry and hides /ui", async () => {
 
   const normal = makeEnv({ ADMIN_PASSWORD: "pw" });
   assert.equal((await call(normal, "GET", "/ui")).status, 200, "without UI_PATH the default keeps working");
+});
+
+test("admin can see who is failing to log in, and plain http is bounced", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw-abcdef" });
+  const headers = { "content-type": "application/json" };
+  for (let i = 0; i < 3; i += 1) {
+    await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope" }), { ...headers, "cf-connecting-ip": "192.0.2.5" });
+  }
+  const res = await call(env, "GET", "/api/v1/admin/logins", null, { authorization: "Bearer pw-abcdef" });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.count, 1);
+  assert.equal(data.attempts[0].ip, "192.0.2.5");
+  assert.equal(data.attempts[0].fails, 3);
+  assert.equal(data.attempts[0].locked, false);
+
+  const anon = await call(env, "GET", "/api/v1/admin/logins");
+  assert.equal(anon.status, 401);
+
+  const insecure = await call(env, "GET", "/health", null, { "x-forwarded-proto": "http" });
+  assert.equal(insecure.status, 308);
+  assert.match(insecure.headers.get("location"), /^https:\/\//);
+});
+
+test("session tokens expire and die when the password changes", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw-1" });
+  const res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "pw-1" }), { "content-type": "application/json" });
+  const { token } = await res.json();
+  assert.equal((await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${token}` })).status, 200);
+
+  const tampered = token.replace(/\.[a-f0-9]{8}/, ".00000000");
+  assert.equal((await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${tampered}` })).status, 401, "signature must matter");
+  const expired = token.replace(/^sk1\.\d+\./, "sk1.1000000000000.");
+  assert.equal((await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${expired}` })).status, 401, "expired tokens must fail");
+
+  const changed = { ...env, ADMIN_PASSWORD: "pw-2" };
+  assert.equal((await call(changed, "GET", "/api/v1/machines", null, { authorization: `Bearer ${token}` })).status, 401, "rotating the password kills old sessions");
 });

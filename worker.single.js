@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.14.3";
+const VERSION = "1.15.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -200,6 +200,14 @@ body.locked .wrap{display:none}
       return r.text().then(function (text) {
         var data;
         try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { ok: false, error: text || ("HTTP " + r.status) }; }
+        if (r.status === 401) {
+          storeToken("");
+          ROLE = null;
+          applyRole(null);
+          showLogin(true);
+          loginStatus("登录已过期，请重新输入口令", false);
+          throw new Error("登录已过期");
+        }
         if (!r.ok || data.ok === false) throw new Error(data.error || ("HTTP " + r.status));
         return data;
       });
@@ -903,7 +911,12 @@ body.locked .wrap{display:none}
         api("/auth/session").then(function (info) { SUB_TOKEN = info.sub_token || ""; start(); })
           .catch(function () { start(); });
       })
-      .catch(function (error) { loginStatus(error.message, false); });
+      .catch(function (error) {
+        var msg = String(error && error.message || "登录失败");
+        var lock = /too many attempts, try again in (\d+)s/.exec(msg);
+        if (lock) msg = "失败次数太多，这台机器被锁了 24 小时（还剩约 " + Math.ceil(Number(lock[1]) / 3600) + " 小时）";
+        loginStatus(msg, false);
+      });
   };
   $("logout").onclick = function () {
     storeToken("");
@@ -935,8 +948,15 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // 明文 HTTP 一律跳到 HTTPS，别让口令在 http 上走一遍
+  if (request.headers.get("x-forwarded-proto") === "http") {
+    const https = new URL(request.url);
+    https.protocol = "https:";
+    return new Response(null, { status: 308, headers: { location: https.toString() } });
+  }
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (request.method === "GET" && path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
+
 
   // 会话先判：/api/v1/* 除登录和上报外，统一在这里校验管理员口令
   const openApi = /^\/api\/v1\/(auth\/(login|session)|report\/)/.test(path);
@@ -1001,16 +1021,23 @@ async function handleRequest(request, env) {
         headers: { ...corsHeaders(), "content-type": "application/json; charset=utf-8", "retry-after": String(Math.ceil(guard.retryAfter / 1000)) },
       });
     }
-    if (await isAdminToken(env, password)) {
-      await clearLoginFails(env, ip);
-      return json({ ok: true, role: "admin", token: password });
-    }
     if (!adminPassword(env)) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
+    if (checkToken(password, adminPassword(env))) {
+      await clearLoginFails(env, ip);
+      return json({ ok: true, role: "admin", token: await issueSessionToken(env), expires_in: Math.floor(SESSION_TTL_MS / 1000) });
+    }
     const verdict = await noteLoginFail(env, ip);
     if (verdict.blocked) {
       return json({ ok: false, error: `too many attempts, try again in ${Math.ceil(verdict.retryAfter / 1000)}s`, fails: verdict.fails }, 429);
     }
     return json({ ok: false, error: "wrong password", fails: verdict.fails, left: verdict.left }, 401);
+  }
+
+  // 谁在猜口令：列出被锁 / 正在失败的来源 IP
+  if (path === "/api/v1/admin/logins") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    const rows = await listLoginFails(env);
+    return json({ ok: true, count: rows.length, attempts: rows });
   }
 
   // 自检：这个 Worker 身上到底挂了哪些变量/绑定，哪些是代码真的在用的
@@ -1171,9 +1198,39 @@ async function isAdminToken(env, token) {
   return checkToken(token, authToken(env));
 }
 
+// 登录成功发的是「签名 + 会过期」的会话 token，不是口令本身：
+// sk1.<过期毫秒时间戳>.<HMAC>，改 ADMIN_PASSWORD 会让所有旧会话立刻失效。
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function sessionKey(env) {
+  const material = `sub-worker-session|${adminPassword(env)}|${authToken(env)}`;
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(material), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+}
+
+async function hmacHex(env, text) {
+  const key = await sessionKey(env);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(text));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function issueSessionToken(env) {
+  const exp = Date.now() + SESSION_TTL_MS;
+  return `sk1.${exp}.${await hmacHex(env, `sk1.${exp}`)}`;
+}
+
+async function verifySessionToken(env, token) {
+  const m = /^sk1\.(\d{10,})\.([a-f0-9]{64})$/.exec(token);
+  if (!m) return false;
+  const exp = Number(m[1]);
+  if (!Number.isFinite(exp) || exp <= Date.now()) return false;
+  return checkToken(m[2], await hmacHex(env, `sk1.${exp}`));
+}
+
 async function sessionOf(request, env) {
   const token = bearerOf(request);
   if (!token) return null;
+  if (token.startsWith("sk1.")) return (await verifySessionToken(env, token)) ? { role: "admin", token } : null;
+  // 兼容：脚本和旧 localStorage 里直接用口令 / TOKEN 当 bearer
   if (await isAdminToken(env, token)) return { role: "admin", token };
   return null;
 }
@@ -1378,6 +1435,25 @@ async function readLoginFails(env, ip) {
   } catch {
     return { fails: 0, first: 0, until: 0 };
   }
+}
+
+async function listLoginFails(env) {
+  const db = dbEnv(env);
+  if (!db) return [];
+  const result = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'").all();
+  const now = Date.now();
+  return (result.results || []).map((row) => {
+    let data = {};
+    try { data = JSON.parse(row.value); } catch {}
+    const until = Number(data.until) || 0;
+    return {
+      ip: String(row.key).replace(/^login-fail:/, ""),
+      fails: Number(data.fails) || 0,
+      first_at: Number(data.first) ? new Date(Number(data.first)).toISOString() : null,
+      locked: until > now,
+      unlock_at: until > now ? new Date(until).toISOString() : null,
+    };
+  }).sort((a, b) => b.fails - a.fails);
 }
 
 async function loginGuard(env, ip) {
