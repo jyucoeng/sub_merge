@@ -6,7 +6,7 @@
 不用服务器、不用自己的域名、不用 KV/R2，免费额度就够十几个人的规模。
 
 ```text
-singbox-manager（每台机器）
+singbox-tools（每台机器）
         │  POST base64 订阅
         ▼
 Cloudflare（Worker 或 Pages）+ D1
@@ -36,7 +36,6 @@ Cloudflare（Worker 或 Pages）+ D1
 - [数据表](#数据表)
 - [容量与额度](#容量与额度)
 - [本地开发与测试](#本地开发与测试)
-- [从 sub-worker 迁移过来](#从-sub-worker-迁移过来)
 - [安全](#安全)
 
 ---
@@ -110,7 +109,7 @@ database_id = "你的 database_id"
 pnpm run db:init
 ```
 
-> 也可以在部署完之后调一次 `POST /api/v1/admin/schema`（Bearer 用下面的 `SUB_TOKEN`），效果一样且幂等，老库升级也是这个入口。
+> 也可以在部署完之后调一次 `POST /api/v1/admin/schema`（Bearer 用下面的 `SUB_TOKEN`），效果一样且幂等。
 
 ### 4. 配口令
 
@@ -348,7 +347,7 @@ curl "https://<域名>/sub/荷兰-1/$SUB_TOKEN?source=nlefni&format=singbox"
 `scripts/report.py`（只依赖标准库，Python 3.8+）：
 
 ```bash
-# 单机：把 singbox-manager 的订阅地址上报，机器名显式给
+# 单机：把 singbox-tools 的订阅地址上报，机器名显式给
 python3 scripts/report.py --base https://<域名> --token $REPORT_TOKEN \
   --url http://127.0.0.1:8080/sub/xxx --name 荷兰-1
 
@@ -426,7 +425,7 @@ curl -X POST "https://<域名>/api/v1/report/荷兰-1?source=nlefni" \
 | GET/PUT | `/api/v1/clash/rules` | 读/写分流规则（分组 + rule-providers） |
 | GET | `/api/v1/clash/rules/default` | 默认内置规则 |
 | POST | `/api/v1/clash/rules/reset` | 恢复默认 |
-| POST | `/api/v1/admin/schema` | 建表 / 升级表结构（幂等，返回 `{migrations:n}`） |
+| POST | `/api/v1/admin/schema` | 建表（幂等，可重复调用） |
 | GET | `/api/v1/admin/env` | 变量自检 |
 | GET | `/api/v1/admin/logins` | 猜口令的 IP 与锁定状态 |
 
@@ -467,7 +466,6 @@ curl -X POST -H "Authorization: Bearer $SUB_TOKEN" https://<域名>/api/v1/clash
 
 - 不做历史：每次上报是**覆盖**，只保留最新一份（要留档请在你自己的机器上留）。
 - 按内容 SHA-256 判重，相同内容不重复写。
-- 老库升级：`POST /api/v1/admin/schema`，返回补了几列（`{migrations:n}`），幂等。
 
 ---
 
@@ -517,22 +515,6 @@ scripts/ui-flow.mjs     WebUI 端到端（vm 里跑页面脚本）
 scripts/bench-sub.mjs   性能基准
 test/worker.test.js     接口与存储测试
 ```
-
----
-
-## 从 sub-worker 迁移过来
-
-这个项目原名 `sub-worker`（[jyucoeng/sub-worker](https://github.com/jyucoeng/sub-worker)），现在叫 **sub_merge**。
-代码、数据库、接口、变量名都向后兼容，**已经部署的实例不用做任何事**。
-
-只换了仓库名，你需要改的只有「拉代码的地址」：
-
-```bash
-git remote set-url origin https://github.com/jyucoeng/sub_merge.git
-```
-
-如果你要用 Pages（新增能力），按[部署 B](#部署-bcloudflare-pages重点)再建一个 Pages 项目即可，
-**D1 填同一个 `database_id`**，两边共享数据，客户端链接换成 Pages 域名就完成切换。
 
 ---
 
