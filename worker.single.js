@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.13.1";
+const VERSION = "1.13.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1116,7 +1116,13 @@ async function handleRequest(request, env) {
     return getOne(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
   }
 
-  return json({ ok: false, error: "not found" }, 404);
+  // 非接口路径给一张 404 页面；/api 下仍然回 JSON
+  if (path === "/api" || path.startsWith("/api/")) return json({ ok: false, error: "not found" }, 404);
+  return html(NOT_FOUND_HTML(escapeHtml(path)), 404);
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function authToken(env) { return (env && env.TOKEN) || ""; }
@@ -2659,11 +2665,54 @@ function encodeBase64(text) {
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
 }
+const NOT_FOUND_HTML = (path) => `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>404 · sub-worker</title>
+<style>
+:root{--bg:#f6f8fb;--card:#fff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+.box{width:100%;max-width:520px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 26px;box-shadow:0 12px 32px rgba(15,23,42,.06)}
+.code{font:700 44px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--acc);letter-spacing:2px}
+h1{margin:14px 0 6px;font-size:19px}
+p{margin:0;color:var(--sub);font-size:13.5px}
+.path{margin-top:14px;padding:8px 10px;border-radius:8px;background:#f1f5f9;border:1px solid var(--line);font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;word-break:break-all}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+a.btn{display:inline-block;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);font-size:13px;text-decoration:none}
+a.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+a.btn:hover{filter:brightness(.97)}
+ul{margin:16px 0 0;padding-left:18px;color:var(--sub);font-size:12.5px}
+li{margin:3px 0}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef2f7;padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="code">404</div>
+  <h1>这个地址没有页面</h1>
+  <p>路径拼错了，或者这个接口需要参数（比如订阅链接里的 token）。</p>
+  <div class="path">${path}</div>
+  <div class="row">
+    <a class="btn primary" href="/ui">去登录界面</a>
+    <a class="btn" href="/api">接口索引</a>
+    <a class="btn" href="/health">健康检查</a>
+  </div>
+  <ul>
+    <li>管理界面：<code>/ui</code></li>
+    <li>订阅：<code>/sub/all/&lt;token&gt;</code>　单机：<code>/sub/&lt;机器名&gt;/&lt;token&gt;</code></li>
+    <li>上报：<code>POST /api/v1/report/&lt;机器名&gt;</code></li>
+  </ul>
+</div>
+</body>
+</html>`;
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders(), "content-type": "application/json; charset=utf-8" } });
 }
-function html(text) {
-  return new Response(text, { headers: { ...corsHeaders(), "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-frame-options": "DENY" } });
+function html(text, status = 200) {
+  return new Response(text, { status, headers: { ...corsHeaders(), "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-frame-options": "DENY" } });
 }
 function unauthorized() { return json({ ok: false, error: "unauthorized" }, 401); }
 function missingConfig(name) { return json({ ok: false, error: `${name} is not configured` }, 500); }
