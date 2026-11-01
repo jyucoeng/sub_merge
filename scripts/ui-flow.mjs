@@ -445,6 +445,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   findMachineRow("auto-hk").children[5].onclick();
   await idle();
   check("自动节点区有内容", autoRows().length === 2, `rows=${autoRows().length}`);
+  {
+    const when = text("auto-when");
+    check("② 显示了上报时间", /最近上报：\d\d-\d\d \d\d:\d\d/.test(when) && !when.includes("还没有上报记录"), when);
+    const srcLabel = el("auto-sources").children[0].children[0].textContent;
+    check("② 来源胶囊带上报时间", /·\s*\d\d-\d\d \d\d:\d\d$/.test(srcLabel), srcLabel);
+  }
   check("自动节点只读", autoRows()[0].children[0].readOnly === true, String(autoRows()[0].children[0].readOnly));
   check("手动区为空并提示", text("nodes").includes("没有手动节点"), text("nodes").slice(0, 30));
   autoRows()[0].children[2].onclick();

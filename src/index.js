@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.8";
+const VERSION = "1.22.9";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -210,7 +210,7 @@ body.locked .wrap{display:none}
 <div class="row admin-only"><button id="save" class="primary" type="button">保存配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip" id="auto-when">最近上报：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -568,6 +568,22 @@ body.locked .wrap{display:none}
     list.splice(to, 0, item);
     return true;
   }
+  function fmtWhen(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function agoText(iso) {
+    var d = new Date(iso); if (!iso || isNaN(d.getTime())) return "";
+    var mins = Math.floor((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return "刚刚";
+    if (mins < 60) return mins + " 分钟前";
+    var hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + " 小时前";
+    return Math.floor(hours / 24) + " 天前";
+  }
   function counts() {
     var m = $("manual-count"), a = $("auto-count");
     if (m) m.textContent = (state.nodes || []).length + " 个";
@@ -599,8 +615,9 @@ body.locked .wrap{display:none}
       var chip = document.createElement("span"); chip.className = "chip";
       var label = document.createElement("span");
       label.innerHTML = "";
-      label.textContent = item.source + " · " + item.nodes + " 条";
-      label.title = "最近上报：" + (item.updated_at || "");
+      var when = fmtWhen(item.updated_at);
+      label.textContent = item.source + " · " + item.nodes + " 条" + (when ? " · " + when : "");
+      label.title = "最近上报：" + (item.updated_at || "未知") + (item.updated_at ? "（" + agoText(item.updated_at) + "）" : "");
       var del = document.createElement("button"); del.type = "button"; del.textContent = "×";
       del.title = "删掉这个上报来源的节点（别的来源不受影响）";
       del.onclick = function () {
@@ -958,6 +975,13 @@ body.locked .wrap{display:none}
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.sources = data.sources || [];
+      var when = $("auto-when");
+      if (when) {
+        var times = (data.sources || []).map(function (x) { return x.updated_at; }).filter(Boolean).sort();
+        var last = times.length ? times[times.length - 1] : "";
+        when.textContent = last ? "最近上报：" + fmtWhen(last) + "（" + agoText(last) + "）" : "还没有上报记录";
+        when.title = last ? "原始时间：" + last : "";
+      }
       var badge = $("node-mode");
       if (badge) {
         var autoCount = (data.auto_nodes || []).length;
