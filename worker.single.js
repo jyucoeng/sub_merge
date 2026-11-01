@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.8";
+const VERSION = "1.9.10";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -112,8 +112,10 @@ textarea:focus{border-color:var(--acc)}
 .clash-row.group-row{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
 .clash-row.rule-row{grid-template-columns:1fr 1.1fr 1.6fr 34px}
 .clash-row input{min-width:0;font-size:12px;padding:7px 9px}.clash-row select{font-size:12px;padding:7px 6px}
-.clash-row.no-node{background:rgba(229,72,77,.10);box-shadow:inset 3px 0 0 #e5484d;border-radius:8px;padding:5px 7px}
-.clash-row.no-node::after{content:"⚠ 这个分组当前没有任何节点匹配，生成的配置里会被省略";grid-column:1/-1;font-size:11px;line-height:1.4;color:#e5484d}
+.clash-row.no-node{background:rgba(229,72,77,.06);box-shadow:inset 4px 0 0 #e5484d;border-radius:8px;padding:5px 8px}
+.clash-row.no-node::after{content:"⚠ 没有节点匹配 · 订阅里会省略";grid-column:1/-1;font-size:11px;line-height:1.5;font-weight:600;letter-spacing:.2px;color:#d14046}
+.clash-only-live{display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:12px;color:var(--sub);cursor:pointer}
+.clash-only-live input{width:14px;height:14px;margin:0}
 .clash-row.no-node input,.clash-row.no-node select{color:#f0a3a6;border-color:#8a3b3f}
 .clash-row.no-node input:focus,.clash-row.no-node select:focus{color:inherit}
 .clash-row.no-node button{opacity:.75}
@@ -153,7 +155,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>分流规则 <span class="tip">Clash 用：分组（proxy-groups）和规则来源（rule-providers）都能改</span><span class="tag auto" id="clash-badge">默认</span></h2>
 <div class="hint">分组决定 Clash 里有哪些策略组，规则来源决定 <code>rule-providers</code> 和 <code>RULE-SET</code> 的顺序。规则文件由客户端自己下载（每 24 小时），服务端只发引用。改完点「保存规则」，客户端重新拉订阅即生效；点「恢复默认」回到内置的 ACL4SSR 那一套。</div>
-<div class="row" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button></div>
+<div class="row" style="margin-top:12px"><button id="clash-add-group" type="button">+ 新增分组</button><button id="clash-add-rule" type="button">+ 新增规则来源</button><button id="clash-save" class="primary" type="button">保存规则</button><button id="clash-reset" class="danger" type="button">恢复默认</button><label class="clash-only-live"><input type="checkbox" id="clash-hide-empty" /> 只看有节点的分组</label></div>
 <div class="hint" style="margin-top:14px"><b>分组</b> <span class="tag auto" id="clash-group-count">0</span> 国家组只填「过滤」，功能组只填「成员」；两个都空的分组会被拒绝，没有任何节点匹配的分组不会输出</div>
 <div class="clash-head group-head"><span>分组名</span><span>类型</span><span>过滤（正则，匹配节点名）</span><span>成员（分组名，逗号分隔）</span><span></span></div>
 <div id="clash-groups" class="clash-table"></div>
@@ -234,9 +236,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       wrap.appendChild(empty);
       return;
     }
+    var hideEmpty = $("clash-hide-empty") && $("clash-hide-empty").checked;
+    var shown = 0;
     clash.groups.forEach(function (group, index) {
+      var isMissing = clash.missing && clash.missing.indexOf(group.name) >= 0;
+      if (hideEmpty && isMissing) return;
+      shown += 1;
       var row = document.createElement("div");
-      row.className = "clash-row group-row" + (clash.missing && clash.missing.indexOf(group.name) >= 0 ? " no-node" : "");
+      row.className = "clash-row group-row" + (isMissing ? " no-node" : "");
       var name = clashInput(group.name, "分组名，例如 🇭🇰 香港节点", function () { clash.groups[index].name = name.value; });
       var type = document.createElement("select");
       CLASH_GROUP_TYPES.forEach(function (value) {
@@ -259,6 +266,12 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       [name, type, filter, members, del].forEach(function (el) { row.appendChild(el); });
       wrap.appendChild(row);
     });
+    if (hideEmpty && !shown) {
+      var hidden = document.createElement("div");
+      hidden.className = "empty";
+      hidden.textContent = "当前没有任何分组匹配到节点（已隐藏全部空分组）";
+      wrap.appendChild(hidden);
+    }
   }
   function renderClashRulesets() {
     var wrap = $("clash-rulesets");
@@ -690,6 +703,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, 1200); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
   });
+  $("clash-hide-empty").onchange = function () { renderClashGroups(); };
   $("clash-add-group").onclick = function () {
     clash.groups.push({ name: "新分组", type: "select", filter: "", members: [] });
     renderClash();
@@ -2256,7 +2270,18 @@ function clashProviders(rulesets) {
 }
 
 function clashRegionRegex(filter) {
-  const inner = String(filter).replace(/^\(/, "").replace(/\)$/, "");
+  const raw = String(filter).trim();
+  // 带正则元字符（. * + ? [ ] { } ^ $ \ ...）的写法按原样编译，
+  // 这样 `.*`、`^(HK|JP)`、`hk\d+` 才是真正的正则；
+  // 纯「关键词 + |」的国家组写法仍走下面带词边界的拆分逻辑。
+  if (/[.\\[\]{}^$+?]/.test(raw)) {
+    try {
+      return new RegExp(raw, "i");
+    } catch {
+      /* 编译失败就当关键词处理 */
+    }
+  }
+  const inner = raw.replace(/^\(/, "").replace(/\)$/, "");
   const parts = inner.split("|").filter(Boolean).map((part) => {
     const lit = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     // 短英文代号（DE/US/HK/HKG/LAX…）必须整词命中，否则 "Node" 会被当成德国

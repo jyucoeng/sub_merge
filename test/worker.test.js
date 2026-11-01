@@ -1066,6 +1066,20 @@ test("subscription output is cached until the content changes", async () => {
   assert.equal(await allAgain.text(), all);
 });
 
+test("a filter of .* is a real regexp, so the manual/auto groups keep every node", async () => {
+  const env = makeEnv();
+  await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls&sni=pypi.org#香港-HK-01"), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  const yaml = await (await call(env, "GET", `/sub/all/${TOKEN}?format=clash`)).text();
+  const block = yaml.slice(yaml.indexOf('  - name: "☑️ 手动切换"'));
+  assert.ok(yaml.includes('  - name: "☑️ 手动切换"'), "the catch-all manual group must survive");
+  assert.ok(block.slice(0, 200).includes('- "香港-HK-01"'), "it must contain the node");
+  assert.ok(yaml.includes('  - name: "♻️ 自动选择"'), "the catch-all auto group must survive");
+  const auto = yaml.slice(yaml.indexOf('  - name: "♻️ 自动选择"')).slice(0, 300);
+  assert.ok(auto.includes('type: "url-test"') && auto.includes('- "香港-HK-01"'));
+});
+
 test("empty clash groups are dropped instead of turning into DIRECT", async () => {
   const env = makeEnv();
   // 只有一个美国节点：香港组匹配不到，引用它的组也要跟着收敛，规则不能悬空

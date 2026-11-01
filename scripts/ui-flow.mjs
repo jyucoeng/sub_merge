@@ -607,6 +607,18 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("分流规则：保存后有成功提示", /规则已保存/.test(text("clash-status")), text("clash-status"));
   check("分流规则：保存后标记为「自定义」", text("clash-badge") === "自定义", text("clash-badge"));
+  const hideEmpty = el("clash-hide-empty");
+  hideEmpty.checked = true;
+  hideEmpty.onchange.call(hideEmpty);
+  check(
+    "分流规则：勾上「只看有节点的分组」后空组被隐藏",
+    groupRows().length === groupRows().length && !groupRows().some((row) => String(row.className).includes("no-node")),
+    `${groupRows().length} 行`,
+  );
+  hideEmpty.checked = false;
+  hideEmpty.onchange.call(hideEmpty);
+  check("分流规则：取消勾选后空组重新出现", groupRows().some((row) => String(row.className).includes("no-node")), `${groupRows().length} 行`);
+
   const noNodeRows = groupRows().filter((row) => String(row.className).includes("no-node"));
   check(
     "分流规则：没有节点的分组整行标红提示",
