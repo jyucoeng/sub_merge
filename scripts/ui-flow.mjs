@@ -765,28 +765,23 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const restored = await api("/sub/nodes");
   check("订阅清单：去掉筛选后全选恢复全部", restored.data.stats.enabled === restored.data.stats.total, `${restored.data.stats.enabled}/${restored.data.stats.total}`);
 
-  // 芯片计数必须跟着「其它筛选」走，和下面列出的行对得上
+  // 芯片数字 = 在订阅 / 全部：所有芯片左边之和 = 订阅里的节点数
   const protoChips = () => Array.from(el("sub-protos").children);
   const parseCount = (chip) => Number((chip.textContent.match(/·\s*(\d+)\/(\d+)/) || [0, "0", "0"])[1]);
   const parseTotal = (chip) => Number((chip.textContent.match(/·\s*(\d+)\/(\d+)/) || [0, "0", "0"])[2]);
-  const mineChip = () => Array.from(el("sub-machine-chips").children).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
-  // 默认（没有任何筛选）时芯片是中性样式，不是「划掉」的样子
   check("订阅清单：没筛选时芯片不变淡", protoChips().every((chip) => chip.className.indexOf("dim") === -1), protoChips().map((c) => c.className).join(","));
   check("订阅清单：默认全部节点在订阅，芯片都是「全选」态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));
+  const sumIn = () => protoChips().reduce((sum, chip) => sum + parseCount(chip), 0);
+  const sumAll = () => protoChips().reduce((sum, chip) => sum + parseTotal(chip), 0);
+  check("订阅清单：芯片左边之和 = 订阅里的节点数", sumIn() === 4, `${sumIn()} 个`);
+  check("订阅清单：芯片右边之和 = 全部节点数", sumAll() === 4, `${sumAll()} 个`);
 
+  const mineChip = () => Array.from(el("sub-machine-chips").children).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
   mineChip().onclick.call(mineChip());
   await idle();
-  const chipSumMine = protoChips().reduce((sum, chip) => sum + parseCount(chip), 0);
-  check("订阅清单：芯片计数只算筛出来的机器", chipSumMine === 2, `${chipSumMine} 个（该机器 2 个节点）`);
-  check("订阅清单：芯片「列出来的/全部」跟行数一致", protoChips().reduce((sum, chip) => sum + parseCount(chip), 0) === nodeRows().length, protoChips().map((c) => c.textContent).join(" , "));
-  check("订阅清单：芯片总数不随筛选变化", protoChips().reduce((sum, chip) => sum + parseTotal(chip), 0) === 4, protoChips().map((c) => c.textContent).join(" , "));
-  const zeroOrHidden = protoChips().filter((chip) => parseCount(chip) === 0);
-  check("订阅清单：其它协议计数归零而不是消失", protoChips().length >= 3 && zeroOrHidden.length >= 1, `芯片 ${protoChips().length} 个，0 个的有 ${zeroOrHidden.length}`);
-
+  check("订阅清单：筛选不改芯片的订阅计数", sumIn() === 4 && nodeRows().length === 2, `芯片 ${sumIn()}/4，列表 ${nodeRows().length} 行`);
   mineChip().onclick.call(mineChip());
   await idle();
-  const chipSum = protoChips().reduce((sum, chip) => sum + parseCount(chip), 0);
-  check("订阅清单：去掉机器筛选后计数恢复全部", chipSum === 4, `${chipSum} 个`);
 
   const vlessChip = protoChips().filter((chip) => chip.textContent.indexOf("VLESS") !== -1)[0];
   vlessChip.onclick.call(vlessChip);
@@ -819,9 +814,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("sub-none");
   await idle();
   check("订阅清单：全不选后芯片都不在订阅", protoChips().every((chip) => chip.className.indexOf("on") === -1 && chip.className.indexOf("part") === -1), protoChips().map((c) => c.className).join(","));
+  check("订阅清单：全不选后芯片数字变成 0/总", protoChips().every((chip) => parseCount(chip) === 0 && parseTotal(chip) > 0), protoChips().map((c) => c.textContent).join(" , "));
   click("sub-all");
   await idle();
   check("订阅清单：全选后芯片全部回到订阅态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));
+  check("订阅清单：全选后芯片数字变成 总/总", protoChips().every((chip) => parseCount(chip) === parseTotal(chip)), protoChips().map((c) => c.textContent).join(" , "));
 
   // 单个节点取消勾选 → 它那台机器的芯片变半选
   const machineChipBox = () => el("sub-machine-chips").children;
