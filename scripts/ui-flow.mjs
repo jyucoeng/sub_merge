@@ -116,9 +116,19 @@ const documentShim = {
 const prompts = [];
 const confirms = [];
 const clipboard = [];
+const storage = new Map();
+const documentElement = new El("html");
+documentElement.setAttribute = function (k, v) { this[k] = String(v); };
+documentElement.getAttribute = function (k) { return this[k] == null ? null : this[k]; };
+documentShim.documentElement = documentElement;
 const windowShim = {
   prompt: () => (prompts.length ? prompts.shift() : null),
   confirm: () => (confirms.length ? confirms.shift() : true),
+  localStorage: {
+    getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+    setItem: (k, v) => storage.set(k, String(v)),
+    removeItem: (k) => storage.delete(k),
+  },
 };
 const navigatorShim = { clipboard: { writeText: async (t) => { clipboard.push(t); } } };
 
@@ -932,6 +942,15 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
 /* ---------------- 订阅中的节点折叠 ---------------- */
 {
+  check("主题：默认日间", (documentShim.documentElement.getAttribute("data-theme") || "light") === "light", String(documentShim.documentElement.getAttribute("data-theme")));
+  check("主题：按钮初始是月亮", text("theme-toggle") === "🌙", text("theme-toggle"));
+  click("theme-toggle");
+  await idle();
+  check("主题：点一下切到夜间", documentShim.documentElement.getAttribute("data-theme") === "dark", String(documentShim.documentElement.getAttribute("data-theme")));
+  check("主题：按钮变成太阳", text("theme-toggle") === "☀️", text("theme-toggle"));
+  click("theme-toggle");
+  await idle();
+  check("主题：再点回到日间", documentShim.documentElement.getAttribute("data-theme") === "light", String(documentShim.documentElement.getAttribute("data-theme")));
   check("订阅清单：默认收起", el("sub-body").className === "hidden" && el("sub-toggle").textContent === "展开 +", `${el("sub-body").className} / ${el("sub-toggle").textContent}`);
   check("订阅清单：收起时标题上的计数还在", /\d+\s*\/\s*\d+/.test(text("sub-count")), text("sub-count"));
   click("sub-toggle");
