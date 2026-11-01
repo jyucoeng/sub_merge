@@ -4,6 +4,11 @@ main = "src/index.js"
 compatibility_date = "2026-10-21"
 workers_dev = true
 
+# 口令/端口令都放 Cloudflare 后台当明文变量（Dashboard → Settings → Variables and Secrets），
+# 这里不加 [vars]，避免把真值写进仓库（本仓库是公开的）。
+# keep_vars 让 wrangler deploy 不会清掉后台手填的变量。
+keep_vars = true
+
 # 想绑定自己的域名时取消注释并改成你的域名（该 zone 必须已接入 Cloudflare）：
 # routes = [
 #   { pattern = "sub.example.com", custom_domain = true }

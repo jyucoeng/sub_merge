@@ -200,14 +200,29 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 
 ## 登录：管理员 / 游客
 
-UI 打开就是登录页，凭据全部来自 Cloudflare 的 **Variables and Secrets**，界面里既不显示也改不了：
+UI 打开就是登录页，凭据全部来自 Cloudflare 后台的变量，界面里既不显示也改不了。
+
+**推荐用明文变量**（Dashboard → Workers & Pages → sub-worker → Settings → Variables and Secrets，类型选 Text），这样后台直接看得见、改完点 Deploy 就生效：
+
+| 变量 | 作用 |
+| --- | --- |
+| `ADMIN_PASSWORD` | 管理员口令，进 UI 后可读可写 |
+| `GUEST_CODE` | 游客码，只读；不配则没有游客入口 |
+| `TOKEN` | 订阅/上报 token，跟登录无关 |
+| `UI_TOKEN` | 可选，另一串管理员口令 |
+
+命令行设置（不落仓库，`--keep-vars` 保留后台已有变量）：
 
 ```bash
-pnpm exec wrangler secret put ADMIN_PASSWORD   # 管理员口令：进 UI 后可读可写
-pnpm exec wrangler secret put GUEST_CODE       # 游客口令：只读；不配就没人能以游客身份进
-pnpm exec wrangler secret put TOKEN            # 订阅/上报 token，跟登录无关
-pnpm exec wrangler secret put UI_TOKEN         # 可选：另一个管理员口令（长随机串当密码用）
+pnpm exec wrangler deploy --keep-vars \
+  --var ADMIN_PASSWORD:你的管理员口令 \
+  --var GUEST_CODE:你的游客码 \
+  --var TOKEN:你的订阅token
 ```
+
+`wrangler.toml` 里已经写了 `keep_vars = true`，所以之后直接 `pnpm exec wrangler deploy` 不会清掉后台手填的变量。（想用 Secret 也行，把 `wrangler secret put` 换成变量名即可；区别只是后台是否显示明文。）
+
+本仓库是公开的，别把真值写进 `wrangler.toml`；自己的口令可以记在 `CREDENTIALS.local.md`（已在 `.gitignore`）。
 
 - `/ui` 永远是登录页；`/ui/<任何东西>` 也只是这张登录页，URL 里不再携带凭据（老书签打开是登录框）。
 - 输入 `ADMIN_PASSWORD`（或 `UI_TOKEN`、`TOKEN`）→ 管理员；输入 `GUEST_CODE` → 游客（只读）。
