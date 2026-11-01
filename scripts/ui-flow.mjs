@@ -671,7 +671,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("分流规则：默认配置里没有自定义分组", !clashBack.includes("⚡ 自定义组") && !clashBack.includes("myproxy"));
 }
 
-/* ---------------- 协议筛选 ---------------- */
+/* ---------------- 订阅中的节点（全站清单） ---------------- */
 {
   const vless = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-vless";
   const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
@@ -680,63 +680,97 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ nodes: [{ link: vless, name: "香港-vless" }, { link: hy2, name: "东京-hy2" }] }),
   });
-  check("协议筛选：准备一台有两种协议的机器", put.status === 200, String(put.status));
+  check("订阅清单：准备一台有两种协议的机器", put.status === 200, String(put.status));
 
-  click("reload");
-  await idle();
-  const machineSelect = el("machine");
-  machineSelect.value = "ui-proto";
-  machineSelect.onchange.call(machineSelect);
+  click("sub-reload");
   await idle();
 
-  const protoChips = () => el("protocols").children;
-  const protoText = () => protoChips().map((chip) => chip.textContent).join("|");
-  check("协议筛选：列出这台机器的协议", protoChips().length === 2, protoText());
-  check("协议筛选：默认全部勾上", protoChips().every((chip) => chip.className.includes("on")), protoText());
+  const subRowsList = () => el("sub-list").children.filter ? el("sub-list").children : el("sub-list").children;
+  const nodeRows = () => el("sub-list").children.filter((row) => row.className && row.className.includes("subrow"));
+  const groupHeads = () => el("sub-list").children.filter((row) => row.className === "sub-group");
+  const visibleNames = () => nodeRows().map((row) => row.children[2].textContent);
 
-  const first = protoChips()[0];
-  first.onclick.call(first);
+  check("订阅清单：按机器分组显示", groupHeads().length >= 1, `${groupHeads().length} 组`);
+  check("订阅清单：列出节点并默认勾选", nodeRows().length >= 2 && nodeRows().every((row) => !row.className.includes("off")), `${nodeRows().length} 行`);
+  check("订阅清单：计数徽章", /\/\s*\d+/.test(text("sub-count")), text("sub-count"));
+
+  // 按机器筛选
+  const machineChips = () => el("sub-machine-chips").children;
+  const protoChip = machineChips().find((chip) => chip.textContent.indexOf("ui-proto") === 0);
+  check("订阅清单：能按机器多选", Boolean(protoChip), machineChips().map((c) => c.textContent).join("|"));
+  protoChip.onclick.call(protoChip);
   await idle();
-  check("协议筛选：点一下变灰", protoChips()[0].className.includes("off"), protoText());
-  check("协议筛选：状态栏说明筛掉了多少", /协议/.test(text("status")), text("status"));
+  check("订阅清单：只看这台机器", nodeRows().length === 2, `${nodeRows().length} 行`);
+  const litChip = machineChips().find((chip) => chip.textContent.indexOf("ui-proto") === 0);
+  check("订阅清单：机器筛选芯片点亮", litChip.className.includes("on"), litChip.className);
 
-  const after = await api("/nodes/ui-proto");
-  check("协议筛选：接口里只留了一种协议", after.data.protocols.length === 1 && after.data.nodes.length === 1, JSON.stringify(after.data.protocols));
-  check("协议筛选：统计仍然列出全部协议", after.data.protocol_stats.length === 2, JSON.stringify(after.data.protocol_stats));
-
-  const sub = await (await netFetch(`${BASE}/sub/ui-proto/${encodeURIComponent(TOKEN)}`)).text();
-  check("协议筛选：订阅里只剩一个节点", atob(sub).trim().split("\n").filter(Boolean).length === 1, sub.slice(0, 40));
-
-  // 节点清单：逐节点排除
-  const nlRows = () => el("node-list").children;
-  check("节点清单：列出全部节点", nlRows().length === 2, `${nlRows().length} 行`);
-  check("节点清单：默认全部勾选", nlRows().every((row) => !row.className.includes("off")), nlRows().map((r) => r.className).join("|"));
-
-  const secondRow = nlRows()[1];
-  secondRow.onclick.call(secondRow);
+  // 按协议筛选
+  const protoChipsAll = () => el("sub-protos").children;
+  const hy2Chip = protoChipsAll().find((chip) => chip.textContent.indexOf("Hysteria2") === 0);
+  hy2Chip.onclick.call(hy2Chip);
   await idle();
-  check("节点清单：取消勾选后变灰", nlRows()[1].className.includes("off"), nlRows()[1].className);
-  check("节点清单：状态栏报排除数量", /排除/.test(text("status")), text("status"));
-
-  const afterExclude = await api("/nodes/ui-proto");
-  check("节点清单：接口记录排除项", afterExclude.data.disabled.length === 1 && afterExclude.data.all_nodes.filter((n) => !n.enabled).length === 1, JSON.stringify(afterExclude.data.disabled));
-  check("节点清单：清单仍然给出全部节点", afterExclude.data.all_nodes.length === 2, String(afterExclude.data.all_nodes.length));
-
-  const afterSub = atob(await (await netFetch(`${BASE}/sub/ui-proto/${encodeURIComponent(TOKEN)}`)).text()).trim().split("\n").filter(Boolean);
-  check("节点清单：订阅里少了一个", afterSub.length === 1, String(afterSub.length));
-
-  const backRow = nlRows()[1];
-  backRow.onclick.call(backRow);
+  check("订阅清单：按协议多选", nodeRows().length === 1 && visibleNames()[0].indexOf("东京") >= 0, visibleNames().join("|"));
+  hy2Chip.onclick.call(hy2Chip);
   await idle();
-  check("节点清单：再点一下恢复", !nlRows()[1].className.includes("off"), nlRows()[1].className);
 
-  const back = protoChips().find((chip) => chip.className.includes("off"));
-  back.onclick.call(back);
+  // 搜索后再选
+  el("sub-search").value = "香港";
+  el("sub-search").oninput.call(el("sub-search"));
   await idle();
-  const restored = await api("/nodes/ui-proto");
-  check("协议筛选：再点一下恢复全部", restored.data.protocols.length === 0 && restored.data.nodes.length === 2, JSON.stringify(restored.data.protocols));
+  check("订阅清单：搜索过滤", nodeRows().length === 1 && visibleNames()[0].indexOf("香港") >= 0, visibleNames().join("|"));
 
+  click("sub-only");
+  await idle();
+  const onlyMine = await api("/sub/nodes");
+  const mine = onlyMine.data.machines.filter((m) => m.machine === "ui-proto")[0];
+  check("订阅清单：只选筛出来的", mine.enabled === 1 && mine.total === 2, `${mine.enabled}/${mine.total}`);
+
+  el("sub-search").value = "";
+  el("sub-search").oninput.call(el("sub-search"));
+  await idle();
+
+  click("sub-invert");
+  await idle();
+  const inverted = await api("/sub/nodes");
+  const invMine = inverted.data.machines.filter((m) => m.machine === "ui-proto")[0];
+  check("订阅清单：反选作用在筛出来的节点上", invMine.enabled === 1, `${invMine.enabled}/${invMine.total}`);
+
+  click("sub-all");
+  await idle();
+  const allOn = await api("/sub/nodes");
+  const onMine = allOn.data.machines.filter((m) => m.machine === "ui-proto")[0];
+  check("订阅清单：全选把节点放回订阅", onMine.enabled === onMine.total && onMine.total === 2, `${onMine.enabled}/${onMine.total}`);
+
+  click("sub-none");
+  await idle();
+  const noneOn = await api("/sub/nodes");
+  check("订阅清单：全不选后订阅为空", noneOn.data.stats.enabled === 0, String(noneOn.data.stats.enabled));
+  const emptySub = await (await netFetch(`${BASE}/sub/all/${encodeURIComponent(TOKEN)}`)).text();
+  check("订阅清单：订阅内容跟着变空", atob(emptySub).trim() === "", atob(emptySub).slice(0, 30));
+
+  click("sub-all");
+  await idle();
+  const back = await api("/sub/nodes");
+  const backMine = back.data.machines.filter((m) => m.machine === "ui-proto")[0];
+  check("订阅清单：全选只恢复筛出来的那些", backMine.enabled === 2 && back.data.stats.enabled < back.data.stats.total, `${backMine.enabled} / 全局 ${back.data.stats.enabled}/${back.data.stats.total}`);
+
+  // 去掉机器筛选后全选 = 全部节点回到订阅
+  const litAgain = machineChips().find((chip) => chip.textContent.indexOf("ui-proto") === 0);
+  litAgain.onclick.call(litAgain);
+  await idle();
+  click("sub-all");
+  await idle();
+  const restored = await api("/sub/nodes");
+  check("订阅清单：去掉筛选后全选恢复全部", restored.data.stats.enabled === restored.data.stats.total, `${restored.data.stats.enabled}/${restored.data.stats.total}`);
+
+  await netFetch(`${BASE}/api/v1/sub/disabled`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+    body: JSON.stringify({ disabled: [] }),
+  });
   await netFetch(`${BASE}/api/v1/machines/ui-proto`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+  click("sub-reload");
+  await idle();
 }
 
 /* ---------------- 登录与角色 ---------------- */

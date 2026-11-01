@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.20.0";
+const VERSION = "1.21.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -122,6 +122,17 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .proto.off{color:#94a3b8;border-style:dashed;background:#fcfcfd;text-decoration:line-through}
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
+.sub-list{display:grid;gap:6px;margin-top:10px}
+.sub-group{display:flex;align-items:center;gap:8px;margin:12px 0 2px;font-size:12px;font-weight:600;color:#475569}
+.sub-group .tag{font-weight:500}
+.subrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
+.subrow:hover{border-color:#c7d5e8}
+.subrow.off{opacity:.45;background:#fbfbfc}
+.subrow.off .nlname{text-decoration:line-through}
+.subrow input{width:15px;height:15px;margin:0;cursor:pointer}
+.subrow .ptag{font-size:11px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
 .nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
 .nlrow:hover{border-color:#c7d5e8}
 .nlrow.off{opacity:.45;background:#fbfbfc}
@@ -166,10 +177,6 @@ body.locked .wrap{display:none}
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
-<div class="hint" style="margin-top:16px"><b>协议筛选</b>（只有勾上的协议会进这台机器的订阅；全勾或不勾 = 全部显示）</div>
-<div id="protocols" class="protocols"></div>
-<div class="hint" style="margin-top:16px"><b>节点清单</b>（这台机器全部节点；取消勾选的节点不会进订阅，改完立即生效）</div>
-<div id="node-list" class="node-list"></div>
 <div class="hint" style="margin-top:14px"><b>手动节点</b>（排在合并订阅这台机器的最前面，自动上报永远不覆盖它们）</div>
 <div id="nodes" class="nodes"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="add" type="button">+ 添加节点</button><button id="save" class="primary" type="button">保存配置</button></div>
@@ -177,6 +184,23 @@ body.locked .wrap{display:none}
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 <div id="status" class="status"></div>
+</section>
+
+<section class="card">
+<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span></h2>
+<div class="row" style="margin-top:10px">
+  <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
+  <button id="sub-all" type="button">全选</button>
+  <button id="sub-invert" type="button">反选</button>
+  <button id="sub-only" type="button">只选筛出来的</button>
+  <button id="sub-none" class="danger" type="button">全不选</button>
+  <button id="sub-reload" type="button">刷新</button>
+</div>
+<div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
+<div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
+<div class="hint" style="margin-top:8px">搜索和上面的协议 / 机器筛选只影响「看到哪些」，不改变勾选状态；「全选 / 反选 / 只选 / 全不选」作用于当前筛出来的那些节点。</div>
+<div id="sub-list" class="sub-list"></div>
+<div id="sub-status" class="status"></div>
 </section>
 
 <section class="card">
@@ -206,7 +230,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], protocols: [], protocolStats: [], allNodes: [], disabled: [] };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], search: "", protos: [], machinesF: [] } };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -538,97 +562,163 @@ body.locked .wrap{display:none}
       box.appendChild(chip);
     });
   }
-  /* 协议筛选：点一下切换某个协议是否进订阅。state.protocols 为空 = 全部显示。 */
-  function renderProtocols() {
-    var box = $("protocols"); if (!box) return;
-    box.innerHTML = "";
-    var stats = state.protocolStats || [];
-    if (!state.current || !stats.length) {
-      var empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = state.current ? "这台机器还没有节点" : "先选择一台机器";
-      box.appendChild(empty);
-      return;
-    }
-    var allowed = state.protocols || [];
-    stats.forEach(function (item) {
-      var on = !allowed.length || allowed.indexOf(item.kind) !== -1;
-      var chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "proto " + (on ? "on" : "off");
-      chip.title = on ? "点一下：这个协议不进订阅" : "点一下：这个协议进订阅";
-      var label = document.createElement("span");
-      label.textContent = (on ? "✓ " : "✕ ") + item.label;
-      var count = document.createElement("span"); count.className = "n"; count.textContent = "· " + item.count + " 个";
-      chip.appendChild(label); chip.appendChild(count);
-      chip.onclick = function () { toggleProtocol(item.kind); };
-      box.appendChild(chip);
+  /* ---------- 订阅中的节点：全站清单，按机器顺序排列 ---------- */
+  function subStatusText(text, ok) {
+    var box = $("sub-status"); if (!box) return;
+    box.textContent = text || "";
+    box.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+  }
+  function subRows() {
+    var out = [];
+    (state.sub.machines || []).forEach(function (machine) {
+      (machine.nodes || []).forEach(function (node) { out.push({ machine: machine.machine, node: node }); });
+    });
+    return out;
+  }
+  function subVisible() {
+    var q = String(state.sub.search || "").trim().toLowerCase();
+    var protos = state.sub.protos || [];
+    var machines = state.sub.machinesF || [];
+    return subRows().filter(function (item) {
+      if (protos.length && protos.indexOf(item.node.kind) === -1) return false;
+      if (machines.length && machines.indexOf(item.machine) === -1) return false;
+      if (!q) return true;
+      var hay = (item.node.name || "") + " " + (item.node.link || "") + " " + item.machine;
+      return hay.toLowerCase().indexOf(q) !== -1;
     });
   }
-  /* 节点清单：勾选 = 进订阅。取消勾选的节点身份存进 state.disabled，立即 PUT。 */
-  function renderNodeList() {
-    var box = $("node-list"); if (!box) return;
+  function renderSubChips() {
+    var protoBox = $("sub-protos"); var machineBox = $("sub-machine-chips");
+    if (protoBox) {
+      protoBox.innerHTML = "";
+      var protos = (state.sub.stats && state.sub.stats.protocols) || [];
+      if (!protos.length) {
+        var e = document.createElement("span"); e.className = "tip"; e.textContent = "还没有节点"; protoBox.appendChild(e);
+      }
+      protos.forEach(function (item) {
+        var on = (state.sub.protos || []).indexOf(item.kind) !== -1;
+        var chip = document.createElement("button");
+        chip.type = "button"; chip.className = "proto " + (on ? "on" : "");
+        chip.textContent = item.label + " · " + item.count + " 个";
+        chip.title = on ? "取消这个筛选" : "只看这个协议";
+        chip.onclick = function () {
+          var list = (state.sub.protos || []).slice();
+          var at = list.indexOf(item.kind);
+          if (at === -1) list.push(item.kind); else list.splice(at, 1);
+          state.sub.protos = list; renderSub();
+        };
+        protoBox.appendChild(chip);
+      });
+    }
+    if (machineBox) {
+      machineBox.innerHTML = "";
+      (state.sub.machines || []).forEach(function (machine) {
+        var on = (state.sub.machinesF || []).indexOf(machine.machine) !== -1;
+        var chip = document.createElement("button");
+        chip.type = "button"; chip.className = "proto " + (on ? "on" : "");
+        chip.textContent = machine.machine + " · " + machine.total + " 个";
+        chip.title = on ? "取消这个筛选" : "只看这台机器";
+        chip.onclick = function () {
+          var list = (state.sub.machinesF || []).slice();
+          var at = list.indexOf(machine.machine);
+          if (at === -1) list.push(machine.machine); else list.splice(at, 1);
+          state.sub.machinesF = list; renderSub();
+        };
+        machineBox.appendChild(chip);
+      });
+    }
+  }
+  function renderSub() {
+    var box = $("sub-list"); if (!box) return;
+    var badge = $("sub-count");
+    var stats = state.sub.stats || { total: 0, enabled: 0 };
+    if (badge) {
+      badge.textContent = stats.enabled + " / " + stats.total + " 在订阅里";
+      badge.className = "tag " + (stats.disabled ? "manual" : "auto");
+    }
+    renderSubChips();
     box.innerHTML = "";
-    var entries = state.allNodes || [];
-    if (!entries.length) {
+    var visible = subVisible();
+    if (!visible.length) {
       var empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = state.current ? "这台机器还没有节点" : "先选择一台机器";
+      empty.textContent = subRows().length ? "没有匹配的节点（改一下搜索或筛选）" : "还没有任何节点，先在上面添加或上报";
       box.appendChild(empty);
       return;
     }
-    entries.forEach(function (item) {
+    var currentMachine = null;
+    visible.forEach(function (item) {
+      if (item.machine !== currentMachine) {
+        currentMachine = item.machine;
+        var head = document.createElement("div"); head.className = "sub-group";
+        var name = document.createElement("span"); name.textContent = item.machine;
+        var count = document.createElement("span"); count.className = "tag auto";
+        var group = (state.sub.machines || []).filter(function (m) { return m.machine === item.machine; })[0];
+        count.textContent = (group ? group.enabled : 0) + " / " + (group ? group.total : 0);
+        head.appendChild(name); head.appendChild(count);
+        box.appendChild(head);
+      }
+      var node = item.node;
       var row = document.createElement("div");
-      row.className = "nlrow" + (item.enabled ? "" : " off");
-      row.title = item.link;
+      row.className = "subrow" + (node.in_sub ? "" : " off");
+      row.title = node.link;
       var tick = document.createElement("input");
-      tick.type = "checkbox"; tick.checked = Boolean(item.enabled);
-      var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = item.label;
-      var name = document.createElement("div"); name.className = "nlname"; name.textContent = item.name || item.link;
-      var src = document.createElement("div"); src.className = "nlsrc"; src.textContent = item.source === "manual" ? "手动" : "上报";
-      row.onclick = function () { toggleNode(item); };
-      row.appendChild(tick); row.appendChild(tag); row.appendChild(name); row.appendChild(src);
+      tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
+      var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = node.label;
+      var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
+      var src = document.createElement("div"); src.className = "nlsrc"; src.textContent = node.source === "manual" ? "手动" : "上报";
+      row.onclick = function () { toggleSubNode(node); };
+      row.appendChild(tick); row.appendChild(tag); row.appendChild(label); row.appendChild(src);
       box.appendChild(row);
     });
   }
-  function toggleNode(item) {
-    if (!state.current) return;
-    var set = (state.disabled || []).slice();
-    var at = set.indexOf(item.id);
-    if (at === -1) set.push(item.id); else set.splice(at, 1);
-    api("/nodes/" + encodeURIComponent(state.current) + "/disabled", {
+  function putSubDisabled(list) {
+    return api("/sub/disabled", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ disabled: set }),
+      body: JSON.stringify({ disabled: list }),
     }).then(function (data) {
-      state.disabled = data.disabled || [];
-      state.allNodes = data.all_nodes || [];
-      renderNodeList();
-      var hidden = state.disabled.length;
-      setStatus(hidden
-        ? ("已排除 " + hidden + " 个节点，这台机器订阅里现在 " + data.nodes + " 个（共 " + data.every + " 个）")
-        : ("已恢复全部节点，这台机器订阅里 " + data.nodes + " 个"), true);
-      loadMachines(true);
-    }).catch(function (err) { setStatus(err.message, false); });
+      state.sub.disabled = data.disabled || [];
+      state.sub.stats = data.stats || state.sub.stats;
+      return loadSubNodes(true);
+    }).catch(function (err) { subStatusText(err.message, false); });
   }
-  function toggleProtocol(kind) {
-    if (!state.current) return;
-    var all = (state.protocolStats || []).map(function (item) { return item.kind; });
-    var set = (state.protocols || []).length ? state.protocols.slice() : all.slice();
-    var at = set.indexOf(kind);
-    if (at === -1) set.push(kind); else set.splice(at, 1);
-    var next = set.length === all.length ? [] : set;
-    api("/nodes/" + encodeURIComponent(state.current) + "/protocols", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ protocols: next }),
-    }).then(function (data) {
-      state.protocols = data.protocols || [];
-      state.protocolStats = data.protocol_stats || [];
-      renderProtocols();
-      setStatus(state.protocols.length
-        ? ("已只保留 " + state.protocols.length + " 种协议，这台机器订阅里现在 " + data.nodes + " 个节点（共 " + data.every + " 个）")
-        : ("已恢复全部协议，这台机器订阅里 " + data.nodes + " 个节点"), true);
+  function toggleSubNode(node) {
+    var set = (state.sub.disabled || []).slice();
+    var at = set.indexOf(node.id);
+    if (at === -1) set.push(node.id); else set.splice(at, 1);
+    var turningOn = at !== -1;
+    putSubDisabled(set).then(function () {
+      var stats = state.sub.stats || {};
+      subStatusText((turningOn ? "已让「" + (node.name || node.link) + "」回到订阅" : "已把「" + (node.name || node.link) + "」移出订阅")
+        + "，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
       loadMachines(true);
-    }).catch(function (err) { setStatus(err.message, false); });
+    });
+  }
+  function applySubBulk(mode) {
+    var visible = subVisible();
+    var visibleIds = new Set(visible.map(function (item) { return item.node.id; }));
+    var allIds = subRows().map(function (item) { return item.node.id; });
+    var set = new Set(state.sub.disabled || []);
+    if (mode === "all") visibleIds.forEach(function (id) { set.delete(id); });
+    if (mode === "invert") visibleIds.forEach(function (id) { if (set.has(id)) set.delete(id); else set.add(id); });
+    if (mode === "only") { allIds.forEach(function (id) { if (!visibleIds.has(id)) set.add(id); }); visibleIds.forEach(function (id) { set.delete(id); }); }
+    if (mode === "none") allIds.forEach(function (id) { set.add(id); });
+    var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length) ? "筛出来的 " + visible.length + " 个" : "全部";
+    putSubDisabled([...set]).then(function () {
+      var stats = state.sub.stats || {};
+      var label = mode === "all" ? "全选" : mode === "invert" ? "反选" : mode === "only" ? "只选筛出来的" : "全不选";
+      subStatusText(label + "（" + scope + "）完成，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
+      loadMachines(true);
+    });
+  }
+  function loadSubNodes(quiet) {
+    return api("/sub/nodes").then(function (data) {
+      state.sub.machines = data.machines || [];
+      state.sub.stats = data.stats || { total: 0, enabled: 0 };
+      state.sub.disabled = data.disabled || [];
+      renderSub();
+      if (!quiet) subStatusText("已加载 " + state.sub.stats.total + " 个节点，其中 " + state.sub.stats.enabled + " 个在订阅里", true);
+    }).catch(function (err) { subStatusText(err.message, false); });
   }
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
@@ -713,17 +803,13 @@ body.locked .wrap{display:none}
     $("url-singbox").textContent = base + "?format=singbox";
   }
   function loadNodes(quiet) {
-    if (!state.current) { state.nodes = []; state.autoNodes = []; state.protocols = []; state.protocolStats = []; state.allNodes = []; state.disabled = []; render(); renderAutoNodes(); renderProtocols(); renderNodeList(); return Promise.resolve(); }
+    if (!state.current) { state.nodes = []; state.autoNodes = []; render(); renderAutoNodes(); return Promise.resolve(); }
     if (!quiet) setStatus("加载中...");
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.sources = data.sources || [];
-      state.protocols = data.protocols || [];
-      state.protocolStats = data.protocol_stats || [];
-      state.allNodes = data.all_nodes || [];
-      state.disabled = data.disabled || [];
-      render(); renderAutoNodes(); renderProtocols(); renderNodeList();
+      render(); renderAutoNodes();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
@@ -741,6 +827,12 @@ body.locked .wrap{display:none}
       .catch(function (e) { el.textContent = "保存失败：" + e.message; el.className = "status err"; });
   };
   $("reload").onclick = loadMachines;
+  $("sub-search").oninput = function () { state.sub.search = this.value; renderSub(); };
+  $("sub-reload").onclick = function () { loadSubNodes(); };
+  $("sub-all").onclick = function () { applySubBulk("all"); };
+  $("sub-invert").onclick = function () { applySubBulk("invert"); };
+  $("sub-only").onclick = function () { applySubBulk("only"); };
+  $("sub-none").onclick = function () { applySubBulk("none"); };
   $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); render(); };
   $("bulk-add").onclick = function () {
     var box = $("bulk"), tip = $("bulk-status");
@@ -1010,6 +1102,7 @@ body.locked .wrap{display:none}
   function start() {
     renderUrls();
     loadMachines();
+    loadSubNodes(true);
     loadClash();
   }
 
@@ -1229,6 +1322,22 @@ async function handleRequest(request, env) {
     if (request.method === "GET") return getNodeConfig(env, machine);
     if (request.method === "PUT") return putNodeConfig(request, env, machine);
     return methodNotAllowed("GET, PUT");
+  }
+
+  m = path.match(/^\/api\/v1\/sub\/nodes$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return json({ ok: true, ...(await subNodesView(env)) });
+  }
+
+  m = path.match(/^\/api\/v1\/sub\/disabled$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "PUT") return methodNotAllowed("PUT");
+    return putSubDisabled(request, env);
   }
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/disabled$/);
@@ -1732,8 +1841,49 @@ function parseDisabled(raw) {
   } catch { return []; }
 }
 
+// 全站共享的一份排除清单：key = "disabled"。老的 disabled:<machine> 仍然合并进来读，写只写全局。
+const DISABLED_GLOBAL_KEY = "disabled";
+
+async function loadDisabledGlobal(env) {
+  const set = new Set(parseDisabled(await getSetting(env, DISABLED_GLOBAL_KEY)));
+  const db = dbEnv(env);
+  if (db) {
+    const result = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'disabled:%'").all();
+    for (const row of (result && result.results) || []) {
+      for (const id of parseDisabled(row.value)) set.add(id);
+    }
+  }
+  return set;
+}
+
+async function saveDisabledGlobal(env, identities) {
+  const clean = [...new Set((identities || []).filter((item) => typeof item === "string" && item.length && item.length <= 1024))];
+  if (!clean.length) {
+    await dbEnv(env).prepare("DELETE FROM settings WHERE key = ?1").bind(DISABLED_GLOBAL_KEY).run();
+    return [];
+  }
+  await putSetting(env, DISABLED_GLOBAL_KEY, JSON.stringify(clean));
+  return clean;
+}
+
 async function loadDisabledNodes(env, machine) {
   return parseDisabled(await getSetting(env, disabledKey(machine)));
+}
+
+/* 一次性把老的单机排除键（disabled:<机器>）并进全局键，然后删掉老键。幂等。 */
+async function migrateDisabledKeys(env) {
+  const db = dbEnv(env);
+  if (!db) return 0;
+  const result = await db.prepare("SELECT key, value FROM settings WHERE key LIKE 'disabled:%'").all();
+  const rows = (result && result.results) || [];
+  if (!rows.length) return 0;
+  const merged = new Set(parseDisabled(await getSetting(env, DISABLED_GLOBAL_KEY)));
+  for (const row of rows) for (const id of parseDisabled(row.value)) merged.add(id);
+  await putSetting(env, DISABLED_GLOBAL_KEY, JSON.stringify([...merged]));
+  for (const row of rows) {
+    await db.prepare("DELETE FROM settings WHERE key = ?1").bind(row.key).run();
+  }
+  return rows.length;
 }
 
 async function loadDisabledMap(env) {
@@ -1881,7 +2031,7 @@ async function deleteSource(env, machine, source) {
     auto_content: null,
   };
   await saveRecord(env, record);
-  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine)) });
+  return json({ ok: true, machine, deleted: source, auto_nodes: reported.nodes.length, sources: reported.sources, nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env)) });
 }
 
 /* ---------------- handlers ---------------- */
@@ -1972,7 +2122,7 @@ async function getOne(env, machine, token, request) {
   const format = formatOf(request);
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const allowed = await loadAllowedProtocols(env, machine);
-  const disabled = await loadDisabledNodes(env, machine);
+  const disabled = [...(await loadDisabledGlobal(env))];
   const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(",") + "|" + disabled.length, format, [], [record]);
   const hit = subCacheGet(key);
   if (hit) {
@@ -1994,8 +2144,8 @@ async function getAll(env, token, request) {
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
-  const disabledMap = await loadDisabledMap(env);
-  const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}/${(disabledMap.get(r.machine) || []).length}`).join(";");
+  const disabledGlobal = await loadDisabledGlobal(env);
+  const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";") + "#" + disabledGlobal.size;
   const key = subCacheKey("all" + (rules ? ":" + rules.rev : "") + "|" + protocolKey, format, order, records);
   const hit = subCacheGet(key);
   if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
@@ -2004,7 +2154,7 @@ async function getAll(env, token, request) {
   const items = [];
   for (const record of records) {
     const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
-    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabledMap.get(record.machine) || []);
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabledGlobal);
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
@@ -2044,7 +2194,7 @@ async function getNodeConfig(env, machine) {
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine)),
+    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env)),
     manual_nodes: record.manual_nodes || [],
     auto_nodes: await autoNodesOf(record),
     sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
@@ -2052,9 +2202,62 @@ async function getNodeConfig(env, machine) {
     protocols: await loadAllowedProtocols(env, machine),
     protocol_stats: protocolStats([...((record && record.manual_nodes) || []), ...(await autoNodesOf(record))]),
     // 全量节点清单：all_nodes 里带 enabled，取消勾选的不会进订阅
-    disabled: await loadDisabledNodes(env, machine),
-    all_nodes: await nodeEntries(record, await loadDisabledNodes(env, machine)),
+    disabled: [...(await loadDisabledGlobal(env))],
+    all_nodes: await nodeEntries(record, await loadDisabledGlobal(env)),
   });
+}
+
+/* 全站节点视图：按机器顺序列出每台机器的全部节点，带 enabled；供「订阅中的节点」那张卡用。 */
+async function subNodesView(env) {
+  await migrateDisabledKeys(env);
+  const records = await loadAllRecords(env);
+  const order = await getMachineOrder(env);
+  const disabled = await loadDisabledGlobal(env);
+  const protocolMap = await loadProtocolMap(env);
+  const rank = new Map(order.map((item, i) => [item, i]));
+  const machines = [];
+  const counts = new Map();
+  let total = 0;
+  let enabled = 0;
+  for (const record of records) {
+    const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
+    const entries = await nodeEntries(record, disabled);
+    const live = await nodesOf(record, protocolMap.get(record.machine) || [], disabled);
+    const liveIds = new Set(live.map((node) => linkIdentity(node.link)));
+    machines.push({
+      machine: record.machine,
+      manual: Boolean(record.manual),
+      order: rk,
+      total: entries.length,
+      enabled: entries.filter((item) => liveIds.has(item.id)).length,
+      nodes: entries.map((item) => ({ ...item, in_sub: liveIds.has(item.id) })),
+    });
+    for (const item of entries) counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+    total += entries.length;
+    enabled += machines[machines.length - 1].enabled;
+  }
+  machines.sort((a, b) => a.order - b.order || (a.machine < b.machine ? -1 : a.machine > b.machine ? 1 : 0));
+  const protocols = [...counts.entries()].map(([kind, count]) => ({ kind, label: protocolLabel(kind), count })).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
+  const stats = { total, enabled, disabled: total - enabled, protocols };
+  return { machines, disabled: [...disabled], stats };
+}
+
+/* 全站：设置哪些节点不进订阅（空数组 = 全部显示）。 */
+async function putSubDisabled(request, env) {
+  const body = await request.text();
+  if (body.length > 512 * 1024) return json({ ok: false, error: "body too large" }, 413);
+  let data;
+  try { data = JSON.parse(body); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  if (!data || !Array.isArray(data.disabled)) return json({ ok: false, error: "disabled must be an array" }, 400);
+  if (data.disabled.length > 5000) return json({ ok: false, error: "too many disabled nodes" }, 400);
+  // 只保留当前真实存在的节点身份，删掉的机器/换掉的节点不会在清单里留垃圾
+  const known = new Set();
+  for (const record of await loadAllRecords(env)) {
+    for (const item of await nodeEntries(record, [])) known.add(item.id);
+  }
+  const saved = await saveDisabledGlobal(env, data.disabled.filter((id) => known.has(id)));
+  const view = await subNodesView(env);
+  return json({ ok: true, disabled: saved, stats: view.stats });
 }
 
 /* 逐节点排除：传进「不要的节点身份」（link 去掉 #名字），空数组 = 恢复全部。 */
@@ -2066,12 +2269,13 @@ async function putDisabled(request, env, machine) {
   try { data = JSON.parse(body); } catch { return json({ ok: false, error: "invalid json" }, 400); }
   if (!data || !Array.isArray(data.disabled)) return json({ ok: false, error: "disabled must be an array" }, 400);
   if (data.disabled.length > 2000) return json({ ok: false, error: "too many disabled nodes" }, 400);
-  const saved = await saveDisabledNodes(env, machine, data.disabled);
+  const saved = await saveDisabledGlobal(env, data.disabled);
+  const set = new Set(saved);
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, disabled: saved, nodes: 0, every: 0, all_nodes: [] });
   const allowed = await loadAllowedProtocols(env, machine);
-  const nodes = await nodesOf(record, allowed, saved);
-  const entries = await nodeEntries(record, saved);
+  const nodes = await nodesOf(record, allowed, set);
+  const entries = await nodeEntries(record, set);
   return json({ ok: true, machine, disabled: saved, nodes: nodes.length, every: entries.length, all_nodes: entries });
 }
 
@@ -2128,7 +2332,7 @@ async function putNodeConfig(request, env, machine) {
       auto_content: null,
     };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine, manual: record.manual, nodes, manual_nodes: manualNodes, auto_nodes: record.nodes || [] });
 }
 
@@ -2139,7 +2343,7 @@ async function resetMachine(env, machine) {
   const cleared = Array.isArray(old.manual_nodes) && old.manual_nodes.length > 0;
   const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
-  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
+  const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });
 }
 
@@ -2165,7 +2369,7 @@ async function renameMachine(request, env, machine) {
     order[idx] = to;
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
-  const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
+  const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
@@ -2175,7 +2379,7 @@ async function listMachines(env) {
   const rank = new Map(order.map((m, i) => [m, i]));
   const machines = [];
   for (const record of records) {
-    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledNodes(env, record.machine));
+    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
     machines.push({
       machine: record.machine,
       bytes: record.bytes,

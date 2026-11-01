@@ -1526,3 +1526,37 @@ test("single nodes can be excluded from the subscription", async () => {
   const afterReport = await (await call(env, "GET", "/api/v1/nodes/box-ex", null, { authorization: `Bearer ${TOKEN}` })).json();
   assert.ok(afterReport.all_nodes.some((item) => item.source === "auto" && item.enabled), "上报节点默认可见");
 });
+
+test("subscription node list spans every machine in machine order and toggles globally", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const a = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-A";
+  const b = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-B";
+  const c = "trojan://pw@sg.example.io:443?security=tls#新加坡-C";
+
+  await call(env, "PUT", "/api/v1/nodes/mach-a", JSON.stringify({ nodes: [{ link: a }, { link: b }] }), auth);
+  await call(env, "PUT", "/api/v1/nodes/mach-b", JSON.stringify({ nodes: [{ link: c }] }), auth);
+  await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: ["mach-b", "mach-a"] }), auth);
+
+  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(view.machines.map((m) => m.machine), ["mach-b", "mach-a"], "machine order comes from the order setting");
+  assert.equal(view.stats.total, 3);
+  assert.equal(view.stats.enabled, 3, "默认全部在订阅里");
+  assert.deepEqual(view.machines[1].nodes.map((n) => n.in_sub), [true, true]);
+  assert.deepEqual(view.stats.protocols.map((p) => p.kind).sort(), ["hy2", "trojan", "vless"]);
+
+  const cut = view.machines[1].nodes[1].id;
+  const put = await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: [cut] }), auth);
+  const afterBody = await put.json();
+  assert.equal(afterBody.stats.enabled, 2);
+  assert.equal(afterBody.stats.disabled, 1);
+
+  const afterView = await (await call(env, "GET", "/api/v1/sub/nodes", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(afterView.machines[1].nodes.map((n) => n.in_sub), [true, false]);
+  assert.equal(unb64(await (await call(env, "GET", `/sub/mach-a/${TOKEN}`)).text()).split("\n").filter(Boolean).length, 1);
+  assert.equal((await call(env, "GET", `/sub/all/${TOKEN}`)).headers.get("x-nodes"), "2");
+
+  const restore = await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: [] }), auth);
+  assert.equal((await restore.json()).stats.enabled, 3);
+  assert.equal((await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: "x" }), auth)).status, 400);
+});
