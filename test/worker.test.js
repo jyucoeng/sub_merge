@@ -1583,3 +1583,30 @@ test("shadowsocks links work in both the old base64 form and the SIP002 form", a
   const bad = await call(env, "PUT", "/api/v1/nodes/ss-box", JSON.stringify({ nodes: [{ link: "ss://bm90LWJhc2U2NA" }] }), auth);
   assert.equal(bad.status, 400, "解不出来的 ss 链接仍然报错");
 });
+
+test("machine names may not end with the status words the tags already show", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = "vless://11111111-1111-4111-8111-111111111111@198.51.100.9:443?security=tls&sni=a.example#n";
+
+  for (const bad of ["机房手动", "机房上报", "机房自动"]) {
+    const r = await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(bad)}`, JSON.stringify({ nodes: [{ link }] }), auth);
+    assert.equal(r.status, 400, bad + " 应该被拒绝");
+    assert.match((await r.json()).error, /must not end with/);
+  }
+
+  const ok = await call(env, "PUT", "/api/v1/nodes/机房", JSON.stringify({ nodes: [{ link }] }), auth);
+  assert.equal(ok.status, 200, await ok.text());
+
+  // 已有机器改名：目标名带状态词要拒绝，改回正常名字要放行
+  const badRename = await call(env, "POST", "/api/v1/machines/机房/rename", JSON.stringify({ to: "机房-2手动" }), auth);
+  assert.equal(badRename.status, 400);
+  const goodRename = await call(env, "POST", "/api/v1/machines/机房/rename", JSON.stringify({ to: "机房-2" }), auth);
+  const renamedBody = await goodRename.json();
+  assert.equal(goodRename.status, 200, JSON.stringify(renamedBody));
+  assert.equal(renamedBody.renamed, true);
+
+  // 给已有机器保存节点不受影响（名字校验只针对新建/改名）
+  const save = await call(env, "PUT", "/api/v1/nodes/机房-2", JSON.stringify({ nodes: [{ link }] }), auth);
+  assert.equal(save.status, 200, await save.text());
+});

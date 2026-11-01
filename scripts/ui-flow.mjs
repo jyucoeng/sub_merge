@@ -403,6 +403,23 @@ check("按钮说明：清空手动节点用红字", html.includes('<b class="err
 check("非法机器名：给提示", text("status").includes("机器名可用中文"), text("status"));
 check("非法机器名：标红", el("status").className.includes("err"), el("status").className);
 
+// I2. 机器名不能带状态字样（手动 / 上报 / 自动）
+{
+  const before = (await api("/machines")).data.count;
+  el("new-machine").value = "测试机房手动";
+  click("create-machine");
+  await idle();
+  check("带状态字样：给提示", text("status").includes("机器名里不要带状态字样"), text("status"));
+  check("带状态字样：没有建出机器", (await api("/machines")).data.count === before, `count=${(await api("/machines")).data.count}`);
+
+  const cur = el("machine").value;
+  prompts.push(cur + "上报");
+  click("rename");
+  await idle();
+  check("重命名带状态字样：给提示", text("status").includes("机器名里不要带状态字样"), text("status"));
+  check("重命名带状态字样：名字没变", (await api("/machines")).data.machines.some((m) => m.machine === cur), cur);
+}
+
 // J. 同名接管
 el("new-machine").value = "香港-备用";
 click("create-machine");

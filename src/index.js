@@ -26,10 +26,13 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.4";
+const VERSION = "1.22.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
+// 机器名里不该带「手动 / 上报 / 自动」：那是标签显示的运行状态，混进名字后没人分得清
+const MACHINE_STATUS_SUFFIX = /(手动|上报|自动)$/u;
+const MACHINE_STATUS_ERROR = "machine name must not end with 手动 / 上报 / 自动, that is the status tag";
 
 /* D1 表结构；scripts/schema.sql 与本数组保持一致，供 wrangler d1 execute --file 使用。 */
 export const SCHEMA_STATEMENTS = [
@@ -1032,6 +1035,12 @@ body.locked .wrap{display:none}
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
   var MACHINE_HINT = "机器名可用中文、字母、数字、空格和 _ . -，首字符得是中文/字母/数字";
+  var MACHINE_STATUS_HINT = "机器名里不要带状态字样（手动 / 上报 / 自动），状态由标签显示";
+  function machineNameProblem(name) {
+    if (!MACHINE_RE_UI.test(name)) return MACHINE_HINT;
+    if (/(手动|上报|自动)$/.test(name)) return MACHINE_STATUS_HINT;
+    return "";
+  }
   function autoMachineName() {
     var have = {};
     state.machines.forEach(function (m) { have[m.machine] = 1; });
@@ -1042,7 +1051,8 @@ body.locked .wrap{display:none}
     var box = $("new-machine");
     var typed = String(box.value || "").trim().toLowerCase();
     var name = typed || autoMachineName();
-    if (!MACHINE_RE_UI.test(name)) return setStatus(MACHINE_HINT, false);
+    var problem = machineNameProblem(name);
+    if (problem) return setStatus(problem, false);
     var exist = null;
     state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
     if (exist) {
@@ -1077,7 +1087,8 @@ body.locked .wrap{display:none}
     if (to === null) return;
     to = String(to).trim().toLowerCase();
     if (!to || to === state.current) return;
-    if (!MACHINE_RE_UI.test(to)) return setStatus(MACHINE_HINT, false);
+    var problem = machineNameProblem(to);
+    if (problem) return setStatus(problem, false);
     var old = state.current;
     api("/machines/" + encodeURIComponent(old) + "/rename", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: to })
@@ -2512,6 +2523,7 @@ async function putNodeConfig(request, env, machine) {
     inputs.push({ link, name: typeof item.name === "string" ? item.name.trim().slice(0, 160) : "" });
   }
   const old = await loadRecord(env, machine);
+  if (!old && MACHINE_STATUS_SUFFIX.test(machine)) return json({ ok: false, error: MACHINE_STATUS_ERROR }, 400);
   const manualNodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [], inputs);
   const updatedAt = new Date().toISOString();
   // 手动节点写进 manual_nodes_json，上报内容（content/nodes_json）一个字都不动
@@ -2550,6 +2562,7 @@ async function renameMachine(request, env, machine) {
   try { data = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
   const to = String((data && data.to) || "").trim();
   if (!MACHINE_RE.test(to)) return json({ ok: false, error: "invalid target machine name" }, 400);
+  if (MACHINE_STATUS_SUFFIX.test(to)) return json({ ok: false, error: MACHINE_STATUS_ERROR }, 400);
   if (to === machine) return json({ ok: true, machine, renamed: false });
   const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
