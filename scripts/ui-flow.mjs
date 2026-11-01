@@ -851,6 +851,18 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
 }
 
+/* ---------------- 分流规则折叠 ---------------- */
+{
+  check("分流规则：默认收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+  click("clash-toggle");
+  await idle();
+  check("分流规则：点开展开", el("clash-body").className === "" && el("clash-toggle").textContent === "收起", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+  check("分流规则：展开后能看到分组和规则表", html.includes('id="clash-groups"') && html.includes('id="clash-rulesets"'), "");
+  click("clash-toggle");
+  await idle();
+  check("分流规则：再点收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
+}
+
 /* ---------------- 登录与角色 ---------------- */
 {
   const session = await api("/auth/session");
