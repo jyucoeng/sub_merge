@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.10";
+const VERSION = "1.21.11";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -104,8 +104,10 @@ textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);bor
 textarea:focus{border-color:var(--acc)}
 .bulk{margin-top:12px}.bulk .tip{margin-left:6px}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
-.tag.manual{color:#b45309;border-color:#fcd34d;background:#fffbeb}
-.tag.auto{color:#1d4ed8;border-color:#bfdbfe;background:#eff6ff}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
+.srctag.manual{color:#92400e;background:#fef3c7;border-color:#fde68a}
+.srctag.auto{color:#0e7490;background:#ecfeff;border-color:#a5f3fc}
+.machine .srctag{margin-left:7px;vertical-align:1px}.status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:#f8fafc}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
@@ -149,9 +151,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .nlmeta{min-width:0;display:grid;gap:2px}
 .subnode .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .subnode .nllink{font:11px ui-monospace,Consolas,monospace;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.subnode .nlsrc{font-size:11px;text-align:right;white-space:nowrap;padding:2px 7px;border-radius:6px;border:1px solid transparent}
-.subnode .nlsrc.manual{color:#92400e;background:#fef3c7;border-color:#fde68a}
-.subnode .nlsrc.auto{color:#0e7490;background:#ecfeff;border-color:#a5f3fc}
+.subnode .nlsrc{text-align:right}
 .nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;font-size:13px;cursor:pointer}
 .nlrow:hover{border-color:#c7d5e8}
 .nlrow.off{opacity:.45;background:#fbfbfc}
@@ -758,7 +758,7 @@ body.locked .wrap{display:none}
       var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
       meta.appendChild(label); meta.appendChild(raw);
       var src = document.createElement("span");
-      src.className = "nlsrc " + (node.source === "manual" ? "manual" : "auto");
+      src.className = "nlsrc srctag " + (node.source === "manual" ? "manual" : "auto");
       src.textContent = node.source === "manual" ? "手动" : "上报";
       src.title = node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
       row.onclick = function () { toggleSubNode(node); };
@@ -861,7 +861,7 @@ body.locked .wrap{display:none}
       };
       idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
       var name = document.createElement("div"); name.className = "mname";
-      var tag = document.createElement("span"); tag.className = "tag " + (m.manual ? "manual" : "auto");
+      var tag = document.createElement("span"); tag.className = "srctag " + (m.manual ? "manual" : "auto");
       tag.textContent = m.manual ? "手动" : "上报";
       tag.title = m.manual ? "手动配置：自动上报不会覆盖这里编辑的节点" : "来自机器自动上报";
       name.appendChild(document.createTextNode(m.machine)); name.appendChild(tag);
