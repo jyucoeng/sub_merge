@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.23.2";
+const VERSION = "1.23.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -621,16 +621,12 @@ body.locked .wrap{display:none}
   function renderSources() {
     var box = $("auto-sources"); if (!box) return;
     box.innerHTML = "";
-    // 标题上已经显示「内容更新于：最新那份」，来源胶囊只在「自己不是最新的」时才带时间，
-    // 否则同一行会重复出现两个一模一样的时间。
-    var newest = (state.sources || []).map(function (x) { return x.updated_at || ""; }).sort().pop() || "";
+    // 每个来源胶囊都用同一种说法：来源 · N 条 · 绝对时间（相对时间只放标题行，避免两处重复）
     (state.sources || []).forEach(function (item) {
       var chip = document.createElement("span"); chip.className = "chip";
       var label = document.createElement("span");
       label.innerHTML = "";
-      var stale = item.updated_at && item.updated_at !== newest;
-      var when = stale ? fmtWhen(item.updated_at) : "";
-      label.textContent = item.source + " · " + item.nodes + " 条" + (when ? " · 停在 " + when : "");
+      label.textContent = item.source + " · " + item.nodes + " 条" + (item.updated_at ? " · " + fmtWhen(item.updated_at) : "");
       label.title = "这条来源最近一次内容变化：" + (item.updated_at || "未知") + (item.updated_at ? "（" + agoText(item.updated_at) + "）" : "") + "；内容没变的上报不会刷新";
       // 自动层是只读快照：界面上不给删除入口，避免误删后再也拿不回来。要换内容就让脚本重新上报。
       chip.appendChild(label);
@@ -995,7 +991,8 @@ body.locked .wrap{display:none}
       if (when) {
         var times = (data.sources || []).map(function (x) { return x.updated_at; }).filter(Boolean).sort();
         var last = times.length ? times[times.length - 1] : "";
-        when.textContent = last ? "内容更新于：" + fmtWhen(last) + "（" + agoText(last) + "）" : "还没有上报记录";
+        when.textContent = last ? "内容更新于：" + agoText(last) : "还没有上报记录";
+        when.title = last ? "最近一次内容变化：" + fmtWhen(last) + "；每个来源各自的时间写在下面的来源胶囊上" : "";
         when.title = last ? "最近一次上报内容发生变化的时刻：" + last + "（内容没变的上报不会刷新这个时间）" : "还没有任何上报";
       }
       var manualWhen = $("manual-when");
