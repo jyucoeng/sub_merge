@@ -38,6 +38,7 @@ function mockRow(args) {
     manual: args[6],
     auto_content: args[7] == null ? null : args[7],
     manual_nodes_json: args[8] == null ? "[]" : args[8],
+    manual_updated_at: args[9] == null ? null : args[9],
   };
 }
 
@@ -131,7 +132,7 @@ class MockStatement {
       return { success: true, meta: { changes: 1 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
-    if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json)/i.test(this.sql)) {
+    if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
       const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
       if (this.db[column]) throw new Error("duplicate column name");
       this.db[column] = true;
@@ -249,6 +250,37 @@ test("report, dedupe, read and list", async () => {
   data = await res.json();
   assert.equal(data.count, 1);
   assert.equal(data.machines[0].machine, "sgw");
+});
+
+test("manual saves record their own timestamp, reports do not touch it", async () => {
+  const env = { TOKEN, DB: makeDb({ withSchema: true }) };
+  const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+
+  let res = await call(env, "POST", "/api/v1/report/tsvm", b64("vless://u1@ts.example.com:443"), { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", "/api/v1/nodes/tsvm", null, headers);
+  assert.equal((await res.json()).manual_updated_at, null, "只上报过时还没有手动保存时间");
+
+  res = await call(env, "PUT", "/api/v1/nodes/tsvm", JSON.stringify({ nodes: [{ link: "vless://u2@ts.example.com:443", name: "手动" }] }), headers);
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", "/api/v1/nodes/tsvm", null, headers);
+  const saved = await res.json();
+  const first = saved.manual_updated_at;
+  assert.ok(first && !Number.isNaN(Date.parse(first)), `manual_updated_at=${first}`);
+
+  // 再上报一次自动内容：手动时间不能被刷新
+  res = await call(env, "POST", "/api/v1/report/tsvm", b64("vless://u3@ts.example.com:443"), { authorization: `Bearer ${TOKEN}` });
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", "/api/v1/nodes/tsvm", null, headers);
+  const after = await res.json();
+  assert.equal(after.manual_updated_at, first);
+  assert.equal(after.auto_nodes.length, 1);
+
+  // 恢复自动上报 = 清空手动层，保存时间一起清掉
+  res = await call(env, "POST", "/api/v1/machines/tsvm/reset", null, headers);
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", "/api/v1/nodes/tsvm", null, headers);
+  assert.equal((await res.json()).manual_updated_at, null);
 });
 
 test("missing variables return config error", async () => {

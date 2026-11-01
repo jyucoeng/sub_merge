@@ -467,6 +467,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("转为手动：手动区出现一条", nodeRows().length === 1, `rows=${nodeRows().length}`);
   check("转 ① 手动：提示要保存", text("status").includes("已复制到 ① 手动节点"), text("status"));
+  check("① 保存前显示「还没有保存过手动节点」", text("manual-when").includes("还没有保存过"), text("manual-when"));
   {
     const first = autoRows()[0];
     check("转 ① 手动：该行不再显示按钮", first.children.length === 3 && first.children[2].tagName?.toUpperCase?.() !== "BUTTON", `children=${first.children.length} / ${first.children[2] && first.children[2].textContent}`);
@@ -474,6 +475,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   }
   click("save");
   await idle();
+  check("① 保存后显示保存时间", /保存于：\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(text("manual-when")), text("manual-when"));
   {
     const d = (await api("/nodes/auto-hk")).data;
     check("保存后：手动 1 条 + 自动 2 条", (d.manual_nodes || []).length === 1 && (d.auto_nodes || []).length === 2, `manual=${(d.manual_nodes || []).length} auto=${(d.auto_nodes || []).length}`);

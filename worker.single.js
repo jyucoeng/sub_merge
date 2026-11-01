@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.23.0";
+const VERSION = "1.23.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -52,7 +52,8 @@ export const SCHEMA_STATEMENTS = [
   nodes_json TEXT NOT NULL DEFAULT '[]',
   manual_nodes_json TEXT NOT NULL DEFAULT '[]',
   manual     INTEGER NOT NULL DEFAULT 0,
-  auto_content TEXT
+  auto_content TEXT,
+  manual_updated_at TEXT
 )`,
   "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
   `CREATE TABLE IF NOT EXISTS reports (
@@ -78,6 +79,7 @@ export const SCHEMA_STATEMENTS = [
 export const MIGRATION_STATEMENTS = [
   "ALTER TABLE machines ADD COLUMN auto_content TEXT",
   "ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE machines ADD COLUMN manual_updated_at TEXT",
 ];
 
 const UI_HTML = `<!doctype html>
@@ -214,7 +216,7 @@ body.locked .wrap{display:none}
 <div class="hint" style="margin-top:2px"><b class="err">清空手动节点</b> = 只把 ① 的列表清空并标记「未保存」，点 ① 的「保存配置」才写进库，中途可以用「撤销修改」还原。</div>
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="nsec">
-<div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>
+<div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip" id="manual-when" title="① 手动层最后一次点「保存配置」的时间">保存于：—</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>
 <div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><button id="add" type="button">+ 空节点</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
@@ -996,6 +998,12 @@ body.locked .wrap{display:none}
         var last = times.length ? times[times.length - 1] : "";
         when.textContent = last ? "内容更新于：" + fmtWhen(last) + "（" + agoText(last) + "）" : "还没有上报记录";
         when.title = last ? "最近一次上报内容发生变化的时刻：" + last + "（内容没变的上报不会刷新这个时间）" : "还没有任何上报";
+      }
+      var manualWhen = $("manual-when");
+      if (manualWhen) {
+        var saved = data.manual_updated_at || "";
+        manualWhen.textContent = saved ? "保存于：" + fmtWhen(saved) + "（" + agoText(saved) + "）" : "还没有保存过手动节点";
+        manualWhen.title = saved ? "① 手动层最后一次保存配置的时刻：" + saved + "（② 上报不会刷新这个时间）" : "这台机器的 ① 手动层还没保存过内容";
       }
       var badge = $("node-mode");
       if (badge) {
@@ -1793,7 +1801,7 @@ function dbEnv(env) { return env && env.DB ? env.DB : null; }
 
 /* ---------------- storage: Cloudflare D1 ---------------- */
 
-const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json";
+const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at";
 
 function parseJsonArray(text) {
   try {
@@ -1818,6 +1826,8 @@ function rowToRecord(row) {
     manual_nodes: manualNodes,
     manual: manualNodes.length > 0,
     auto_content: row.auto_content == null ? null : String(row.auto_content),
+    // ① 手动层最后一次「保存配置」的时间；上报不会动它
+    manual_updated_at: row.manual_updated_at == null ? null : String(row.manual_updated_at),
   };
 }
 
@@ -1832,6 +1842,7 @@ function recordValues(record) {
     (record.manual_nodes && record.manual_nodes.length) ? 1 : 0,
     record.auto_content == null ? null : String(record.auto_content),
     JSON.stringify(record.manual_nodes || []),
+    record.manual_updated_at == null ? null : String(record.manual_updated_at),
   ];
 }
 
@@ -1854,8 +1865,8 @@ async function saveRecord(env, record) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
   await db.prepare(
-    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
      ON CONFLICT(machine) DO UPDATE SET
        content = excluded.content,
        hash = excluded.hash,
@@ -1864,7 +1875,8 @@ async function saveRecord(env, record) {
        nodes_json = excluded.nodes_json,
        manual = excluded.manual,
        auto_content = excluded.auto_content,
-       manual_nodes_json = excluded.manual_nodes_json`,
+       manual_nodes_json = excluded.manual_nodes_json,
+       manual_updated_at = excluded.manual_updated_at`,
   ).bind(...recordValues(record)).run();
   return record;
 }
@@ -2374,6 +2386,8 @@ async function report(request, env, machine) {
     manual_nodes: manualNodes,
     manual: manualNodes.length > 0,
     auto_content: null,
+    // 上报只更新 ②，① 的保存时间必须原样带过去，否则一次上报就把时间冲没了
+    manual_updated_at: old && old.manual_updated_at ? old.manual_updated_at : null,
   };
   await saveRecord(env, record);
   const manualIds = new Set(manualNodes.map((n) => linkIdentity(n && n.link)));
@@ -2469,12 +2483,13 @@ async function putClashRules(request, env) {
 
 async function getNodeConfig(env, machine) {
   const record = await loadRecord(env, machine);
-  if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [] });
+  if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [], manual_updated_at: null });
   return json({
     ok: true,
     machine,
     manual: Boolean(record.manual),
     updated_at: record.updated_at,
+    manual_updated_at: record.manual_updated_at || null,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
     nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env)),
     manual_nodes: record.manual_nodes || [],
@@ -2602,7 +2617,7 @@ async function putNodeConfig(request, env, machine) {
   const updatedAt = new Date().toISOString();
   // 手动节点写进 manual_nodes_json，上报内容（content/nodes_json）一个字都不动
   const record = old
-    ? { ...old, manual_nodes: manualNodes, manual: manualNodes.length > 0, updated_at: updatedAt }
+    ? { ...old, manual_nodes: manualNodes, manual: manualNodes.length > 0, updated_at: updatedAt, manual_updated_at: manualNodes.length ? updatedAt : null }
     : {
       machine,
       content: "",
@@ -2613,6 +2628,7 @@ async function putNodeConfig(request, env, machine) {
       manual_nodes: manualNodes,
       manual: manualNodes.length > 0,
       auto_content: null,
+      manual_updated_at: manualNodes.length ? updatedAt : null,
     };
   await saveRecord(env, record);
   const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
@@ -2624,7 +2640,7 @@ async function resetMachine(env, machine) {
   const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
   const cleared = Array.isArray(old.manual_nodes) && old.manual_nodes.length > 0;
-  const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString() };
+  const record = { ...old, manual_nodes: [], manual: false, updated_at: new Date().toISOString(), manual_updated_at: null };
   await saveRecord(env, record);
   const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });

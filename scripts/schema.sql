@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS machines (
   nodes_json TEXT NOT NULL DEFAULT '[]',
   manual_nodes_json TEXT NOT NULL DEFAULT '[]',
   manual     INTEGER NOT NULL DEFAULT 0,
-  auto_content TEXT
+  auto_content TEXT,
+  manual_updated_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
@@ -50,4 +51,5 @@ CREATE TABLE IF NOT EXISTS settings (
 -- 老库升级（已有 machines 表时执行；重复执行会报 duplicate column，忽略即可）：
 -- ALTER TABLE machines ADD COLUMN auto_content TEXT;
 -- ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]';
+-- ALTER TABLE machines ADD COLUMN manual_updated_at TEXT;
 -- 升级后调用一次 POST /api/v1/admin/schema，会把老的手动机器拆成手动节点 + 上报节点。
