@@ -573,10 +573,19 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     text("clash-status"),
   );
   const added = groupRows()[defaultGroups].children;
-  added[0].value = "⚡ 自定义组";
+  added[0].value = "🚀 节点选择";
   added[0].oninput.call(added[0]);
   added[3].value = "DIRECT";
   added[3].oninput.call(added[3]);
+  click("clash-save");
+  await idle();
+  check(
+    "分流规则：分组重名保存被拦下",
+    /重名了/.test(text("clash-status")) && text("clash-badge") === "默认",
+    text("clash-status"),
+  );
+  added[0].value = "⚡ 自定义组";
+  added[0].oninput.call(added[0]);
 
   click("clash-add-rule");
   check("分流规则：新增规则来源立刻出现在表里", ruleRows().length === defaultRules + 1, `${ruleRows().length}`);

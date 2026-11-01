@@ -238,7 +238,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 
 - **代理分组**：沿用 ACL4SSR 的命名与顺序 —— `🚀 节点选择`、`☑️ 手动切换`、`♻️ 自动选择`（url-test，300s / tolerance 50）、`📹 油管视频`、`🎥 奈飞视频`、`🌍 国外媒体`、`📲 电报信息`、`🤖 OpenAi`、`🛸 Antigravity`、`Ⓜ️ 微软服务`、`🍎 苹果服务`、`📢 谷歌FCM`、`🎯 全球直连`、`🛑 全球拦截`、`🍃 应用净化`、`🐟 漏网之鱼`，以及 ~35 个国家分组；
 - **国家分组按节点名匹配**：香港 / 香港节点 / HK / HKG、美国 / 洛杉矶 / 圣何塞 / US / LAX…，中文机器名和中文节点名都能命中。短英文代号（`DE`、`US`、`HK`…）要求整词匹配，所以 `Node-1` 不会被误判成德国；
-- **空分组自动省略**：没匹配到节点的国家分组不会输出，引用它的分组里也不留空引用（Clash 空 `proxies:` 会直接报错）；
+- **空分组自动省略**：没匹配到节点的国家分组不会输出，引用它的分组里也不留空引用，指向它的 `RULE-SET` 也一起跳过（Clash 空 `proxies:` 会直接报错）；WebUI 里这种组会显示成灰的，保存后状态栏会列出「当前没有匹配的节点、订阅里会省略」的组名；
+- **`🚀 节点选择` 和 `🐟 漏网之鱼` 列出全部 36 个国家分组**：不用手动往里加，新国家组只要匹配到节点就自动出现在选择列表里；
 - **节点名去重**：不同机器里出现同名节点（或同一条链接）时自动加 ` 2`、` 3` 后缀，避免 Clash 因重名拒绝加载；
 - **规则以 `rule-providers` 下发**：默认 28 个 ACL4SSR 规则集（`BanAD`、`BanProgramAD`、`GoogleCN`、`Microsoft`、`Apple`、`Telegram`、`OpenAi`、`YouTube`、`Netflix`、`ChinaDomain`、`ChinaCompanyIp`、`zdy` 等）只写 URL 和 `RULE-SET,<name>,<group>`，`behavior: classical` + `format: text`，客户端自己拉取并缓存 24 小时。Worker 里**不抓取、不内联**规则 —— 30 个 .list 内联下来是几 MB、几十次 subrequest，免费版（CPU 10 ms / subrequest 50）根本跑不动；
 - **收尾规则**固定是 `GEOIP,CN,🎯 全球直连` 和 `MATCH,🐟 漏网之鱼`；`geodata-mode: true` + `geo-auto-update: true`，`geox-url` 指向 MetaCubeX 的 geoip/geosite/mmdb/asn。

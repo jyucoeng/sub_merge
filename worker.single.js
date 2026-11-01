@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.9.2";
+const VERSION = "1.9.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -109,6 +109,7 @@ textarea:focus{border-color:var(--acc)}
 .clash-row.group-row{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
 .clash-row.rule-row{grid-template-columns:1fr 1.1fr 1.6fr 34px}
 .clash-row input{min-width:0;font-size:12px;padding:7px 9px}.clash-row select{font-size:12px;padding:7px 6px}
+.clash-row.no-node input{opacity:.5}.clash-row.no-node input:focus{opacity:1}
 .clash-row button{padding:5px 7px}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}.subrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:7px 0}.subrow code{flex:1;min-width:260px}
@@ -226,7 +227,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     }
     clash.groups.forEach(function (group, index) {
       var row = document.createElement("div");
-      row.className = "clash-row group-row";
+      row.className = "clash-row group-row" + (clash.missing && clash.missing.indexOf(group.name) >= 0 ? " no-node" : "");
       var name = clashInput(group.name, "分组名，例如 🇭🇰 香港节点", function () { clash.groups[index].name = name.value; });
       var type = document.createElement("select");
       CLASH_GROUP_TYPES.forEach(function (value) {
@@ -323,9 +324,14 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     renderClash();
   }
   function loadClash() {
-    return api("/clash/rules").then(applyClash).catch(function (error) {
-      clashStatus("规则加载失败：" + error.message, false);
-    });
+    return api("/clash/rules")
+      .then(function (data) {
+        applyClash(data);
+        refreshClashCoverage();
+      })
+      .catch(function (error) {
+        clashStatus("规则加载失败：" + error.message, false);
+      });
   }
 
   function setStatus(text, ok) {
@@ -664,14 +670,58 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     renderClashRulesets();
     clashStatus("新规则来源加好了，填 URL 再保存", true);
   };
+  function clashGroupNames(text) {
+    var start = String(text || "").indexOf("proxy-groups:");
+    if (start < 0) return [];
+    var rest = String(text).slice(start);
+    var stop = rest.indexOf("\\nrule-providers:");
+    var block = stop < 0 ? rest : rest.slice(0, stop);
+    var found = [];
+    var re = /^  - name: "(.*)"$/gm;
+    var hit;
+    while ((hit = re.exec(block))) found.push(hit[1]);
+    return found;
+  }
+  function clashProxyCount(text) {
+    var body = String(text || "");
+    var stop = body.indexOf("proxy-groups:");
+    var head = stop < 0 ? body : body.slice(0, stop);
+    var re = /^  - name: "/gm;
+    var count = 0;
+    while (re.exec(head)) count += 1;
+    return count;
+  }
+  function refreshClashCoverage(done) {
+    var url = $("url-clash").textContent;
+    if (!url) { if (done) done([]); return; }
+    fetch(url)
+      .then(function (res) { return res.text(); })
+      .then(function (text) {
+        if (!clashProxyCount(text)) {
+          clash.missing = [];
+          renderClashGroups();
+          if (done) done([]);
+          return;
+        }
+        var live = {};
+        clashGroupNames(text).forEach(function (name) { live[name] = true; });
+        clash.missing = clash.groups.map(function (group) { return group.name; }).filter(function (name) { return !live[name]; });
+        renderClashGroups();
+        if (done) done(clash.missing);
+      })
+      .catch(function () { if (done) done([]); });
+  }
   function clashProblems() {
     var problems = [];
     var known = {};
     clash.groups.forEach(function (group) { known[String(group.name || "").trim()] = true; });
+    var seen = {};
     clash.groups.forEach(function (group, index) {
       var label = "第 " + (index + 1) + " 个分组";
       var name = String(group.name || "").trim();
       if (!name) { problems.push(label + "没填名字"); return; }
+      if (seen[name]) { problems.push(label + "「" + name + "」重名了，分组名不能重复"); return; }
+      seen[name] = true;
       var filter = String(group.filter || "").trim();
       var members = (group.members || []).filter(Boolean);
       if (!filter && !members.length) { problems.push(label + "「" + name + "」既没填过滤也没填成员，保存后会是空组"); return; }
@@ -700,6 +750,11 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .then(function (data) {
         applyClash(data);
         clashStatus("规则已保存：" + clash.groups.length + " 个分组、" + clash.rulesets.length + " 个规则来源", true);
+        refreshClashCoverage(function (missing) {
+          if (!missing.length) return;
+          var head = missing.slice(0, 4).join("、") + (missing.length > 4 ? " 等" : "");
+          clashStatus("规则已保存，但有 " + missing.length + " 个分组当前没有匹配的节点、订阅里会省略：" + head, true);
+        });
       })
       .catch(function (error) { clashStatus("保存失败：" + error.message, false); })
       .then(function () { btn.disabled = false; });
@@ -1892,8 +1947,46 @@ function toClash(nodes) {
  * 只输出 rule-providers，让客户端自己拉 .list（Workers 的 CPU 与 subrequest 都省）。
  */
 
+const CLASH_COUNTRY_GROUPS = [
+  "🇭🇰 香港节点",
+  "🇲🇴 澳门节点",
+  "🇹🇼 台湾节点",
+  "🇯🇵 日本节点",
+  "🇰🇷 韩国节点",
+  "🇸🇬 狮城节点",
+  "🇺🇸 美国节点",
+  "🇬🇧 英国节点",
+  "🇩🇪 德国节点",
+  "🇫🇷 法国节点",
+  "🇳🇱 荷兰节点",
+  "🇷🇺 俄罗斯节点",
+  "🇨🇦 加拿大节点",
+  "🇦🇺 澳洲节点",
+  "🇮🇳 印度节点",
+  "🇹🇷 土耳其节点",
+  "🇮🇪 爱尔兰节点",
+  "🇫🇮 芬兰节点",
+  "🇸🇪 瑞典节点",
+  "🇨🇭 瑞士节点",
+  "🇲🇾 马来节点",
+  "🇹🇭 泰国节点",
+  "🇻🇳 越南节点",
+  "🇵🇭 菲律宾节点",
+  "🇮🇩 印尼节点",
+  "🇧🇷 巴西节点",
+  "🇦🇷 阿根廷节点",
+  "🇲🇽 墨西哥节点",
+  "🇿🇦 南非节点",
+  "🇪🇬 埃及节点",
+  "🇳🇬 尼日利亚节点",
+  "🇰🇪 肯尼亚节点",
+  "🇦🇪 阿联酋节点",
+  "🇸🇦 沙特节点",
+  "🇮🇱 以色列节点",
+  "🇳🇿 新西兰节点",
+];
 const DEFAULT_CLASH_GROUPS = [
-  { name: "🚀 节点选择", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇲🇴 澳门节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇰🇷 韩国节点", "🇺🇸 美国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇷🇺 俄罗斯节点", "🇨🇦 加拿大节点", "🇦🇺 澳洲节点", "🇮🇳 印度节点", "DIRECT"] },
+  { name: "🚀 节点选择", type: "select", proxies: ["♻️ 自动选择", "☑️ 手动切换", ...CLASH_COUNTRY_GROUPS, "DIRECT"] },
   { name: "☑️ 手动切换", type: "select", filter: ".*" },
   { name: "♻️ 自动选择", type: "url-test", filter: ".*", url: "http://www.gstatic.com/generate_204", interval: 300, tolerance: 50 },
   { name: "📹 油管视频", type: "select", proxies: ["🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇮🇳 印度节点", "🇦🇺 澳洲节点", "DIRECT"] },
@@ -1908,7 +2001,7 @@ const DEFAULT_CLASH_GROUPS = [
   { name: "🎯 全球直连", type: "select", proxies: ["DIRECT", "🚀 节点选择", "♻️ 自动选择", "☑️ 手动切换"] },
   { name: "🛑 全球拦截", type: "select", proxies: ["REJECT", "DIRECT"] },
   { name: "🍃 应用净化", type: "select", proxies: ["REJECT", "DIRECT"] },
-  { name: "🐟 漏网之鱼", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "DIRECT", "♻️ 自动选择", "☑️ 手动切换", "🇭🇰 香港节点", "🇹🇼 台湾节点", "🇯🇵 日本节点", "🇸🇬 狮城节点", "🇺🇸 美国节点", "🇰🇷 韩国节点", "🇬🇧 英国节点", "🇩🇪 德国节点", "🇫🇷 法国节点", "🇳🇱 荷兰节点", "🇮🇳 印度节点", "🇫🇮 芬兰节点", "DIRECT"] },
+  { name: "🐟 漏网之鱼", type: "select", proxies: ["🚀 节点选择", "🎯 全球直连", "♻️ 自动选择", "☑️ 手动切换", ...CLASH_COUNTRY_GROUPS, "DIRECT"] },
   { name: "🇭🇰 香港节点", type: "select", filter: "(港|HK|hk|Hong Kong|HongKong|hongkong|HKG)" },
   { name: "🇲🇴 澳门节点", type: "select", filter: "(澳门|MO|Macau|macao)" },
   { name: "🇹🇼 台湾节点", type: "select", filter: "(台|新北|彰化|TW|Taiwan|taipei)" },
@@ -2042,8 +2135,9 @@ function normalizeGroup(raw, index) {
   } else {
     group.members = members.slice(0, 200);
   }
-  if (raw.url) {
-    const url = String(raw.url).trim();
+  const needsProbe = group.type !== "select" && group.type !== "relay";
+  if (raw.url || needsProbe) {
+    const url = String(raw.url == null ? "" : raw.url).trim() || "http://www.gstatic.com/generate_204";
     if (!/^https?:\/\//i.test(url)) throw new Error(`groups[${index}].url must be http(s)`);
     group.url = url;
     const interval = Number(raw.interval);
