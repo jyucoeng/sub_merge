@@ -26,9 +26,10 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.2.4";
+const VERSION = "1.3.0";
 const MAX_BODY = 512 * 1024;
-const MACHINE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
+const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
 
 /* D1 表结构；scripts/schema.sql 与本数组保持一致，供 wrangler d1 execute --file 使用。 */
 export const SCHEMA_STATEMENTS = [
@@ -95,7 +96,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 <section class="card">
 <h2>节点配置 <span class="tip">先选择机器</span></h2>
 <div class="row"><label>编辑机器</label><select id="machine"></select><button id="reload" type="button">刷新</button><button id="rename" type="button">重命名</button><button id="reset" class="danger" type="button">恢复自动上报</button></div>
-<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
+<div class="row" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="bulk"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
@@ -300,6 +301,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
       .then(function (data) { setStatus("保存成功：" + data.nodes.length + " 个节点", true); return loadMachines(); })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
+  var MACHINE_RE_UI = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
+  var MACHINE_HINT = "机器名可用中文、字母、数字、空格和 _ . -，首字符得是中文/字母/数字";
   function autoMachineName() {
     var have = {};
     state.machines.forEach(function (m) { have[m.machine] = 1; });
@@ -310,7 +313,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     var box = $("new-machine");
     var typed = String(box.value || "").trim().toLowerCase();
     var name = typed || autoMachineName();
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) return setStatus("机器名只能用小写字母、数字和中划线，且以字母或数字开头", false);
+    if (!MACHINE_RE_UI.test(name)) return setStatus(MACHINE_HINT, false);
     var exist = null;
     state.machines.forEach(function (m) { if (m.machine === name) exist = m; });
     if (exist) {
@@ -345,7 +348,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
     if (to === null) return;
     to = String(to).trim().toLowerCase();
     if (!to || to === state.current) return;
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(to)) return setStatus("机器名只能用小写字母、数字和中划线，且以字母或数字开头", false);
+    if (!MACHINE_RE_UI.test(to)) return setStatus(MACHINE_HINT, false);
     var old = state.current;
     api("/machines/" + encodeURIComponent(old) + "/rename", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: to })
@@ -641,7 +644,7 @@ async function getOne(env, machine, token, request) {
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: false, error: "subscription not found" }, 404);
   const nodes = await nodesOf(record);
-  return subResponse(nodes, request, { "x-machine": machine, "x-updated-at": record.updated_at });
+  return subResponse(nodes, request, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at });
 }
 
 async function getAll(env, token, request) {
@@ -663,7 +666,7 @@ async function getAll(env, token, request) {
     const br = rank.has(b.machine) ? rank.get(b.machine) : defaultMachineRank(b.machine);
     return ar - br || (Number(a._sort) || 0) - (Number(b._sort) || 0) || String(a.machine).localeCompare(String(b.machine)) || String(a.name).localeCompare(String(b.name));
   });
-  return subResponse(all, request, { "x-machines": String(records.length), "x-nodes": String(all.length), "x-manual-machines": String(manual), "x-storage": "d1", "x-machine-order": order.join(",") });
+  return subResponse(all, request, { "x-machines": String(records.length), "x-nodes": String(all.length), "x-manual-machines": String(manual), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") });
 }
 
 async function getNodeConfig(env, machine) {
@@ -781,14 +784,41 @@ const ISO3_TO_ALPHA2 = {
 };
 const MACHINE_ALIASES = { PHX: "US", FRA: "FR", DXB: "AE", AMS: "NL", TKY: "JP", OSA: "JP", SIN: "SG", HKG: "HK", SFO: "US", SJC: "US", LAX: "US", NYC: "US" };
 
-function countryCodeOf(machine) {
-  const first = String(machine || "").toLowerCase().split("-")[0].toUpperCase();
+/* 机器名里出现的中文地区词 → 国家码，用来给「洛杉矶-小叮当」这类名字排默认顺序 */
+const CJK_REGION_KEYWORDS = new Map([
+  ["香港", "HK"], ["港", "HK"], ["台湾", "TW"], ["台北", "TW"], ["日本", "JP"], ["东京", "JP"], ["大阪", "JP"], ["韩国", "KR"], ["首尔", "KR"],
+  ["新加坡", "SG"], ["狮城", "SG"], ["美国", "US"], ["洛杉矶", "US"], ["圣何塞", "US"], ["硅谷", "US"], ["西雅图", "US"], ["凤凰城", "US"],
+  ["纽约", "US"], ["达拉斯", "US"], ["拉斯维加斯", "US"], ["芝加哥", "US"], ["迈阿密", "US"], ["德国", "DE"], ["法兰克福", "DE"],
+  ["英国", "GB"], ["伦敦", "GB"], ["法国", "FR"], ["巴黎", "FR"], ["荷兰", "NL"], ["阿姆斯特丹", "NL"], ["土耳其", "TR"], ["伊斯坦布尔", "TR"],
+  ["印度", "IN"], ["澳大利亚", "AU"], ["澳洲", "AU"], ["悉尼", "AU"], ["加拿大", "CA"], ["多伦多", "CA"], ["俄罗斯", "RU"], ["莫斯科", "RU"],
+  ["巴西", "BR"], ["越南", "VN"], ["泰国", "TH"], ["马来西亚", "MY"], ["印尼", "ID"], ["菲律宾", "PH"], ["阿联酋", "AE"], ["迪拜", "AE"],
+  ["瑞士", "CH"], ["瑞典", "SE"], ["波兰", "PL"], ["西班牙", "ES"], ["意大利", "IT"], ["乌克兰", "UA"], ["南非", "ZA"], ["沙特", "SA"], ["阿根廷", "AR"],
+]);
+const CJK_REGION_SCAN = [...CJK_REGION_KEYWORDS.entries()].sort((a, b) => b[0].length - a[0].length);
+
+function asciiCountryCode(part) {
+  const first = String(part || "").toUpperCase();
   if (!first) return "";
   if (first === "UK") return "GB";
   if (first === "EL") return "GR";
   if (MACHINE_ALIASES[first]) return MACHINE_ALIASES[first];
   if (first.length === 2) return first;
   if (first.length === 3) return ISO3_TO_ALPHA2[first] || "";
+  return "";
+}
+
+function countryCodeOf(machine) {
+  const name = String(machine || "");
+  // 先按分隔符切段，段内精确匹配（hk-洛杉矶 → HK，洛杉矶-小叮当 → US）
+  for (const seg of name.split(/[-_.\s]+/)) {
+    if (!seg) continue;
+    const cjk = CJK_REGION_KEYWORDS.get(seg);
+    if (cjk) return cjk;
+    const ascii = asciiCountryCode(seg);
+    if (ascii) return ascii;
+  }
+  // 兜底：整串里包含中文地区词（小叮当洛杉矶）
+  for (const [kw, code] of CJK_REGION_SCAN) if (name.includes(kw)) return code;
   return "";
 }
 

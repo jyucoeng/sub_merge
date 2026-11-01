@@ -8,7 +8,7 @@
 
 - 固定订阅 URL，重启/重新部署 Worker 不变；
 - 一个 `TOKEN` 同时用于上报和读取；
-- 每台机器一个 `machine` slug，支持单机和合并订阅；
+- 每台机器一个 `machine` 名称（可用中文），支持单机和合并订阅；
 - **Cloudflare D1（SQLite）单一存储**，两张表 `machines` / `settings`，不依赖 KV 或 R2；
 - 按内容 SHA-256 去重，相同内容不重复写；
 - 读取强一致：上报后立即能在合并订阅里读到；合并订阅是一次 `SELECT`，无 N+1；
@@ -144,7 +144,11 @@ https://<worker>/ui/<TOKEN>
 
 ## 机器名是什么
 
-机器名（slug，规则 `[a-z0-9][a-z0-9-]{0,63}`）**只是一个分组用的名字**，是 `machines` 表的主键，也是合并订阅里的排序单位。它跟节点实际属于哪台服务器、哪个机场、哪个地区都没有绑定关系：Worker 不会校验节点内容，也不会因为名字叫 `hk-1` 就要求里面必须是香港节点。
+机器名（规则 `[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}`，**可以写中文**，比如 `香港-小叮当`、`洛杉矶 备用`）只是一个分组用的名字，是 `machines` 表的主键，也是合并订阅里的排序单位。它跟节点实际属于哪台服务器、哪个机场、哪个地区都没有绑定关系：Worker 不会校验节点内容，也不会因为名字叫 `hk-1` 就要求里面必须是香港节点。
+
+允许的字符：各语种字母（含中文）、数字、空格、`_`、`.`、`-`；首字符必须是字母或数字，最长 64 个字符。名字区分大小写，`HK-1` 和 `hk-1` 是两台机器。URL 里出现中文要 `encodeURIComponent`（界面会自动处理）。
+
+默认排序认地区：名字里带 `香港`/`东京`/`洛杉矶`/`新加坡`/`法兰克福` 这类词时按对应国家排（香港 → 韩国 → 日本 → 新加坡 → 其余亚洲 → 美国 → 德国 → 欧洲 → 美洲 → 其他），也可以直接写 `hk-`、`us-` 前缀，再用界面上的 `↑ ↓` 手动定序。
 
 所以两种用法都可以：
 
@@ -208,7 +212,7 @@ vmess://
 
 ```sql
 CREATE TABLE IF NOT EXISTS machines (
-  machine    TEXT PRIMARY KEY,           -- 机器 slug：[a-z0-9][a-z0-9-]{0,63}
+  machine    TEXT PRIMARY KEY,           -- 机器名：字母/数字/中文 + 空格 _ . -，≤64 字符
   content    TEXT NOT NULL,              -- base64 订阅原文
   hash       TEXT NOT NULL,              -- content 的 SHA-256，用于去重
   bytes      INTEGER NOT NULL DEFAULT 0, -- base64 长度
@@ -476,8 +480,10 @@ Body: base64 编码的订阅内容
 `machine` 只允许：
 
 ```text
-[a-z0-9][a-z0-9-]{0,63}
+[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}
 ```
+
+也就是字母（含中文）、数字、空格、`_`、`.`、`-`，首字符为字母或数字。中文名在 URL 里要编码，例如 `POST /api/v1/report/%E9%A6%99%E6%B8%AF-%E5%B0%8F%E5%8F%AE%E5%BD%93`。
 
 示例：
 
@@ -586,13 +592,14 @@ python3 scripts/report.py \
 
 ### 上报时机器名从哪来
 
-Worker 端**没有生成规则**：名字就是上报 URL 路径里那一段（`POST /api/v1/report/<machine>`），服务端只做格式校验 `[a-z0-9][a-z0-9-]{0,63}`，不合格返回 `400 invalid machine name`。所以名字由上报端决定：
+Worker 端**没有生成规则**：名字就是上报 URL 路径里那一段（`POST /api/v1/report/<machine>`，中文要 URL 编码），服务端只做格式校验 `[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}`，不合格返回 `400 invalid machine name`。所以名字由上报端决定：
 
 | 上报端 | 名字来源 | 例子 |
 | --- | --- | --- |
 | `scripts/report.py --file machines.json` | JSON 的 key | `"sgw-oracle-nat": "https://..."` |
 | `scripts/report.py --machine` | `=` 左边 | `--machine sjc-1=https://...` |
 | `scripts/report.py --url --from-hostname` | 本机主机名 slug 化 | `HK-Node_1.local` → `hk-node-1-local` |
+| `scripts/report.py --url --name 中文名` | 显式中文名，原样发送（路径自动编码） | `--name 香港-小叮当` |
 | `scripts/report.py --url --name` | 显式给的 `--name` | `--name hk-1` |
 | singbox-manager | `sub_machine='...'` 配置值 | `sub_machine='sgw-1'` |
 | 自己写的客户端 | 自己拼的路径 | `curl .../api/v1/report/us-la` |

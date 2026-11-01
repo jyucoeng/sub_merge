@@ -27,6 +27,7 @@ import re
 import socket
 import subprocess
 import sys
+import urllib.parse
 
 
 def slugify(text, fallback="machine"):
@@ -36,6 +37,15 @@ def slugify(text, fallback="machine"):
     if not out or not out[0].isalnum():
         out = (fallback + "-" + out).strip("-")[:63]
     return out or fallback
+
+
+def is_valid_machine(name):
+    """与 Worker 的 MACHINE_RE 对齐：字母（含中文）/数字/空格/_ . -，首字符字母或数字，≤64 字符。"""
+    if not 1 <= len(name) <= 64:
+        return False
+    if not name[0].isalnum():
+        return False
+    return all(ch.isalnum() or ch in " _.-" for ch in name)
 
 
 def curl(args):
@@ -70,8 +80,8 @@ def main():
         name = args.name or (slugify(socket.gethostname()) if args.from_hostname else "")
         if not name:
             sys.exit("用 --url 时需要 --name，或加 --from-hostname 让名字取自主机名")
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name):
-            sys.exit(f"机器名不合法（需要 [a-z0-9][a-z0-9-]{{0,63}}）: {name}")
+        if not is_valid_machine(name):
+            sys.exit(f"机器名不合法（字母/中文/数字/空格/_ . -，首字符需字母或数字，≤64）：{name}")
         machines[name] = args.url
 
     if not machines:
@@ -85,6 +95,8 @@ def main():
 
     ok = 0
     for name, url in machines.items():
+        if not is_valid_machine(name):
+            sys.exit(f"机器名不合法（字母/中文/数字/空格/_ . -，首字符需字母或数字，≤64）：{name}")
         body = curl([url]).strip()
         result = json.loads(
             curl(
@@ -95,7 +107,7 @@ def main():
                     f"Authorization: Bearer {args.token}",
                     "--data-binary",
                     body.decode("ascii"),
-                    f"{args.base.rstrip('/')}/api/v1/report/{name}",
+                    f"{args.base.rstrip('/')}/api/v1/report/{urllib.parse.quote(name, safe='')}",
                 ]
             )
         )

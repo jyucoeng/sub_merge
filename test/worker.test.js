@@ -475,8 +475,8 @@ test("webui can create an empty machine and rejects invalid machine names", asyn
   data = await res.json();
   assert.equal(data.nodes.length, 1);
 
-  // 机器名必须满足 slug 规则
-  for (const bad of ["HK_Upper", "-lead", "has space", "a".repeat(65), "%2e%2e"]) {
+  // 机器名规则：允许中文/字母/数字/空格/_ . -，首字符必须是字母或数字，不能有路径分隔符
+  for (const bad of ["-lead", " lead", "a".repeat(65), "bad/name", "bad?x", "bad#x", "😀"]) {
     res = await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(bad)}`, JSON.stringify({ nodes: [] }), {
       authorization: `Bearer ${TOKEN}`,
       "content-type": "application/json",
@@ -579,7 +579,7 @@ test("rename moves a machine, its nodes and its order slot", async () => {
     authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
   });
   assert.equal(res.status, 409);
-  res = await call(env, "POST", "/api/v1/machines/tokyo-box/rename", JSON.stringify({ to: "Bad Name" }), {
+  res = await call(env, "POST", "/api/v1/machines/tokyo-box/rename", JSON.stringify({ to: "bad/name" }), {
     authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
   });
   assert.equal(res.status, 400);
@@ -592,6 +592,63 @@ test("rename moves a machine, its nodes and its order slot", async () => {
   });
   assert.equal(res.status, 200);
   assert.equal((await res.json()).renamed, false);
+});
+
+test("machine names can be Chinese, and Chinese regions drive default order", async () => {
+  const env = makeEnv();
+  const hk = "香港-小叮当";
+  const la = "洛杉矶-小叮当";
+  const de = "德国-法兰克福";
+
+  // 上报接口接受中文名（路径需要 encodeURIComponent）
+  let res = await call(env, "POST", `/api/v1/report/${encodeURIComponent(hk)}`, b64(SAMPLE_LINKS[0]), {
+    authorization: `Bearer ${TOKEN}`,
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).machine, hk);
+
+  // 中文名也能当手动机器，一次带多个节点
+  for (const name of [la, de]) {
+    res = await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(name)}`, JSON.stringify({
+      nodes: [{ link: SAMPLE_LINKS[1] }, { link: SAMPLE_LINKS[2] }],
+    }), { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).machine, name);
+  }
+
+  // 列表里三台都在，且名字原样保留
+  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${TOKEN}` });
+  const list = await res.json();
+  assert.equal(list.count, 3);
+  const names = list.machines.map((m) => m.machine);
+  for (const name of [hk, la, de]) assert.ok(names.includes(name), name);
+
+  // 默认排序按中文地区词识别国家：香港(10) → 洛杉矶(60) → 德国(70)
+  assert.deepEqual(names, [hk, la, de]);
+
+  // 响应头里的中文名必须 percent-encode
+  res = await call(env, "GET", `/sub/${encodeURIComponent(hk)}/${TOKEN}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-machine"), encodeURIComponent(hk));
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-machine-order"), ""); // 还没手动排序时为空
+
+  // 排序与重命名对中文名一样可用
+  res = await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: [de, la, hk] }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", `/sub/all/${TOKEN}`);
+  assert.equal(unb64(await res.text()).split("\n").length, 5);
+  assert.equal(res.headers.get("x-machine-order"), [de, la, hk].map(encodeURIComponent).join(","));
+  res = await call(env, "POST", `/api/v1/machines/${encodeURIComponent(hk)}/rename`, JSON.stringify({ to: "香港-备用" }), {
+    authorization: `Bearer ${TOKEN}`, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).machine, "香港-备用");
+  res = await call(env, "GET", "/api/v1/machines/order", null, { authorization: `Bearer ${TOKEN}` });
+  assert.deepEqual((await res.json()).machine_order, [de, la, "香港-备用"]);
 });
 
 test("root reports d1 storage and advertises admin endpoints", async () => {
