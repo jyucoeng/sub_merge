@@ -437,6 +437,15 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     check("保存后：手动 1 条 + 自动 2 条", (d.manual_nodes || []).length === 1 && (d.auto_nodes || []).length === 2, `manual=${(d.manual_nodes || []).length} auto=${(d.auto_nodes || []).length}`);
     check("保存后：生效节点 2 条（去重）", (d.nodes || []).length === 2, `${(d.nodes || []).length} 条`);
   }
+  {
+    click("reload");
+    await idle();
+    const row = findMachineRow("auto-hk");
+    const label = row.children[1].textContent;
+    check("混合机器：同时显示「手动 1」和「上报 2」", label.includes("手动 1") && label.includes("上报 2"), label);
+    check("混合机器：计数是「条进订阅」", row.children[2].textContent.includes("条进订阅"), row.children[2].textContent);
+    check("混合机器：不再出现笼统的「手动」单标签", !/（手动）/.test(el("machine").textContent), el("machine").textContent.slice(0, 80));
+  }
   // 再上报一次：自动部分更新，手动那条不变
   {
     const body = Buffer.from(TUIC).toString("base64");

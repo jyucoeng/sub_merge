@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.1";
+const VERSION = "1.22.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -872,7 +872,14 @@ body.locked .wrap{display:none}
   function renderMachines() {
     var sel = $("machine"); sel.innerHTML = "";
     if (!state.machines.length) { var o = document.createElement("option"); o.value = ""; o.textContent = "暂无机器，先用下面「新建机器」"; sel.appendChild(o); return; }
-    state.machines.forEach(function (m) { var o = document.createElement("option"); o.value = m.machine; o.textContent = m.machine + (m.manual ? "（手动）" : ""); sel.appendChild(o); });
+    state.machines.forEach(function (m) {
+      var o = document.createElement("option"); o.value = m.machine;
+      var parts = [];
+      if (m.manual_nodes) parts.push("手动 " + m.manual_nodes);
+      if (m.auto_nodes) parts.push("上报 " + m.auto_nodes);
+      o.textContent = m.machine + (parts.length ? "（" + parts.join(" · ") + "）" : "");
+      sel.appendChild(o);
+    });
     if (!state.current || !state.machines.some(function (m) { return m.machine === state.current; })) state.current = state.machines[0].machine;
     sel.value = state.current;
   }
@@ -891,13 +898,29 @@ body.locked .wrap{display:none}
       };
       idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
       var name = document.createElement("div"); name.className = "mname";
-      var tag = document.createElement("span"); tag.className = "srctag " + (m.manual ? "manual" : "auto");
-      tag.textContent = m.manual ? "手动" : "上报";
-      tag.title = m.manual ? "手动配置：自动上报不会覆盖这里编辑的节点" : "来自机器自动上报";
-      name.appendChild(document.createTextNode(m.machine)); name.appendChild(tag);
+      name.appendChild(document.createTextNode(m.machine));
+      // 一层一个标签：有多少手动、多少上报一眼看清，不存在「整台机器都变手动」
+      if (m.manual_nodes) {
+        var mt = document.createElement("span"); mt.className = "srctag manual";
+        mt.textContent = "手动 " + m.manual_nodes;
+        mt.title = "① 手动节点 " + m.manual_nodes + " 个：合并订阅时排最前面，自动上报不会覆盖它们";
+        name.appendChild(mt);
+      }
+      if (m.auto_nodes) {
+        var at = document.createElement("span"); at.className = "srctag auto";
+        at.textContent = "上报 " + m.auto_nodes;
+        at.title = "② 自动上报节点 " + m.auto_nodes + " 个：只读，同样进订阅";
+        name.appendChild(at);
+      }
+      if (!m.manual_nodes && !m.auto_nodes) {
+        var et = document.createElement("span"); et.className = "srctag"; et.textContent = "空";
+        name.appendChild(et);
+      }
       var count = document.createElement("div"); count.className = "mcount";
-      count.textContent = (m.nodes || 0) + " 节点" + (m.manual_nodes ? "（手动 " + m.manual_nodes + "）" : "");
-      count.title = "手动 " + (m.manual_nodes || 0) + " 个 · 自动 " + (m.auto_nodes || 0) + " 个"
+      count.textContent = (m.nodes || 0) + " 条进订阅";
+      count.title = "手动 " + (m.manual_nodes || 0) + " 个 + 上报 " + (m.auto_nodes || 0) + " 个"
+        + (((m.manual_nodes || 0) + (m.auto_nodes || 0) > (m.nodes || 0)) ? "，合并时按链接去重" : "")
+        + " · 进订阅 " + (m.nodes || 0) + " 条"
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
@@ -934,7 +957,15 @@ body.locked .wrap{display:none}
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.sources = data.sources || [];
       var badge = $("node-mode");
-      if (badge) { badge.textContent = data.manual ? "手动接管" : "自动上报"; badge.className = "tag " + (data.manual ? "warn" : "auto"); }
+      if (badge) {
+        var autoCount = (data.auto_nodes || []).length;
+        var manualCount = (data.manual_nodes || []).length;
+        badge.textContent = !data.manual ? "仅自动" : (autoCount ? "已接管" : "仅手动");
+        badge.className = "tag " + (data.manual ? "warn" : "auto");
+        badge.title = data.manual
+          ? (autoCount ? "已接管：① 手动 " + manualCount + " 个，② 上报 " + autoCount + " 个（只读，仍在订阅里）；之后的上报只更新 ②" : "只有 ① 手动节点，这台机器没有上报")
+          : "还没接管：节点全部来自 ② 自动上报";
+      }
       render(); renderAutoNodes(); markClean();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
