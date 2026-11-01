@@ -607,6 +607,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("分流规则：保存后有成功提示", /规则已保存/.test(text("clash-status")), text("clash-status"));
   check("分流规则：保存后标记为「自定义」", text("clash-badge") === "自定义", text("clash-badge"));
+  const noNodeRows = groupRows().filter((row) => String(row.className).includes("no-node"));
+  check(
+    "分流规则：没有节点的分组整行标红提示",
+    noNodeRows.length > 0 && noNodeRows.length === groupRows().length - Number((text("clash-group-count").match(/生效 (\d+)/) || [0, groupRows().length])[1]),
+    `${noNodeRows.length} 行标红 / ${text("clash-group-count")}`,
+  );
   const saved = await api("/clash/rules");
   check(
     "分流规则：接口回读保存结果",
