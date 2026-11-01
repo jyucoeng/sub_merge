@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.22.13";
+const VERSION = "1.22.14";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -210,7 +210,7 @@ body.locked .wrap{display:none}
 <div class="row admin-only"><button id="save" class="primary" type="button">保存配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -618,15 +618,8 @@ body.locked .wrap{display:none}
       var when = fmtWhen(item.updated_at);
       label.textContent = item.source + " · " + item.nodes + " 条" + (when ? " · " + when : "");
       label.title = "这条来源最近一次内容变化：" + (item.updated_at || "未知") + (item.updated_at ? "（" + agoText(item.updated_at) + "）" : "") + "；内容没变的上报不会刷新";
-      var del = document.createElement("button"); del.type = "button"; del.textContent = "×";
-      del.title = "删掉这个上报来源的节点（别的来源不受影响）";
-      del.onclick = function () {
-        if (!confirm("删掉上报来源「" + item.source + "」的节点？同名机器的其它来源和手动节点都不动，确定？")) return;
-        api("/machines/" + encodeURIComponent(state.current) + "/sources/" + encodeURIComponent(item.source), { method: "DELETE" })
-          .then(function () { setStatus("已删掉来源「" + item.source + "」的节点", true); return loadMachines(true); })
-          .catch(function (err) { setStatus(err.message, false); });
-      };
-      chip.appendChild(label); chip.appendChild(del);
+      // 自动层是只读快照：界面上不给删除入口，避免误删后再也拿不回来。要换内容就让脚本重新上报。
+      chip.appendChild(label);
       box.appendChild(chip);
     });
   }

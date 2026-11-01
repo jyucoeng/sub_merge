@@ -500,16 +500,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     check("来源 chip 两个", chips.length === 2, `chips=${chips.length}`);
     check("来源 chip 带条数", text("auto-sources").includes("box-b") && /box-b · 1 条/.test(text("auto-sources")), text("auto-sources"));
     check("两个来源的节点合在一起", autoRows().length === 2, `rows=${autoRows().length}`);
-    confirms.push(false);
-    chips[1].children[1].onclick();
-    await idle();
-    check("删来源取消：还在", el("auto-sources").children.length === 2, `chips=${el("auto-sources").children.length}`);
-    confirms.push(true);
-    el("auto-sources").children[1].children[1].onclick();
-    await idle();
-    check("删来源确认：chip 只剩一个", el("auto-sources").children.length === 1, `chips=${el("auto-sources").children.length}`);
-    check("删来源确认：节点只剩本源的", autoRows().length === 1, `rows=${autoRows().length}`);
-    check("删来源确认：提示文案", text("status").includes("已删掉来源"), text("status"));
+    check("来源胶囊没有删除按钮（自动层只读）", chips[1].children.length === 1, `children=${chips[1].children.length}`);
+    check("自动层不再出现 ×", !el("auto-sources").innerHTML?.includes?.("×") && !text("auto-sources").includes("×"), text("auto-sources"));
   }
 
   // 清掉这台机器的手动节点，回到纯上报，方便后面的删除用例
@@ -517,7 +509,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("reset");
   await idle();
   const cleared = (await api("/nodes/auto-hk")).data;
-  check("清空后：手动 0 条", (cleared.manual_nodes || []).length === 0 && (cleared.auto_nodes || []).length === 1, `manual=${(cleared.manual_nodes || []).length}`);
+  check("清空后：手动 0 条、两个来源的节点都在", (cleared.manual_nodes || []).length === 0 && (cleared.auto_nodes || []).length === 2, `manual=${(cleared.manual_nodes || []).length} auto=${(cleared.auto_nodes || []).length}`);
 }
 
 // L. reset 的 confirm 守卫 + 恢复自动上报
