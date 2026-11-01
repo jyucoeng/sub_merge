@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.13";
+const VERSION = "1.21.14";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -470,7 +470,7 @@ body.locked .wrap{display:none}
       render();
     };
     idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
-    var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
+    var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://... / ss://...";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
@@ -2744,9 +2744,57 @@ function safeDecode(value) {
   try { return decodeURIComponent(value || ""); } catch { return value || ""; }
 }
 
+/* ss:// 有两种写法，老的（整段 base64(method:password@host:port)）new URL() 认不出来，
+ * 所以单独解析，避免「粘贴 ss 链接报 invalid node link」。 */
+function parseShadowsocks(link) {
+  try {
+    let raw = link.slice("ss://".length);
+    const hashAt = raw.indexOf("#");
+    const name = hashAt >= 0 ? safeDecode(raw.slice(hashAt + 1)) : "";
+    if (hashAt >= 0) raw = raw.slice(0, hashAt);
+    let query = "";
+    const qAt = raw.indexOf("?");
+    if (qAt >= 0) { query = raw.slice(qAt + 1); raw = raw.slice(0, qAt); }
+    const q = new URLSearchParams(query);
+    const at = raw.lastIndexOf("@");
+    let userinfo = raw;
+    let hostport = "";
+    if (at >= 0) {
+      userinfo = safeDecode(raw.slice(0, at));
+      hostport = safeDecode(raw.slice(at + 1)).replace(/\/+$/, "");
+      if (!userinfo.includes(":")) {
+        try { userinfo = decodeBase64(userinfo.padEnd(userinfo.length + ((4 - (userinfo.length % 4)) % 4), "=")); } catch { /* 明文形式，保持原样 */ }
+      }
+    } else {
+      let decoded = "";
+      try { decoded = decodeBase64(safeDecode(raw).padEnd(raw.length + ((4 - (raw.length % 4)) % 4), "=")); } catch { return null; }
+      const dAt = decoded.lastIndexOf("@");
+      if (dAt < 1) return null;
+      userinfo = decoded.slice(0, dAt);
+      hostport = decoded.slice(dAt + 1).replace(/\/+$/, "");
+    }
+    const sep = userinfo.indexOf(":");
+    if (sep < 1) return null;
+    const method = userinfo.slice(0, sep);
+    const password = userinfo.slice(sep + 1);
+    const match = hostport.match(/^\[?([^\]]+?)\]?:(\d+)$/);
+    if (!match) return null;
+    const server = match[1];
+    const port = Number(match[2]);
+    if (!server || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    return {
+      kind: "ss", server, port, method, password,
+      name: name || `SS-${server}`, tls: false, sni: "",
+      insecure: isInsecure(q),
+      plugin: q.get("plugin") || "",
+    };
+  } catch { return null; }
+}
+
 function parseLink(link) {
   try {
     if (link.startsWith("vmess://")) return parseVmess(link);
+    if (link.startsWith("ss://")) return parseShadowsocks(link);
     const u = new URL(link);
     const kind = u.protocol.replace(/:$/, "").toLowerCase();
     const q = u.searchParams;
@@ -2764,14 +2812,6 @@ function parseLink(link) {
     if (kind === "tuic") return { ...base, uuid: safeDecode(u.username), password: safeDecode(u.password), tls: true, sni: q.get("sni") || "", congestion: q.get("congestion_control") || "bbr", relay: q.get("udp_relay_mode") || "native" };
     if (kind === "trojan") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "" };
     if (kind === "socks5" || kind === "socks") return { ...base, kind: "socks5", username: safeDecode(u.username), password: safeDecode(u.password), tls: false, sni: "" };
-    if (kind === "ss") {
-      let user = safeDecode(u.username);
-      if (u.password) user = `${user}:${safeDecode(u.password)}`;
-      if (!user.includes(":")) user = safeDecode(atob(user));
-      const idx = user.indexOf(":");
-      if (idx < 1) return null;
-      return { ...base, method: user.slice(0, idx), password: user.slice(idx + 1), tls: false, sni: "" };
-    }
     return null;
   } catch { return null; }
 }

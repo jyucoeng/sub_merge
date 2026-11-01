@@ -1560,3 +1560,26 @@ test("subscription node list spans every machine in machine order and toggles gl
   assert.equal((await restore.json()).stats.enabled, 3);
   assert.equal((await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: "x" }), auth)).status, 400);
 });
+
+test("shadowsocks links work in both the old base64 form and the SIP002 form", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const oldForm = "ss://YWVzLTI1Ni1nY206cGFzc3dvcmRAMS4yLjMuNDo4Mzg4#香港-ss-老格式";
+  const sip002 = "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@1.2.3.4:8388#香港-ss-新格式";
+  const plain = "ss://aes-256-gcm:password@1.2.3.4:8388#香港-ss-明文";
+
+  const put = await call(env, "PUT", "/api/v1/nodes/ss-box", JSON.stringify({ nodes: [{ link: oldForm }, { link: sip002 }, { link: plain }] }), auth);
+  assert.equal(put.status, 200, await put.text());
+  const body = await (await call(env, "GET", "/api/v1/nodes/ss-box", null, { authorization: `Bearer ${TOKEN}` })).json();
+  const names = body.manual_nodes.map((n) => n.name);
+  for (const want of ["香港-ss-明文", "香港-ss-新格式", "香港-ss-老格式"]) assert.ok(names.includes(want), want + " 没解析出来");
+  assert.deepEqual([...new Set(body.manual_nodes.map((n) => n.protocol))], ["ss"]);
+
+  const clash = await (await call(env, "GET", `/sub/ss-box/${TOKEN}?format=clash`)).text();
+  assert.match(clash, /type: ss/);
+  assert.match(clash, /cipher: "aes-256-gcm"/);
+  assert.equal((clash.match(/type: ss/g) || []).length, 3, "三条 ss 都要进 clash");
+
+  const bad = await call(env, "PUT", "/api/v1/nodes/ss-box", JSON.stringify({ nodes: [{ link: "ss://bm90LWJhc2U2NA" }] }), auth);
+  assert.equal(bad.status, 400, "解不出来的 ss 链接仍然报错");
+});
