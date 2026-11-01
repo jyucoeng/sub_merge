@@ -558,6 +558,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const defaultRules = ruleRows().length;
   check("分流规则：默认分组与规则来源已渲染", defaultGroups > 20 && defaultRules > 20, `${defaultGroups} 组 / ${defaultRules} 条`);
   check("分流规则：初始状态是「默认」", text("clash-badge") === "默认", text("clash-badge"));
+  check(
+    "分流规则：分组/规则来源数量与实际行数一致",
+    text("clash-group-count").indexOf(String(defaultGroups) + " 个") === 0 && text("clash-rule-count").indexOf(String(defaultRules) + " 条") === 0,
+    `${text("clash-group-count")} / ${text("clash-rule-count")}`,
+  );
   const g0 = groupRows()[0].children;
   check("分流规则：分组行 = 名称/类型/过滤/成员/删除", g0.length === 5 && g0[0].value === "🚀 节点选择" && g0[1].value === "select", `${g0.length} 列`);
   const r0 = ruleRows()[0].children;
@@ -565,6 +570,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   click("clash-add-group");
   check("分流规则：新增分组立刻出现在表里", groupRows().length === defaultGroups + 1, `${groupRows().length}`);
+  check("分流规则：数量跟着加一", text("clash-group-count").indexOf(String(defaultGroups + 1) + " 个") === 0, text("clash-group-count"));
   click("clash-save");
   await idle();
   check(
@@ -618,6 +624,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const last = groupRows()[groupRows().length - 1].children;
   last[4].onclick.call(last[4]);
   check("分流规则：删除分组后行数减少", groupRows().length === defaultGroups, `${groupRows().length}`);
+  check("分流规则：数量跟着减一", text("clash-group-count").indexOf(String(defaultGroups) + " 个") === 0, text("clash-group-count"));
   check("分流规则：删除后有提示", /分组已删除/.test(text("clash-status")), text("clash-status"));
 
   confirms.push(true);
