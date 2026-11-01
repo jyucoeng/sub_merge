@@ -198,30 +198,30 @@ curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary "$BODY2" \
 - 机器列表里每台机器会显示「N 节点（手动 M）」，鼠标悬停能看「手动 M 个 · 自动 N 个」；
 - 一台机器**只有手动节点、从没上报过**时，它的 `content` 是空的——这不影响使用，手动节点照样进订阅。
 
-## 登录、管理员与游客
+## 登录：管理员 / 游客
 
-WebUI 有两种身份，**管理员密码和 UI 口令都放在 Cloudflare 后台**，界面上不提供改密码，也不把口令写进 D1：
+UI 打开就是登录页，凭据全部来自 Cloudflare 的 **Variables and Secrets**，界面里既不显示也改不了：
 
 ```bash
-pnpm exec wrangler secret put ADMIN_PASSWORD   # 管理员登录密码，建议 12 位以上
-pnpm exec wrangler secret put UI_TOKEN         # 可选：/ui/<UI_TOKEN> 直接进后台的口令
+pnpm exec wrangler secret put ADMIN_PASSWORD   # 管理员口令：进 UI 后可读可写
+pnpm exec wrangler secret put GUEST_CODE       # 游客口令：只读；不配就没人能以游客身份进
+pnpm exec wrangler secret put TOKEN            # 订阅/上报 token，跟登录无关
+pnpm exec wrangler secret put UI_TOKEN         # 可选：另一个管理员口令（长随机串当密码用）
 ```
 
-- `ADMIN_PASSWORD`：`/ui` 登录页输入它 → 管理员。没配时退回用 `TOKEN` 登录，避免把自己锁在门外。
-- `UI_TOKEN`：`/ui/<UI_TOKEN>` 免密码直进。没配时用 `TOKEN`；配了之后 `TOKEN` 的旧书签也还能开。
-- `TOKEN`：只负责拉订阅（`/sub/<TOKEN>`）和节点上报，跟登录无关。
-- 游客码存在 D1 的 `settings.guest_token`，是运行期开关，可以在界面上开/关/换。
+- `/ui` 永远是登录页；`/ui/<任何东西>` 也只是这张登录页，URL 里不再携带凭据（老书签打开是登录框）。
+- 输入 `ADMIN_PASSWORD`（或 `UI_TOKEN`、`TOKEN`）→ 管理员；输入 `GUEST_CODE` → 游客（只读）。
+- 登录态存在 `localStorage`，刷新不用重输；点右上角「退出登录」清掉。右上角徽章显示当前是「管理员」还是「游客（只读）」。
 
-| 身份 | 怎么进 | 能干什么 |
-| --- | --- | --- |
-| 管理员 | `/ui` 输 `ADMIN_PASSWORD`，或直接开 `/ui/<UI_TOKEN>` | 全部读写：机器、节点、分流规则、游客开关 |
-| 游客 | `/ui` 点「以游客身份浏览」（需管理员先开启） | 只看：机器列表、节点名和协议、分组结构；**节点链接不下发**，写操作返回 `403 read-only guest session` |
+| 身份 | 能干什么 |
+| --- | --- |
+| 管理员 | 全部读写：机器、节点、分流规则、顺序 |
+| 游客 | 只看：机器列表、节点名和协议、分组结构。**节点链接（link）不下发**，写操作一律 `403 read-only guest session`，页面上编辑控件全部隐藏 |
 
 | 接口 | 作用 |
 | --- | --- |
-| `POST /api/v1/auth/login` | `{password}` → `{role, token}`，管理员密码或游客码都行 |
-| `GET /api/v1/auth/session` | 当前 Bearer 是什么角色 |
-| `GET/POST /api/v1/auth/guest` | 查看/开关游客模式、重置游客码（管理员） |
+| `POST /api/v1/auth/login` | `{password}` → `{role, token}`；管理员口令或游客码都走这里 |
+| `GET /api/v1/auth/session` | 当前 Bearer 的角色；管理员额外返回 `sub_token`，页面用它拼订阅链接 |
 
 ### 「转为手动」之后上报还会不会覆盖
 

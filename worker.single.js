@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.11.2";
+const VERSION = "1.12.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -128,7 +128,8 @@ body.guest .admin-only{display:none!important}
 body.guest .node input,body.guest .node button,body.guest .machine button,body.guest .machine input,
 body.guest .clash-row button,body.guest .clash-row input,body.guest .clash-row select,
 body.guest #bulk,body.guest #new-machine{background:transparent;border-color:transparent;pointer-events:none;color:var(--sub)}
-body.guest .node button,body.guest .clash-row button{display:none}
+body.guest .node button,body.guest .clash-row button,body.guest .machine button,body.guest #auto-sources button{display:none}
+body.guest .node input.link::placeholder{color:#b6c0cc}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
 </head>
@@ -136,14 +137,14 @@ body.guest .node button,body.guest .clash-row button{display:none}
 <div id="login">
 <div class="box">
 <h2>sub-worker 登录</h2>
-<div class="hint">管理员密码可以在下面「访问控制」里改；游客只能用只读码浏览，节点链接不会下发。</div>
-<input id="login-password" type="password" autocomplete="current-password" placeholder="管理员密码" spellcheck="false">
-<div class="row"><button id="login-submit" class="primary" type="button">登录</button><button id="login-guest" type="button">以游客身份浏览</button></div>
+<div class="hint">填管理员密码 = 可编辑；填游客码 = 只读（看不到节点链接，也不能改任何东西）。两个口令都在 Cloudflare 的 Variables and Secrets 里配。</div>
+<input id="login-password" type="password" autocomplete="current-password" placeholder="管理员密码 或 游客码" spellcheck="false">
+<div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
 <div id="login-status" class="status"></div>
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -178,14 +179,6 @@ body.guest .node button,body.guest .clash-row button{display:none}
 <div class="clash-head rule-head"><span>名称</span><span>归属分组</span><span>规则集 URL（http/https）</span><span></span></div>
 <div id="clash-rulesets" class="clash-table"></div>
 <div id="clash-status" class="status"></div>
-</section>
-
-<section class="card admin-only" id="card-access">
-<h2>访问控制 <span class="tip">管理员密码在 Cloudflare 后台配，游客只读</span></h2>
-<div class="hint">管理员密码和 UI 口令都来自 Cloudflare 的后台变量（<code>wrangler secret put ADMIN_PASSWORD</code> / <code>UI_TOKEN</code>），这个界面不提供改密码，也不把口令写进 D1。游客码只能看机器名、节点名和分组结构，<b>拿不到节点链接</b>，也改不了任何东西。</div>
-<div class="row" style="margin-top:10px"><label><input id="guest-enabled" type="checkbox" style="width:15px;height:15px;vertical-align:-3px"> 开启游客只读</label><input id="guest-token" readonly spellcheck="false" placeholder="（游客码）" style="min-width:300px;font-family:ui-monospace,Consolas,monospace"><button id="toggle-guest" class="primary" type="button">保存</button><button id="rotate-guest" type="button">换一个游客码</button></div>
-<div class="hint">游客直接访问 <code>/ui</code>，点「以游客身份浏览」即可，不需要输入码。</div>
-<div id="access-status" class="status"></div>
 </section>
 
 <section class="card admin-only" id="card-sub">
@@ -415,6 +408,7 @@ body.guest .node button,body.guest .clash-row button{display:none}
     };
     idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
     var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
+    if (ROLE !== "admin") link.placeholder = "游客看不到节点链接";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
@@ -497,6 +491,10 @@ body.guest .node button,body.guest .clash-row button{display:none}
   }
   function render() {
     var box = $("nodes"); box.innerHTML = "";
+    if (ROLE !== "admin") {
+      // 游客拿不到 link，就别显示 vless:// 那种占位示例，免得以为是空的
+      state.nodes.forEach(function (n) { n.link = ""; n.hidden = true; });
+    }
     if (!state.nodes.length) {
       var e = document.createElement("div"); e.className = "empty";
       e.textContent = (state.autoNodes || []).length ? "没有手动节点，这台机器只用下面的自动上报节点" : "暂无节点，点击下方添加";
@@ -847,10 +845,6 @@ body.guest .node button,body.guest .clash-row button{display:none}
       else window.localStorage.removeItem("sub-worker-token");
     } catch (e) { /* 隐身模式忽略 */ }
   }
-  function urlToken() {
-    var last = decodeURIComponent((location.pathname.split("/").pop() || ""));
-    return last && last !== "ui" ? last : "";
-  }
   function savedToken() {
     try { return window.localStorage.getItem("sub-worker-token") || ""; } catch (e) { return ""; }
   }
@@ -869,12 +863,15 @@ body.guest .node button,body.guest .clash-row button{display:none}
     ROLE = role;
     var guest = role !== "admin";
     document.body.className = guest ? "guest" : "";
-    var card = $("card-access");
-    if (card) card.style.display = guest ? "none" : "";
+    var badge = $("role-badge");
+    if (badge) {
+      badge.textContent = role === "admin" ? "管理员" : role === "guest" ? "游客（只读）" : "未登录";
+      badge.className = "tag " + (role === "admin" ? "manual" : "auto");
+    }
   }
 
   function boot() {
-    var token = urlToken() || savedToken();
+    var token = savedToken();
     if (!token) { showLogin(true); return; }
     TOKEN = token;
     api("/auth/session")
@@ -895,7 +892,6 @@ body.guest .node button,body.guest .clash-row button{display:none}
     renderUrls();
     loadMachines();
     loadClash();
-    loadAccess();
   }
 
   $("login-submit").onclick = function () {
@@ -920,64 +916,14 @@ body.guest .node button,body.guest .clash-row button{display:none}
       })
       .catch(function (error) { loginStatus(error.message, false); });
   };
-  $("login-guest").onclick = function () {
-    loginStatus("进入游客模式…");
-    fetch("/api/v1/auth/guest")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) throw new Error("游客模式未开启，请让管理员在「访问控制」里打开");
-        storeToken(data.token);
-        applyRole("guest");
-        showLogin(false);
-        start();
-      })
-      .catch(function (error) { loginStatus(error.message, false); });
-  };
   $("logout").onclick = function () {
     storeToken("");
     ROLE = null;
+    SUB_TOKEN = "";
+    applyRole(null);
+    document.body.className = "locked";
     showLogin(true);
     loginStatus("已退出登录", true);
-  };
-
-  /* ---------------- 访问控制（管理员） ---------------- */
-  function accessStatus(text, ok) {
-    var el = $("access-status");
-    if (!el) return;
-    el.textContent = text || "";
-    el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
-  }
-  function loadAccess() {
-    if (ROLE !== "admin") return;
-    api("/auth/guest")
-      .then(function (data) {
-        $("guest-enabled").checked = Boolean(data.enabled);
-        $("guest-token").value = data.token || "";
-        $("guest-token").placeholder = data.token ? "" : "（还没有游客码）";
-      })
-      .catch(function () { /* 首次还没有游客码 */ });
-  }
-  $("toggle-guest").onclick = function () {
-    var enabled = $("guest-enabled").checked;
-    accessStatus("保存中…");
-    api("/auth/guest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: enabled }) })
-      .then(function (data) {
-        $("guest-token").value = data.token || "";
-        $("guest-enabled").checked = Boolean(data.enabled);
-        accessStatus(data.enabled ? "游客模式已开启，把游客码发给对方即可只读浏览" : "游客模式已关闭", true);
-      })
-      .catch(function (error) { accessStatus("保存失败：" + error.message, false); });
-  };
-  $("rotate-guest").onclick = function () {
-    if (!window.confirm("换一个新的游客码？旧码立刻失效。")) return;
-    accessStatus("生成中…");
-    api("/auth/guest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rotate: true, enabled: true }) })
-      .then(function (data) {
-        $("guest-token").value = data.token || "";
-        $("guest-enabled").checked = true;
-        accessStatus("已换新游客码", true);
-      })
-      .catch(function (error) { accessStatus("生成失败：" + error.message, false); });
   };
 
   boot();
@@ -1041,19 +987,9 @@ async function handleRequest(request, env) {
     });
   }
 
-  if (path === "/ui" || path === "/ui/") {
+  // 任何 /ui 路径都只给登录页：口令一律当场输入，URL 里不带凭据
+  if (path === "/ui" || path === "/ui/" || /^\/ui\/[^/]+$/.test(path)) {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    return html(UI_HTML);
-  }
-
-  let m = path.match(/^\/ui\/([^/]+)$/);
-  if (m) {
-    if (request.method !== "GET") return methodNotAllowed("GET");
-    const given = decodeURIComponent(m[1]);
-    const expected = uiToken(env);
-    if (!expected) return missingConfig("TOKEN");
-    // UI_TOKEN 与订阅 TOKEN 都认，换掉 UI_TOKEN 时老书签不会立刻失效
-    if (!checkToken(given, expected) && !checkToken(given, authToken(env))) return unauthorized();
     return html(UI_HTML);
   }
 
@@ -1067,41 +1003,8 @@ async function handleRequest(request, env) {
     if (!password) return json({ ok: false, error: "password is required" }, 400);
     if (await isAdminToken(env, password)) return json({ ok: true, role: "admin", token: password });
     if (await isGuestToken(env, password)) return json({ ok: true, role: "guest", token: password });
+    if (!adminPassword(env) && !env.UI_TOKEN) return json({ ok: false, error: "ADMIN_PASSWORD is not configured" }, 500);
     return json({ ok: false, error: "wrong password" }, 401);
-  }
-
-  // 游客入口：管理员开启了才能拿到只读码
-  if (path === "/api/v1/auth/guest") {
-    if (!dbEnv(env)) return missingConfig("DB");
-    if (request.method === "GET") {
-      const current = await sessionOf(request, env);
-      if (!current || current.role !== "admin") return unauthorized();
-      const guest = await guestConfig(env);
-      return json({ ok: true, enabled: guest.enabled, token: guest.token });
-    }
-    if (request.method === "POST") {
-      const current = await sessionOf(request, env);
-      if (!current || current.role !== "admin") return unauthorized();
-      let data = {};
-      try { data = JSON.parse(await request.text() || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
-      const guest = await guestConfig(env);
-      let token = guest.token;
-      if (data && data.rotate) token = randomHex(16);
-      if (!token) token = randomHex(16);
-      const enabled = data && data.enabled === false ? false : true;
-      await putSetting(env, AUTH_GUEST_KEY, token);
-      await putSetting(env, AUTH_GUEST_ON, enabled ? "1" : "0");
-      return json({ ok: true, enabled, token });
-    }
-    return methodNotAllowed("GET, POST");
-  }
-
-  if (path === "/api/v1/auth/guest-token" && request.method === "POST") {
-    const current = await sessionOf(request, env);
-    if (!current || current.role !== "admin") return unauthorized();
-    const token = randomHex(16);
-    await putSetting(env, AUTH_GUEST_KEY, token);
-    return json({ ok: true, token, enabled: (await guestConfig(env)).enabled });
   }
 
   if (path === "/api/v1/auth/session") {
@@ -1113,7 +1016,7 @@ async function handleRequest(request, env) {
     return json({ ok: true, role: current.role });
   }
 
-  m = path.match(/^\/api\/v1\/admin\/schema$/);
+  let m = path.match(/^\/api\/v1\/admin\/schema$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
     if (!authToken(env)) return missingConfig("TOKEN");
@@ -1227,8 +1130,7 @@ async function handleRequest(request, env) {
 function authToken(env) { return (env && env.TOKEN) || ""; }
 
 /* ---- 会话：管理员密码 / 游客只读码 ---- */
-const AUTH_GUEST_KEY = "guest_token";
-const AUTH_GUEST_ON = "guest_enabled";
+
 
 function bearerOf(request) {
   const header = request.headers.get("authorization") || "";
@@ -1238,28 +1140,17 @@ function bearerOf(request) {
 // 管理员密码和 UI 口令都只从 Cloudflare 后台（wrangler secret / 环境变量）读，
 // 界面上不放“改密码”，免得拿到会话的人顺手把主人关在门外。
 function adminPassword(env) { return (env && env.ADMIN_PASSWORD) || ""; }
-function uiToken(env) { return (env && env.UI_TOKEN) || authToken(env); }
 async function isAdminToken(env, token) {
   if (!token) return false;
   if (adminPassword(env) && checkToken(token, adminPassword(env))) return true;
   if (env && env.UI_TOKEN && checkToken(token, env.UI_TOKEN)) return true;
   return checkToken(token, authToken(env));
 }
-async function guestConfig(env) {
-  let token = "";
-  let flag = null;
-  try {
-    token = (await getSetting(env, AUTH_GUEST_KEY)) || "";
-    flag = await getSetting(env, AUTH_GUEST_ON);
-  } catch {
-    return { token: "", enabled: false };
-  }
-  return { token, enabled: flag === "1" && Boolean(token) };
-}
+function guestCode(env) { return (env && env.GUEST_CODE) || ""; }
 async function isGuestToken(env, token) {
   if (!token) return false;
-  const guest = await guestConfig(env);
-  return guest.enabled && checkToken(token, guest.token);
+  const code = guestCode(env);
+  return Boolean(code) && checkToken(token, code);
 }
 async function sessionOf(request, env) {
   const token = bearerOf(request);

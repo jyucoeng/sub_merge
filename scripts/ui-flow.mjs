@@ -28,7 +28,9 @@ const db = new DatabaseSync(":memory:");
 for (const s of SCHEMA_STATEMENTS) db.prepare(s).run();
 
 const TOKEN = "ui-test-token";
-const env = { DB: new SqliteD1(db), TOKEN };
+const ADMIN_PASSWORD = "ui-admin-pass";
+const GUEST_CODE = "ui-guest-code";
+const env = { DB: new SqliteD1(db), TOKEN, ADMIN_PASSWORD, GUEST_CODE };
 
 const server = http.createServer(async (req, res) => {
   const chunks = [];
@@ -148,7 +150,7 @@ async function api(path, opts = {}) {
 }
 
 /* ---------------- 载入真实页面脚本 ---------------- */
-const pageRes = await netFetch(BASE + "/ui/" + encodeURIComponent(TOKEN));
+const pageRes = await netFetch(BASE + "/ui");
 const html = await pageRes.text();
 check("GET /ui/<token> 200", pageRes.status === 200, `${html.length} B`);
 const code = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1];
@@ -160,7 +162,7 @@ const sandbox = {
   navigator: navigatorShim,
   confirm: () => (confirms.length ? confirms.shift() : true),
   prompt: (msg, def) => (prompts.length ? prompts.shift() : def),
-  location: { pathname: `/ui/${TOKEN}`, origin: BASE, href: `${BASE}/ui/${TOKEN}` },
+  location: { pathname: "/ui", origin: BASE, href: `${BASE}/ui` },
   fetch: shimFetch,
   setTimeout, clearTimeout, console,
   atob, btoa, escape, unescape,
@@ -189,6 +191,20 @@ const nodeRows = () => rows("nodes");
 const autoRows = () => rows("auto-nodes");
 const links = () => nodeRows().map((r) => r.children[1].value);
 const names = () => nodeRows().map((r) => r.children[2].value);
+
+/* ---------------- 登录 ---------------- */
+{
+  check("登录页：HTML 默认锁定，脚本没登录前不展示内容", html.includes('<body class="locked">'));
+  el("login-password").value = "wrong-password";
+  click("login-submit");
+  await idle();
+  check("登录页：错口令提示", text("login-status").includes("wrong password"), text("login-status"));
+  el("login-password").value = ADMIN_PASSWORD;
+  click("login-submit");
+  await idle();
+  check("登录页：管理员口令进入", !documentShim.body.className.includes("locked") && text("role-badge") === "管理员", `${documentShim.body.className}|${text("role-badge")}`);
+  check("登录页：浮层隐藏", el("login").style.display === "none", el("login").style.display);
+}
 
 /* ---------------- 清场 ---------------- */
 {
@@ -661,25 +677,24 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const session = await api("/auth/session");
   check("会话：管理员角色", session.status === 200 && session.data.role === "admin", JSON.stringify(session.data));
   check("登录浮层：管理员登录后隐藏", el("login").style.display === "none", el("login").style.display);
-  check("登录浮层：页面里有密码框和游客按钮", Boolean(el("login-password")) && Boolean(el("login-guest")));
-  check("访问控制卡：页面里有游客码，没有改密码输入", html.includes('id="card-access"') && html.includes('id="guest-token"') && !html.includes('id="admin-password"') && !html.includes('id="save-password"'));
-  check("订阅链接卡：对游客隐藏（admin-only）", /id="card-sub"/.test(html) && /class="card admin-only" id="card-sub"/.test(html));
-  check("游客样式：guest 时隐藏管理动作", html.includes("body.guest .admin-only{display:none!important}"));
+  check("登录浮层：只有一个口令输入框（游客码也填这里）", Boolean(el("login-password")) && !html.includes('id="login-guest"'));
+  check("页面里没有改密码/游客码入口（都在 Cloudflare 后台）", !html.includes('id="admin-password"') && !html.includes('id="guest-token"') && !html.includes('id="card-access"'), "");
 
-  // 造一台机器，然后用游客码读
+  // 造一台机器，然后用游客码登录读
   await api("/nodes/guest-check", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ nodes: [{ link: HY2, name: "游客不该看到我", order: 0 }] }),
   });
-  const guest = await api("/auth/guest", {
+  const guestLogin = await netFetch(`${BASE}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled: true }),
+    body: JSON.stringify({ password: GUEST_CODE }),
   });
-  check("游客：开启后拿到只读码", guest.status === 200 && String(guest.data.token || "").length >= 8, String(guest.data.token || "").slice(0, 6));
+  const guestData = await guestLogin.json();
+  check("游客：用游客码登录拿到 guest 角色", guestLogin.status === 200 && guestData.role === "guest", JSON.stringify(guestData));
 
-  const guestAuth = { Authorization: "Bearer " + guest.data.token };
+  const guestAuth = { Authorization: "Bearer " + guestData.token };
   const read = await netFetch(`${BASE}/api/v1/nodes/guest-check`, { headers: guestAuth });
   const readData = await read.json();
   check("游客：读得到节点但没有链接", read.status === 200 && readData.nodes.length === 1 && readData.nodes[0].link === undefined && readData.nodes[0].name === "游客不该看到我", JSON.stringify(readData.nodes));
@@ -697,15 +712,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password: "wrong-password" }),
   });
-  check("登录：错误密码 401", badLogin.status === 401, String(badLogin.status));
+  check("登录：错误口令 401", badLogin.status === 401, String(badLogin.status));
 
-  await api("/auth/guest", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled: false }),
-  });
-  const off = await netFetch(`${BASE}/api/v1/machines`, { headers: guestAuth });
-  check("游客：关闭后旧码立刻失效", off.status === 401, String(off.status));
   await api("/machines/guest-check", { method: "DELETE" });
 }
 

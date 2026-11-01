@@ -300,18 +300,24 @@ const SAMPLE_LINKS = [
   "hysteria2://hysecret@example.io:443?sni=addons.mozilla.org&insecure=1#HY2-Node",
 ];
 
-test("webui is served with token auth", async () => {
-  const env = makeEnv();
-  let res = await call(env, "GET", `/ui/${TOKEN}`);
+test("webui is a login page, credentials never ride in the URL", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", GUEST_CODE: "guest-code-123" });
+  let res = await call(env, "GET", "/ui");
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-security-policy"), /connect-src 'self'/);
   const page = await res.text();
   assert.match(page, /节点管理/);
   assert.match(page, /机器排序/);
   assert.match(page, /background:#ffffff/);
+  assert.ok(page.includes('id="login-password"'));
+  assert.ok(!page.includes("以游客身份浏览"), "游客码也要手输，不给一键匿名入口");
 
-  res = await call(env, "GET", "/ui/wrong");
-  assert.equal(res.status, 401);
+  // 带任何口令的 /ui/<x> 也只是同一张登录页：URL 里不放凭据
+  for (const path of [`/ui/${TOKEN}`, "/ui/wrong", `/ui/${encodeURIComponent("Sh94ghdf@")}`]) {
+    res = await call(env, "GET", path);
+    assert.equal(res.status, 200);
+    assert.ok((await res.text()).includes('id="login-password"'));
+  }
 });
 
 test("machine order controls merged subscription order", async () => {
@@ -1196,8 +1202,8 @@ test("clash rules endpoints require the token", async () => {
   }
 });
 
-test("admin password comes from the environment and the UI token is separate", async () => {
-  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc" });
+test("admin password and guest code both come from the environment", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@", UI_TOKEN: "ui-token-abc", GUEST_CODE: "guest-code-123" });
   const admin = { authorization: `Bearer ${TOKEN}` };
   await call(env, "POST", "/api/v1/report/box", b64("vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-01"), admin);
 
@@ -1208,29 +1214,27 @@ test("admin password comes from the environment and the UI token is separate", a
   assert.equal(data.role, "admin");
   assert.equal(data.token, "Sh94ghdf@");
 
-  // 错的还是 401；TOKEN 本身也仍然能登录
-  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
-  assert.equal(res.status, 401);
+  // UI_TOKEN 也能当管理员口令；TOKEN 仍然能登录；错的 401
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "ui-token-abc" }), { "content-type": "application/json" });
+  assert.equal((await res.json()).role, "admin");
   res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
   assert.equal((await res.json()).role, "admin");
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "nope-nope" }), { "content-type": "application/json" });
+  assert.equal(res.status, 401);
 
   // 界面上改不了密码：这个接口已经不存在
   res = await call(env, "POST", "/api/v1/auth/password", JSON.stringify({ password: "whatever-123" }), { ...admin, "content-type": "application/json" });
   assert.equal(res.status, 404);
+  // 游客码也不能在界面上生成/查询
+  res = await call(env, "GET", "/api/v1/auth/guest", null, { authorization: "Bearer Sh94ghdf@" });
+  assert.equal(res.status, 404);
 
-  // UI 口令来自 UI_TOKEN，老 TOKEN 链接也还能开
-  assert.equal((await call(env, "GET", "/ui/ui-token-abc")).status, 200);
-  assert.equal((await call(env, "GET", `/ui/${TOKEN}`)).status, 200);
-  assert.equal((await call(env, "GET", "/ui/not-the-token")).status, 401);
-
-  // 会话里没有 ADMIN_PASSWORD 时退回 TOKEN，不至于把自己锁死
-  const bare = makeEnv();
-  assert.equal((await call(bare, "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" })).status, 200);
-
-  // 游客：只读、无 link
-  res = await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: true }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
-  const guestToken = (await res.json()).token;
-  assert.ok(guestToken && guestToken.length >= 8);
+  // 游客码登录 → guest，只读、无 link
+  res = await call(env, "POST", "/api/v1/auth/login", JSON.stringify({ password: "guest-code-123" }), { "content-type": "application/json" });
+  assert.equal(res.status, 200);
+  data = await res.json();
+  assert.equal(data.role, "guest");
+  const guestToken = data.token;
 
   res = await call(env, "GET", "/api/v1/nodes/box", null, { authorization: `Bearer ${guestToken}` });
   assert.equal(res.status, 200);
@@ -1244,15 +1248,24 @@ test("admin password comes from the environment and the UI token is separate", a
   assert.equal(res.status, 403);
   assert.equal((await res.json()).error, "read-only guest session");
 
-  await call(env, "POST", "/api/v1/auth/guest", JSON.stringify({ enabled: false }), { authorization: "Bearer Sh94ghdf@", "content-type": "application/json" });
-  res = await call(env, "GET", "/api/v1/machines", null, { authorization: `Bearer ${guestToken}` });
+  // 管理员会话能拿到订阅 token，游客拿不到
+  res = await call(env, "GET", "/api/v1/auth/session", null, { authorization: "Bearer Sh94ghdf@" });
+  assert.equal((await res.json()).sub_token, TOKEN);
+  res = await call(env, "GET", "/api/v1/auth/session", null, { authorization: `Bearer ${guestToken}` });
+  assert.equal((await res.json()).sub_token, undefined);
+
+  // 没配 GUEST_CODE 的实例：游客码登录直接 401
+  const bare = makeEnv({ ADMIN_PASSWORD: "Sh94ghdf@" });
+  res = await call(bare, "POST", "/api/v1/auth/login", JSON.stringify({ password: "guest-code-123" }), { "content-type": "application/json" });
   assert.equal(res.status, 401);
 });
 
-test("ui page is reachable without a token so people can log in", async () => {
-  const res = await call(makeEnv(), "GET", "/ui");
+test("login failure says so when no admin password is configured", async () => {
+  const res = await call(makeEnv(), "POST", "/api/v1/auth/login", JSON.stringify({ password: TOKEN }), { "content-type": "application/json" });
   assert.equal(res.status, 200);
-  const body = await res.text();
-  assert.ok(body.includes('id="login-password"'));
-  assert.ok(body.includes("以游客身份浏览"));
+  const bare = makeEnv({});
+  bare.TOKEN = "";
+  const res2 = await call(bare, "POST", "/api/v1/auth/login", JSON.stringify({ password: "x" }), { "content-type": "application/json" });
+  assert.equal(res2.status, 500);
+  assert.equal((await res2.json()).error, "ADMIN_PASSWORD is not configured");
 });
