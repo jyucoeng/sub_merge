@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.21.3";
+const VERSION = "1.21.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -125,6 +125,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .protocols{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
 .proto:hover{border-color:#9db7e0}
+.sub-group{cursor:pointer;width:max-content}
+.sub-group:hover{color:var(--ink)}
 .proto.on{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 .proto.off{color:#64748b;border-style:dashed;background:#fff}
 .proto.sel{box-shadow:inset 0 -2px 0 #bfdbfe}
@@ -210,6 +212,7 @@ body.locked .wrap{display:none}
   <button id="sub-invert" type="button">反选</button>
   <button id="sub-only" type="button">只选筛出来的</button>
   <button id="sub-none" class="danger" type="button">全不选</button>
+  <button id="sub-clear" type="button">清除筛选</button>
   <button id="sub-reload" type="button">刷新</button>
 </div>
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
@@ -633,10 +636,11 @@ body.locked .wrap{display:none}
       if (!seen.length) {
         var e = document.createElement("span"); e.className = "tip"; e.textContent = "还没有节点"; protoBox.appendChild(e);
       }
+      var filtering = Boolean((state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.search);
       seen.forEach(function (item) {
         var on = (state.sub.protos || []).indexOf(item.kind) !== -1;
         var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto " + (on ? "on" : "off");
+        chip.type = "button"; chip.className = "proto" + (on ? " on" : (filtering ? " off" : ""));
         chip.textContent = (on ? "✓ " : "") + item.label + " · " + item.count + " 个";
         chip.title = on ? "取消这个筛选" : "只看这个协议";
         chip.onclick = function () {
@@ -655,7 +659,7 @@ body.locked .wrap{display:none}
         var on = (state.sub.machinesF || []).indexOf(machine.machine) !== -1;
         var count = poolM.filter(function (item) { return item.machine === machine.machine; }).length;
         var chip = document.createElement("button");
-        chip.type = "button"; chip.className = "proto " + (on ? "on" : "off");
+        chip.type = "button"; chip.className = "proto" + (on ? " on" : (filtering ? " off" : ""));
         chip.textContent = (on ? "✓ " : "") + machine.machine + " · " + count + " 个";
         chip.title = on ? "取消这个筛选" : "只看这台机器";
         chip.onclick = function () {
@@ -705,6 +709,15 @@ body.locked .wrap{display:none}
       if (item.machine !== currentMachine) {
         currentMachine = item.machine;
         var head = document.createElement("div"); head.className = "sub-group";
+        head.title = "点一下只看这台机器，再点一下取消";
+        head.onclick = function (machine) {
+          return function () {
+            var list = (state.sub.machinesF || []).slice();
+            var at = list.indexOf(machine);
+            if (at === -1) list.push(machine); else list.splice(at, 1);
+            state.sub.machinesF = list; renderSub();
+          };
+        }(item.machine);
         var name = document.createElement("span"); name.textContent = item.machine;
         var count = document.createElement("span"); count.className = "tag auto";
         var group = (state.sub.machines || []).filter(function (m) { return m.machine === item.machine; })[0];
@@ -719,6 +732,16 @@ body.locked .wrap{display:none}
       var tick = document.createElement("input");
       tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
       var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = node.label;
+      tag.title = "点标签只看这个协议";
+      tag.onclick = function (kind) {
+        return function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          var list = (state.sub.protos || []).slice();
+          var at = list.indexOf(kind);
+          if (at === -1) list.push(kind); else list.splice(at, 1);
+          state.sub.protos = list; renderSub();
+        };
+      }(node.kind);
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
       var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
@@ -889,6 +912,7 @@ body.locked .wrap{display:none}
   };
   $("reload").onclick = loadMachines;
   $("sub-search").oninput = function () { state.sub.search = this.value; renderSub(); };
+  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
   $("sub-invert").onclick = function () { applySubBulk("invert"); };

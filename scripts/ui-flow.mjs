@@ -773,6 +773,9 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const protoChips = () => Array.from(el("sub-protos").children);
   const parseCount = (chip) => Number((chip.textContent.match(/·\s*(\d+)\s*个/) || [0, "0"])[1]);
   const mineChip = () => Array.from(el("sub-machine-chips").children).filter((c) => c.textContent.indexOf("ui-proto") !== -1)[0];
+  // 默认（没有任何筛选）时芯片是中性样式，不是「划掉」的样子
+  check("订阅清单：没筛选时芯片不显示为排除态", protoChips().every((chip) => chip.className.indexOf("off") === -1), protoChips().map((c) => c.className).join(","));
+
   mineChip().onclick.call(mineChip());
   await idle();
   const chipSumMine = protoChips().reduce((sum, chip) => sum + parseCount(chip), 0);
@@ -795,6 +798,24 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅清单：筛选说明写清了看了几个", el("sub-shown").textContent.indexOf("1 / 4") === 0 && el("sub-shown").textContent.indexOf("VLESS") !== -1, el("sub-shown").textContent);
   const afterPick = await api("/sub/nodes");
   check("订阅清单：只看 VLESS 时订阅内容没变", afterPick.data.stats.enabled === afterPick.data.stats.total, `${afterPick.data.stats.enabled}/${afterPick.data.stats.total}`);
+  lightChip.onclick.call(lightChip);
+  await idle();
+
+  // 行上的协议标签 / 分组标题也能反过来筛，状态与芯片一致
+  const rowTag = nodeRows()[0].children[1];
+  rowTag.onclick.call(rowTag, { stopPropagation() {} });
+  await idle();
+  const afterTag = protoChips().filter((chip) => chip.textContent.indexOf("✓") === 0);
+  check("订阅清单：点节点上的协议标签也能筛", afterTag.length === 1 && el("sub-shown").textContent.indexOf(" / 4 个节点（协议 ") !== -1, el("sub-shown").textContent);
+  rowTag.onclick.call(rowTag, { stopPropagation() {} });
+  await idle();
+  const head = el("sub-list").children.filter((row) => row.className === "sub-group")[0];
+  head.onclick.call(head);
+  await idle();
+  check("订阅清单：点分组标题只看这台机器", el("sub-shown").textContent.indexOf("机器 ") !== -1, el("sub-shown").textContent);
+  click("sub-clear");
+  await idle();
+  check("订阅清单：清除筛选按钮恢复全部", el("sub-shown").textContent.indexOf("4 / 4 个节点") === 0 && el("sub-shown").textContent.indexOf("没有筛选") !== -1, el("sub-shown").textContent);
   lightChip.onclick.call(lightChip);
   await idle();
 
