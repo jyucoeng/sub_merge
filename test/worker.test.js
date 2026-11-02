@@ -1855,6 +1855,10 @@ test("a short link can serve the whole subscription in one format", async () => 
   const singBody = await (await call(env, "GET", "/s/" + sing.link.code, null, {})).text();
   assert.ok(singBody.includes("outbounds"), singBody.slice(0, 60));
 
+  // ?format= 优先于短链里存的格式（给 v2rayN 这类只吃 base64 的客户端用）
+  const asBase64 = await (await call(env, "GET", "/s/" + made.link.code + "?format=base64", null, {})).text();
+  assert.ok(!asBase64.includes("proxies:") && Buffer.from(asBase64, "base64").toString("utf8").includes("hysteria2://"), asBase64.slice(0, 40));
+
   // 全部订阅的短链必须指定格式
   assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({}), auth)).status, 400);
   assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "", format: "" }), auth)).status, 400);

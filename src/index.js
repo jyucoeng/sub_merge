@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.3";
+const VERSION = "1.36.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -3431,9 +3431,12 @@ async function serveShortLink(env, code, request) {
   if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "link not found" }, 404);
   const link = await getLink(env, code);
   if (!link) return json({ ok: false, error: "link not found" }, 404);
+  /* 短链里存的格式是默认值；URL 上的 ?format= 优先，方便同一个码临时换客户端格式 */
+  const override = String(new URL(request.url).searchParams.get("format") || "").trim().toLowerCase();
+  const fmt = LINK_FORMATS.includes(override) && override ? override : link.format;
   const res = link.preset
-    ? await servePreset(env, link.preset, null, request, { skipToken: true, format: link.format })
-    : await getAll(env, null, request, { skipToken: true, format: link.format });
+    ? await servePreset(env, link.preset, null, request, { skipToken: true, format: fmt })
+    : await getAll(env, null, request, { skipToken: true, format: fmt });
   try {
     await env.DB.prepare("UPDATE links SET hits = hits + 1, last_at = ?2 WHERE code = ?1").bind(code, new Date().toISOString()).run();
   } catch {}
