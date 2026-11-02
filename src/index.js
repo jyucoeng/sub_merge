@@ -1,5 +1,5 @@
 /**
- * sub-worker
+ * sub-merge
  *
  * 固定订阅入口 + 多机器自动上报 + WebUI 节点编辑/排序 + 客户端格式适配
  *
@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.24.0";
+const VERSION = "1.24.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -80,7 +80,7 @@ const UI_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sub-worker 节点管理</title>
+<title>sub-merge 节点管理</title>
 <style>
 :root{--bg:#ffffff;--card:#ffffff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb;--ok:#15803d;--err:#dc2626;--input:#ffffff;--chip:#f1f5f9;--soft:#fbfbfc;--code:#f8fafc;--accbg:#eff6ff;--accline:#bfdbfe;--accink:#1d4ed8;--warnbg:#fffbeb;--warnink:#92400e;--warnline:#fde68a;--manualbg:#fef3c7;--autobg:#ecfeff;--autoline:#a5f3fc;--autoink:#0e7490;--shadow:rgba(15,23,42,.06);--mask:rgba(15,23,42,.5)}
 [data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
@@ -177,8 +177,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
 #login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px var(--shadow)}
-#login h2{font-size:18px;margin:0 0 4px}#login input{width:100%;margin:12px 0 0}
-#login .row{margin-top:12px}#login .status{margin-top:8px}
+#login h2{font-size:18px;margin:0}#login input{width:100%;margin:14px 0 0}
+#login .row{margin-top:12px}#login .status{margin-top:8px}#login .status:empty{display:none}
 body.locked .wrap{display:none}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node.auto-row{grid-template-columns:1fr 1fr;gap:6px}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
@@ -186,8 +186,7 @@ body.locked .wrap{display:none}
 <body class="locked">
 <div id="login">
 <div class="box">
-<h2>sub-worker 登录</h2>
-<div class="hint">只有管理员一种身份：输口令进来就能读写。口令在 Cloudflare 后台的 Variables and Secrets 里配。</div>
+<h2>sub-merge 登录</h2>
 <input id="login-username" type="text" autocomplete="username" placeholder="用户名" spellcheck="false" style="display:none">
 <input id="login-password" type="password" autocomplete="current-password" placeholder="管理员口令" spellcheck="false">
 <div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
@@ -195,7 +194,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -1476,7 +1475,7 @@ async function handleRequest(request, env) {
   // 接口索引在 /api；根路径和别的路径一律 404，只有 /ui 是入口
   if (request.method === "GET" && (path === "/api" || path === "/api/")) {
     return json({
-      name: "sub-worker",
+      name: "sub-merge",
       version: VERSION,
       storage: "d1",
       subscription_base: baseUrl(request),
@@ -3532,7 +3531,7 @@ function resolveClashGroups(names, specs) {
 
 function clashHeaderLines() {
   const lines = [
-    "# sub-worker · Clash / mihomo 完整配置",
+    "# sub-merge · Clash / mihomo 完整配置",
     "# 分组与规则取自 ACL4SSR（与 clash-sub-converter 默认规则一致）；规则以 rule-providers 下发，客户端自行拉取",
     "mixed-port: 7890",
     "allow-lan: false",

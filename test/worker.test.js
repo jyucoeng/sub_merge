@@ -437,7 +437,7 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /yaml/);
   const clash = await res.text();
-  assert.match(clash, /^# sub-worker/);
+  assert.match(clash, /^# sub-merge/);
   assert.match(clash, /^mixed-port: 7890$/m);
   assert.match(clash, /^proxies:$/m);
   assert.match(clash, /^proxy-groups:$/m);
