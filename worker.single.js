@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.15";
+const VERSION = "1.37.16";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4516,6 +4516,22 @@ function linkWithName(node) {
   if (!node || !node._renamed) return text;
   const name = String(node.name != null ? node.name : "").trim();
   if (!name) return text;
+  /* vmess 的名字在 base64 里的 ps 字段，不是 #fragment——给 vmess 尾巴加 #名字
+     客户端根本不看，改了等于没改。这里解开 base64、换 ps、再编回去。 */
+  if (/^vmess:\/\//i.test(text)) {
+    try {
+      const raw = text.slice("vmess://".length);
+      const cut = raw.indexOf("#");
+      const payload = cut >= 0 ? raw.slice(0, cut) : raw;
+      const json = JSON.parse(decodeBase64(payload));
+      if (json && typeof json === "object") {
+        json.ps = name;
+        return "vmess://" + encodeBase64(JSON.stringify(json)).replace(/=+$/, "");
+      }
+    } catch {
+      /* 解不开就退回加 #，至少留个痕迹 */
+    }
+  }
   return linkIdentity(text) + "#" + encodeURIComponent(name);
 }
 
@@ -5103,10 +5119,16 @@ function toClashConfig(nodes, rules) {
 
 function toSingbox(nodes) {
   const outbounds = [];
+  /* sing-box 的 tag 必须唯一，重名直接起不来（duplicate outbound tag）。
+     机器别名一设，同一台机器的节点全叫一个名字，这里必须自己编号。 */
+  const usedTags = new Set();
   for (const node of nodes) {
     const p = node.proxy || parseLink(node.link);
     if (!p) continue;
-    const tag = node.name || p.name;
+    const base = String(node.name || p.name || "").trim() || `${p.kind}-${p.server}`;
+    let tag = base;
+    for (let i = 2; usedTags.has(tag); i += 1) tag = `${base} ${i}`;
+    usedTags.add(tag);
     const tls = { enabled: true };
     if (p.sni) tls.server_name = p.sni;
     if (p.insecure) tls.insecure = true;

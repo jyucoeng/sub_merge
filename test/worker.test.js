@@ -379,6 +379,44 @@ test("renaming a manual node shows up in the subscription too", async () => {
   assert.ok((unb64(await (await call(env, "GET", `/sub/man/${TOKEN}`)).text())).includes("#old-name"));
 });
 
+test("one alias on many nodes still yields unique clash and singbox names", async () => {
+  /* 机器别名一设，同一台机器的节点全叫一个名字。
+     base64 订阅里重名没关系（客户端自己编号），但 clash 的 proxy name 和
+     sing-box 的 tag 必须唯一，否则配置直接起不来。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+  const a = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?encryption=none&security=tls&type=ws&path=%2Fa&sni=www.apple.com#a";
+  const b = "hysteria2://pw@203.0.113.2:8443?sni=www.apple.com&insecure=1#b";
+  await call(env, "POST", "/api/v1/report/twin", b64([a, b].join("\n")), auth);
+  await call(env, "PUT", "/api/v1/machines/twin/alias", JSON.stringify({ name: "同一台" }), auth);
+
+  const sb = JSON.parse(await (await call(env, "GET", `/sub/twin/${TOKEN}?format=singbox`)).text());
+  const tags = sb.outbounds.filter((o) => o.type && o.type !== "selector").map((o) => o.tag);
+  assert.equal(tags.length, 2);
+  assert.equal(new Set(tags).size, 2, "sing-box 的 tag 必须唯一");
+  assert.deepEqual(tags.slice().sort(), ["同一台", "同一台 2"]);
+
+  const clash = await (await call(env, "GET", `/sub/twin/${TOKEN}?format=proxies`)).text();
+  const names = [...clash.matchAll(/^  - name: "(.*)"$/gm)].map((m) => m[1]);
+  assert.equal(new Set(names).size, 2, "clash 的 proxy name 也必须唯一");
+});
+
+test("renaming a vmess node rewrites the ps field, not a useless fragment", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+  const payload = { v: "2", ps: "原名", add: "203.0.113.7", port: "443", id: "11111111-1111-4111-8111-111111111111", aid: "0", scy: "auto", net: "ws", type: "none", host: "x.example.com", path: "/", tls: "tls" };
+  const link = "vmess://" + Buffer.from(JSON.stringify(payload)).toString("base64");
+  await call(env, "POST", "/api/v1/report/vm", b64(link), auth);
+  await call(env, "PUT", "/api/v1/nodes/vm/alias", JSON.stringify({ link, name: "换了名字" }), auth);
+
+  const sub = unb64(await (await call(env, "GET", `/sub/vm/${TOKEN}`)).text()).trim();
+  assert.ok(!sub.includes("#"), "vmess 不该用 # 片段传名字");
+  const inner = JSON.parse(Buffer.from(sub.slice("vmess://".length), "base64").toString());
+  assert.equal(inner.ps, "换了名字", "名字要写进 base64 里的 ps");
+  assert.equal(inner.add, "203.0.113.7", "其余字段一个字都不许动");
+  assert.equal(inner.path, "/");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
