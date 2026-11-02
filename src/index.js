@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.35.0";
+const VERSION = "1.35.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -323,7 +323,7 @@ body.locked .wrap{display:none}
 <h2>订阅档案 <span class="tag auto" id="preset-badge">0 个</span> <span class="tip">挑一批节点存成一条固定链接，格式可固定，随时编辑</span></h2>
 <div class="hint" style="margin-top:8px">一个档案 = 一条固定链接。点「新建档案 / 编辑」后，下面会把<b>主订阅的全部节点</b>列出来，已经在这个档案里的会提前勾好；你可以先用协议 / 机器 / 隧道 / 搜索把列表筛一遍，勾完点「保存档案」，选中的节点才绑到这个档案上。主订阅里没启用的节点不会进档案，节点被删掉时档案也跟着少。</div>
 <div class="row" style="margin-top:8px">
-  <input id="preset-search" placeholder="搜档案：名字 / 显示名 / 链接" spellcheck="false" style="min-width:300px">
+  <input id="preset-search" placeholder="搜档案：名字 / 显示名 / 链接（长链或短链都行）" spellcheck="false" style="min-width:300px">
   <button id="preset-new" class="primary" type="button">新建档案</button>
   <span class="tip" id="preset-status"></span>
 </div>
@@ -1337,7 +1337,9 @@ body.locked .wrap{display:none}
   }
   function presetMatchesSearch(item, q) {
     if (!q) return true;
-    var hay = ((item.name || "") + " " + (item.label || "") + " " + (item.url || "")).toLowerCase();
+    var sl = presetLink(item.name);
+    var hay = ((item.name || "") + " " + (item.label || "") + " " + (item.url || "") + " "
+      + (sl ? sl.code + " " + sl.path + " " + location.origin + sl.path + " " + sl.url : "")).toLowerCase();
     return hay.indexOf(q) >= 0;
   }
   function renderPresets() {
