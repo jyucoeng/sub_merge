@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.2";
+const VERSION = "1.36.3";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -374,10 +374,10 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-unshort="base64" id="unshort-url-base" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-unshort="clash" id="unshort-url-clash" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-unshort="proxies" id="unshort-url-proxies" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-unshort="singbox" id="unshort-url-singbox" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
+<div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button></div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
@@ -1581,23 +1581,11 @@ body.locked .wrap{display:none}
       var btn = $("short-" + id);
       if (btn) {
         btn.textContent = sl ? "复制短链" : "短链";
-        btn.title = sl ? "复制这条短链 /s/" + sl.code : "给这个格式生成一条不带 token 的短链";
+        btn.title = sl ? "复制这条短链 /s/" + sl.code + "（想撤销就对接口发 DELETE /api/v1/links/" + sl.code + "）" : "给这个格式生成一条不带 token 的短链";
         btn.onclick = function () {
           if (sl) { copyToClipboard(location.origin + sl.path); setStatus("已复制短链：" + sl.path, true); return; }
           api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
             .then(function (data) { copyToClipboard(data.url); setStatus("已生成短链并复制：" + data.link.path, true); return loadPresets(true); })
-            .catch(function (err) { setStatus(err.message, false); });
-        };
-      }
-      var kill = $("unshort-" + id);
-      if (kill) {
-        kill.style.display = sl ? "" : "none";
-        kill.title = sl ? "删除短链 /s/" + sl.code : "";
-        kill.onclick = function () {
-          if (!sl) return;
-          if (typeof confirm === "function" && !confirm("删除短链 /s/" + sl.code + "？用它的客户端会立刻拉不到东西。")) return;
-          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
-            .then(function () { setStatus("已删除短链 /s/" + sl.code, true); return loadPresets(true); })
             .catch(function (err) { setStatus(err.message, false); });
         };
       }
