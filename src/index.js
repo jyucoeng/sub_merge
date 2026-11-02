@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.6";
+const VERSION = "1.37.7";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -120,6 +120,12 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+button.shortlink{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12);color:#15803d}
+button.shortlink:hover{background:#16a34a;border-color:#16a34a;color:#fff}
+[data-theme="dark"] button.shortlink{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
+[data-theme="dark"] button.shortlink:hover{background:#22c55e;border-color:#22c55e;color:#052e14}
+button.linkview{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:var(--accline);background:var(--accbg);color:var(--acc)}
+button.linkview:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 button.ghost{background:transparent;color:var(--sub);padding:8px 8px}
 button.ghost:hover{color:var(--ink);border-color:var(--acc)}
 button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);color:#15803d;font-weight:500}
@@ -383,10 +389,10 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-linkview="base64" id="unshort-url-base" class="ghost" type="button" style="display:none">换长链</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-linkview="clash" id="unshort-url-clash" class="ghost" type="button" style="display:none">换长链</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-linkview="proxies" id="unshort-url-proxies" class="ghost" type="button" style="display:none">换长链</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-linkview="singbox" id="unshort-url-singbox" class="ghost" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" class="shortlink" type="button">短链</button><button data-linkview="base64" id="unshort-url-base" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" class="shortlink" type="button">短链</button><button data-linkview="clash" id="unshort-url-clash" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" class="shortlink" type="button">短链</button><button data-linkview="proxies" id="unshort-url-proxies" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" class="shortlink" type="button">短链</button><button data-linkview="singbox" id="unshort-url-singbox" class="linkview" type="button" style="display:none">换长链</button></div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
@@ -1443,7 +1449,7 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = "短链";
+      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.className = "shortlink"; shortBtn.textContent = "短链";
       shortBtn.title = "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
       shortBtn.style.display = sl ? "none" : "";
       shortBtn.onclick = function () {
@@ -1457,7 +1463,7 @@ body.locked .wrap{display:none}
       };
       right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
       if (sl) {
-        var sw = document.createElement("button"); sw.type = "button"; sw.className = "ghost";
+        var sw = document.createElement("button"); sw.type = "button"; sw.className = "linkview";
         sw.textContent = view === "short" ? "换长链" : "换短链";
         sw.title = view === "short" ? "这个档案改成显示长链接（短链还在，随时能换回来）" : "这个档案改回短链 /s/" + sl.code;
         sw.onclick = function () { setLinkView("p:" + item.name, view === "short" ? "long" : "short"); renderPresets(); };
@@ -1649,7 +1655,7 @@ body.locked .wrap{display:none}
       var sw = $("unshort-" + id);
       if (sw) {
         sw.style.display = sl ? "" : "none";
-        sw.className = "ghost";
+        sw.className = "linkview";
         sw.textContent = view === "short" ? "换长链" : "换短链";
         sw.title = view === "short"
           ? "这一行改成显示长链接（短链还在，随时能换回来）"
