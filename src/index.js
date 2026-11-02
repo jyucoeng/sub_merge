@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.8";
+const VERSION = "1.36.9";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1398,7 +1398,7 @@ body.locked .wrap{display:none}
 
       var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
       copy.title = sl ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
-      copy.onclick = function () { copyToClipboard(shownUrl); presetStatus("已复制：" + shownUrl, true); };
+      copy.onclick = function () { copyToClipboard(shownUrl); flashButton(copy, "已复制"); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
       var edit = document.createElement("button"); edit.type = "button"; edit.textContent = "编辑";
@@ -1425,11 +1425,11 @@ body.locked .wrap{display:none}
       var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = sl ? "复制短链" : "短链";
       shortBtn.title = sl ? "复制这条短链 /s/" + sl.code + "；删掉这个档案，短链也一起失效" : "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
       shortBtn.onclick = function () {
-        if (sl) { copyToClipboard(location.origin + sl.path); presetStatus("已复制短链：" + sl.path, true); return; }
+        if (sl) { copyToClipboard(location.origin + sl.path); flashButton(shortBtn, "已复制"); return; }
         api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
           .then(function (data) {
             copyToClipboard(data.url);
-            presetStatus("已生成短链并复制：" + data.link.path, true);
+            flashButton(shortBtn, "已生成");
             loadPresets(true);
           })
           .catch(function (err) { presetStatus(err.message, false); });

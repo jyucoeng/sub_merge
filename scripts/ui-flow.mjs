@@ -642,7 +642,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   docListeners.click[0]({ target: btn });
   await idle(500);
   check("复制：写入剪贴板", clipboard[0] === text("url-base"), clipboard[0]);
-  check("复制：按钮反馈", btn.textContent === "已复制" || btn.textContent === "复制", btn.textContent);
+  check("复制：按钮反馈", btn.textContent === "已复制" && String(btn.className).includes("copied"), `${btn.textContent}|${btn.className}`);
+
 }
 
 // O. 合并订阅输出（顺序、格式）
@@ -1200,6 +1201,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：总订阅完全没变", masterAfterBody.trim() === masterNames.trim(), "总订阅被影响了");
 
   // 换独立 token：链接变了，旧链接立刻失效
+  // 订阅档案行的「复制」也是同一套就地反馈
+  const presetCopy = presets()[0].children[2];
+  presetCopy.onclick.call(presetCopy);
+  check("订阅档案：复制按钮同样是就地反馈", presetCopy.textContent === "已复制" && String(presetCopy.className).includes("copied"), `${presetCopy.textContent}|${presetCopy.className}`);
+
   const rowButtons = () => Array.from(presets()[0].children[3].children);
   const byText = (t) => rowButtons().filter((b) => b.textContent === t)[0];
   const rotate = byText("发独立 token");
