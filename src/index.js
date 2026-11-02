@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.1";
+const VERSION = "1.36.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1420,7 +1420,7 @@ body.locked .wrap{display:none}
           .catch(function (err) { presetStatus(err.message, false); });
       };
       var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = sl ? "复制短链" : "短链";
-      shortBtn.title = sl ? "复制这条短链 /s/" + sl.code + "（可以删掉重发一条）" : "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+      shortBtn.title = sl ? "复制这条短链 /s/" + sl.code + "；删掉这个档案，短链也一起失效" : "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
       shortBtn.onclick = function () {
         if (sl) { copyToClipboard(location.origin + sl.path); presetStatus("已复制短链：" + sl.path, true); return; }
         api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
@@ -1431,19 +1431,7 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
-      if (sl) {
-        var killLink = document.createElement("button"); killLink.type = "button"; killLink.className = "danger"; killLink.textContent = "✕";
-        killLink.title = "删除这条短链（/s/" + sl.code + "，删除后立刻 404）";
-        killLink.onclick = function () {
-          if (typeof confirm === "function" && !confirm("删除短链 /s/" + sl.code + "？用它的客户端会立刻拉不到东西。")) return;
-          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
-            .then(function () { presetStatus("已删除短链 /s/" + sl.code, true); loadPresets(true); })
-            .catch(function (err) { presetStatus(err.message, false); });
-        };
-        right.appendChild(killLink);
-      }
-      right.appendChild(del);
+      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn); right.appendChild(del);
       row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
     });
@@ -3328,6 +3316,7 @@ async function deletePreset(env, name) {
   if (!dbEnv(env)) return missingConfig("DB");
   if (!PRESET_NAME_RE.test(String(name || ""))) return json({ ok: false, error: "invalid preset name" }, 400);
   await env.DB.prepare("DELETE FROM presets WHERE name = ?1").bind(name).run();
+  await env.DB.prepare("DELETE FROM links WHERE preset = ?1").bind(name).run();
   return json({ ok: true, deleted: name });
 }
 

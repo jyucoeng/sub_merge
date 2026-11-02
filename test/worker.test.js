@@ -172,6 +172,11 @@ class MockStatement {
       this.db.links.set(args[0], { ...row, note: args[2], format: args[1] });
       return { success: true, meta: { changes: 1 } };
     }
+    if (/^DELETE FROM links WHERE preset = \?1$/i.test(this.sql)) {
+      let removed = 0;
+      for (const [k, v] of [...this.db.links.entries()]) { if (v.preset === this.args[0]) { this.db.links.delete(k); removed += 1; } }
+      return { success: true, meta: { changes: removed } };
+    }
     if (/^DELETE FROM links WHERE code = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.links.delete(args[0]) ? 1 : 0 } };
     }
@@ -1915,13 +1920,20 @@ test("a short link serves a preset without the token in the url", async () => {
   const clash = unb64(await (await call(env, "GET", "/s/hk01", null, {})).text());
   assert.ok(clash.includes("香港-reality"), clash);
 
+  // 删档案会连带删掉它的短链，不留孤儿码
+  const orphan = await (await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-reality" }), auth)).json();
+  assert.equal(orphan.reused, true);
+  assert.equal((await call(env, "GET", "/s/hk01", null, {})).status, 200);
+  assert.equal((await call(env, "DELETE", "/api/v1/presets/short-reality", null, auth)).status, 200);
+  assert.equal((await call(env, "GET", `/s/${orphan.link.code}`, null, {})).status, 404);
+  assert.equal((await (await call(env, "GET", "/api/v1/links", null, auth)).json()).links.filter((l) => l.preset === "short-reality").length, 0);
+
   // 删除后就是 404
   assert.equal((await call(env, "DELETE", `/api/v1/links/${made.link.code}`, null, auth)).status, 200);
   assert.equal((await call(env, "GET", `/s/${made.link.code}`, null, {})).status, 404);
   assert.equal((await call(env, "DELETE", `/api/v1/links/${made.link.code}`, null, auth)).status, 404);
   assert.equal((await call(env, "DELETE", "/api/v1/links/A%20B", null, auth)).status, 400);
   assert.equal((await call(env, "GET", "/s/nosuchcode", null, {})).status, 404);
-  assert.equal((await call(env, "GET", "/s/hk01", null, {})).status, 200);
 });
 
 test("a preset records that its clash rules follow the global set", async () => {
