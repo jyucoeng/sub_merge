@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.9";
+const VERSION = "1.37.10";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -191,7 +191,9 @@ textarea:focus{border-color:var(--acc)}
 .clash-only-live input{width:14px;height:14px;margin:0}
 .clash-row button{padding:5px 7px}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
-@media(max-width:720px){.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
+/* 窄屏：头部标题和右侧控件（主题/角色/版本/退出）必须分行，否则 .top 是 nowrap 的
+   flex，右侧 .row 被挤成很窄一列、内部换行后压到标题上，看着就是"样式错乱"。 */
+@media(max-width:720px){.top{flex-wrap:wrap;align-items:flex-start;gap:10px}.top>div{min-width:0}.top>div:first-child{flex:1 1 100%}.top .row{flex:0 0 100%;gap:8px}.top .row button{padding:7px 11px}.top .row .tag,.top .row .ver{flex:0 0 auto}.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}
 .protocols{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
