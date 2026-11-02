@@ -622,7 +622,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 订阅链接也能发短链：点「短链」后这一行换成 /s/xxx
   const shortBaseBtn = el("short-url-base");
-  check("订阅链接：每行都有短链按钮", !!shortBaseBtn && shortBaseBtn.textContent === "短链", shortBaseBtn && shortBaseBtn.textContent);
+  check("订阅链接：没短链时有短链按钮", !!shortBaseBtn && shortBaseBtn.textContent === "短链" && shortBaseBtn.style.display !== "none", shortBaseBtn && shortBaseBtn.textContent);
   await shortBaseBtn.onclick.call(shortBaseBtn);
   await idle();
   check("订阅链接：发短链后这一行显示 /s/", /^https?:\/\/[^/]+\/s\/[a-z0-9]+$/.test(text("url-base")), text("url-base"));
@@ -630,19 +630,26 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅链接：复制反馈有单独样式", String(el("short-url-base").className).indexOf("copied") >= 0, el("short-url-base").className);
   check("订阅链接：别处状态栏没被动过", text("status").indexOf("短链") < 0, text("status"));
   await new Promise((r) => setTimeout(r, 3100));
-  check("订阅链接：发短链后按钮变成复制短链", el("short-url-base").textContent === "复制短链", el("short-url-base").textContent);
+  check("订阅链接：有短链后发短链按钮收起", el("short-url-base").style.display === "none", String(el("short-url-base").style.display));
   check("订阅链接：3 秒后样式复原", String(el("short-url-base").className).indexOf("copied") < 0, el("short-url-base").className);
-  el("short-url-base").onclick.call(el("short-url-base"));
-  check("订阅链接：再点一次是复制并就地提示", el("short-url-base").textContent === "已复制", el("short-url-base").textContent);
+
+  // 长短链接切换：不删短链，只是换个显示
+  const toggle = el("unshort-url-base");
+  check("订阅链接：有短链才出现切换按钮", toggle.style.display !== "none" && toggle.textContent === "换长链", `${toggle.style.display}|${toggle.textContent}`);
+  const shorted = text("url-base");
+  toggle.onclick.call(toggle);
+  await idle();
+  check("订阅链接：换长链后显示完整链接", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
+  check("订阅链接：切换按钮变成换短链", el("unshort-url-base").textContent === "换短链", el("unshort-url-base").textContent);
+  check("订阅链接：换长链后短链仍然可用", (await netFetch(shorted)).status === 200, shorted);
+  el("unshort-url-base").onclick.call(el("unshort-url-base"));
+  await idle();
+  check("订阅链接：换回短链", text("url-base") === shorted, text("url-base"));
+  check("订阅链接：换回后按钮又是换长链", el("unshort-url-base").textContent === "换长链", el("unshort-url-base").textContent);
+
   const shortedPath = text("url-base").replace(/^https?:\/\/[^/]+/, "");
   const shortedRes = await netFetch(BASE + shortedPath);
   check("订阅链接：短链能拉到全部订阅", shortedRes.status === 200 && shortedRes.headers.get("x-preset") === "all", `${shortedRes.status} ${shortedRes.headers.get("x-preset")}`);
-  // ↩ 还原：删掉短链，这一行回到长链接
-  check("订阅链接：有短链时才显示还原按钮", el("unshort-url-base").style.display !== "none", String(el("unshort-url-base").style.display));
-  await el("unshort-url-base").onclick.call(el("unshort-url-base"));
-  await idle();
-  check("订阅链接：还原后回到长链接", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
-  check("订阅链接：还原后按钮又藏起来", el("unshort-url-base").style.display === "none", String(el("unshort-url-base").style.display));
   clipboard.length = 0;
   const btn = { textContent: "复制", getAttribute: (k) => (k === "data-copy" ? "url-base" : null) };
   docListeners.click[0]({ target: btn });
@@ -1250,20 +1257,22 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：自动标识是 url 安全的", /^[a-z0-9][a-z0-9-]*$/.test(autoName), autoName);
   if (autoName) { await api(`/presets/${autoName}`, { method: "DELETE" }); }
 
-  // ↩ 还原：删掉档案的短链，行里恢复成长链接
-  const backBtn = byText("↩");
-  check("订阅档案：有短链时才有 ↩", !!backBtn, backBtn && backBtn.textContent);
-  const shortBefore = presets()[0].children[1].textContent;
-  await backBtn.onclick.call(backBtn);
+  // 长短链接切换：不删短链，只换显示
+  const swBtn = byText("换长链");
+  check("订阅档案：有短链时出现换长链", !!swBtn, (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
+  const shortShown = presets()[0].children[1].textContent;
+  swBtn.onclick.call(swBtn);
   await idle();
-  const longAfter = presets()[0].children[1].textContent;
-  check("订阅档案：↩ 之后回到长链接", longAfter !== shortBefore && longAfter.includes("/sub/p/"), longAfter);
-  check("订阅档案：还原后 ↩ 消失", !byText("↩"), (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
+  const longShown = presets()[0].children[1].textContent;
+  check("订阅档案：换长链后显示 /sub/p/", longShown !== shortShown && longShown.includes("/sub/p/"), longShown);
+  check("订阅档案：切换按钮变成换短链", !!byText("换短链"), (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
+  check("订阅档案：换长链后短链还能用", (await netFetch(shortShown)).status === 200, shortShown);
+  byText("换短链").onclick.call(byText("换短链"));
+  await idle();
+  check("订阅档案：换回短链", presets()[0].children[1].textContent === shortShown, presets()[0].children[1].textContent);
+  check("订阅档案：有短链后发短链按钮收起", byText("短链").style.display === "none", String(byText("短链").style.display));
 
   // 搜短链也要能搜到这条档案
-  const makeShort = byText("短链");
-  await makeShort.onclick.call(makeShort);
-  await idle();
   const shortCodeAgain = presets()[0].children[1].textContent.split("/s/")[1];
   setInput("preset-search", shortCodeAgain);
   check("订阅档案：用短链能搜到档案", presets().length === 1, String(presets().length));

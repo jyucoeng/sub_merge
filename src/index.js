@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.1";
+const VERSION = "1.37.2";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -379,10 +379,10 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-unshort="base64" id="unshort-url-base" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-unshort="clash" id="unshort-url-clash" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-unshort="proxies" id="unshort-url-proxies" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-unshort="singbox" id="unshort-url-singbox" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
+<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-linkview="base64" id="unshort-url-base" class="ghost" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-linkview="clash" id="unshort-url-clash" class="ghost" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-linkview="proxies" id="unshort-url-proxies" class="ghost" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-linkview="singbox" id="unshort-url-singbox" class="ghost" type="button" style="display:none">换长链</button></div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
@@ -1394,12 +1394,14 @@ body.locked .wrap{display:none}
       name.appendChild(title); name.appendChild(desc);
 
       var sl = presetLink(item.name);
-      var shownUrl = sl ? location.origin + sl.path : item.url;
+      var view = linkViewOf("p:" + item.name);
+      var shownUrl = (sl && view === "short") ? location.origin + sl.path : item.url;
       var link = document.createElement("code"); link.textContent = shownUrl;
-      link.title = sl ? shownUrl + "（短链，指向档案 " + item.name + "；完整链接是 " + item.url + "）" : item.url;
+      link.title = !sl ? item.url
+        : (view === "short" ? shownUrl + "（短链，指向档案 " + item.name + "；长链接是 " + item.url + "）" : shownUrl + "（长链接；短链是 /s/" + sl.code + "）");
 
       var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
-      copy.title = sl ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
+      copy.title = (sl && view === "short") ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
       copy.onclick = function () { copyToClipboard(shownUrl); flashButton(copy, "已复制"); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
@@ -1424,10 +1426,10 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = sl ? "复制短链" : "短链";
-      shortBtn.title = sl ? "复制这条短链 /s/" + sl.code + "；删掉这个档案，短链也一起失效" : "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = "短链";
+      shortBtn.title = "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+      shortBtn.style.display = sl ? "none" : "";
       shortBtn.onclick = function () {
-        if (sl) { copyToClipboard(location.origin + sl.path); flashButton(shortBtn, "已复制"); return; }
         api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
           .then(function (data) {
             copyToClipboard(data.url);
@@ -1438,16 +1440,11 @@ body.locked .wrap{display:none}
       };
       right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
       if (sl) {
-        var backLink = document.createElement("button"); backLink.type = "button"; backLink.className = "ghost"; backLink.textContent = "↩";
-        backLink.title = "删掉短链 /s/" + sl.code + "，这个档案恢复成 /sub/p/" + item.name + "/<token>";
-        backLink.onclick = function () {
-          if (typeof confirm === "function" && !confirm("删掉短链 /s/" + sl.code + "，这个档案恢复成长链接？用这条短链的客户端会立刻拉不到东西。")) return;
-          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
-            .then(function () { return loadPresets(true); })
-            .then(function () { flashButton(backLink, "已还原"); })
-            .catch(function () { flashButton(backLink, "失败"); });
-        };
-        right.appendChild(backLink);
+        var sw = document.createElement("button"); sw.type = "button"; sw.className = "ghost";
+        sw.textContent = view === "short" ? "换长链" : "换短链";
+        sw.title = view === "short" ? "这个档案改成显示长链接（短链还在，随时能换回来）" : "这个档案改回短链 /s/" + sl.code;
+        sw.onclick = function () { setLinkView("p:" + item.name, view === "short" ? "long" : "short"); renderPresets(); };
+        right.appendChild(sw);
       }
       right.appendChild(del);
       row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
@@ -1590,6 +1587,15 @@ body.locked .wrap{display:none}
       box.appendChild(row);
     });
   }
+  function linkViewMap() {
+    try { return JSON.parse(window.localStorage.getItem("sub-worker-linkview") || "{}") || {}; } catch (e) { return {}; }
+  }
+  function linkViewOf(key) { return linkViewMap()[key] === "long" ? "long" : "short"; }
+  function setLinkView(key, v) {
+    var m = linkViewMap();
+    if (v === "long") m[key] = "long"; else delete m[key];
+    try { window.localStorage.setItem("sub-worker-linkview", JSON.stringify(m)); } catch (e) {}
+  }
   var SUB_TOKEN = "";
   function subAllLink(fmt) {
     var hit = null;
@@ -1605,32 +1611,33 @@ body.locked .wrap{display:none}
       var fmt = rows[id];
       var full = fmt === "base64" ? base : base + "?format=" + fmt;
       var sl = subAllLink(fmt);
-      var text = sl ? location.origin + sl.path : full;
+      var view = linkViewOf("all:" + fmt);
+      var text = (sl && view === "short") ? location.origin + sl.path : full;
       el.textContent = text;
-      el.title = sl ? text + "（短链，指向全部订阅；完整链接是 " + full + "）" : full;
+      el.title = !sl ? full : (view === "short" ? text + "（短链；长链接是 " + full + "）" : text + "（长链接；短链是 /s/" + sl.code + "）");
+
       var btn = $("short-" + id);
       if (btn) {
-        btn.textContent = sl ? "复制短链" : "短链";
-        btn.title = sl ? "复制这条短链 /s/" + sl.code + "（想撤销就对接口发 DELETE /api/v1/links/" + sl.code + "）" : "给这个格式生成一条不带 token 的短链";
+        btn.style.display = sl ? "none" : "";
+        btn.textContent = "短链";
+        btn.title = "给这个格式生成一条不带 token 的短链";
         btn.onclick = function () {
-          if (sl) { copyToClipboard(location.origin + sl.path); flashButton(btn, "已复制"); return; }
           api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
             .then(function (data) { copyToClipboard(data.url); return loadPresets(true); })
             .then(function () { flashButton(btn, "已生成"); })
             .catch(function () { flashButton(btn, "失败"); });
         };
       }
-      var back = $("unshort-" + id);
-      if (back) {
-        back.style.display = sl ? "" : "none";
-        back.onclick = function () {
-          if (!sl) return;
-          if (typeof confirm === "function" && !confirm("删掉短链 /s/" + sl.code + "，这一行恢复成长链接？用这条短链的客户端会立刻拉不到东西。")) return;
-          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
-            .then(function () { return loadPresets(true); })
-            .then(function () { flashButton(back, "已还原"); })
-            .catch(function () { flashButton(back, "失败"); });
-        };
+
+      var sw = $("unshort-" + id);
+      if (sw) {
+        sw.style.display = sl ? "" : "none";
+        sw.className = "ghost";
+        sw.textContent = view === "short" ? "换长链" : "换短链";
+        sw.title = view === "short"
+          ? "这一行改成显示长链接（短链还在，随时能换回来）"
+          : "这一行改回短链 /s/" + (sl ? sl.code : "");
+        sw.onclick = function () { setLinkView("all:" + fmt, view === "short" ? "long" : "short"); renderUrls(); };
       }
     });
   }
