@@ -8,49 +8,53 @@
 
 ---
 
-## 1. 部署
+## 1. 部署（全程在 Cloudflare 后台点，不用命令行）
 
-准备：Node 20+、一个 Cloudflare 账号、`pnpm install` 装好依赖。
+准备：一个 Cloudflare 账号；把本仓库 **Fork** 到自己名下（右上角 Fork）。免费额度就够用，不需要绑卡。
 
-先建库，拿 `database_id`：
+### ① 建数据库
 
-```bash
-pnpm exec wrangler login
-pnpm exec wrangler d1 create sub-merge-db     # 输出里有 database_id
-```
+Dashboard → **Storage & Databases → D1 SQL Database → Create database**，名字填 `sub-merge-db`，创建。
 
-把拿到的 `database_id` 填进 `wrangler.toml` 的 `[[d1_databases]]`，然后建表：
+点进这个库 → 顶部 **Console** → 把仓库里 `scripts/schema.sql` 的全文粘进输入框 → **Execute**。
+（`machines` / `reports` / `presets` / `links` / `settings` 五张表一次建好，重复执行也没问题。）
 
-```bash
-pnpm run db:init        # = wrangler d1 execute sub-merge-db --remote --file=scripts/schema.sql
-```
+### ② 建 Pages 项目
 
-### 方式 A：Cloudflare Pages（推荐）
+Dashboard → **Workers & Pages → Create → Pages → Connect to Git** → 选中你 fork 的 `sub_merge` → Begin setup：
 
-```bash
-pnpm run pages:create      # 建 Pages 项目，只跑一次
-pnpm run deploy:pages      # 构建 dist-pages/ 并上传
-```
+| 填哪项 | 填什么 |
+| --- | --- |
+| Framework preset | `None` |
+| Build command | `npm run build:pages` |
+| Build output directory | `dist-pages` |
 
-部署完到 Dashboard 给这个 Pages 项目补两样东西（**Pages 不读 wrangler.toml 的绑定**）：
+点 **Save and Deploy**，等一分钟左右。
 
-1. **Settings → Bindings → D1 database**：变量名必须填 `DB`，库选 `sub-merge-db`
-2. **Settings → Variables and Secrets**：加三个变量 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`
+### ③ 绑数据库
 
-> 绑完 D1 后再 Re-deploy 一次，Worker 才拿得到 `env.DB`。
+进入刚建好的 Pages 项目 → **Settings → Bindings → Add → D1 database**：
 
-### 方式 B：Cloudflare Workers
+- Variable name：**`DB`**（必须一字不差，代码里按这个名字取库）
+- D1 database：选 `sub-merge-db`
+- Production、Preview 两个环境都加一遍
 
-```bash
-pnpm exec wrangler deploy
-pnpm exec wrangler secret put SUB_TOKEN
-pnpm exec wrangler secret put ADMIN_PASSWORD
-pnpm exec wrangler secret put REPORT_TOKEN
-```
+### ④ 填三个口令
 
-`wrangler.toml` 里已经写了 `binding = "DB"`，不用再手动绑。
+同一页往下 **Settings → Variables and Secrets → Add**，逐个添加（Type 选 `Text`；`SUB_TOKEN` 与 `REPORT_TOKEN` 建议点 Encrypt 存成密文）：
 
-两种方式部署完，打开 `https://<你的域名>/ui`，用 `ADMIN_PASSWORD` 登录。
+`SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN` —— 值自己生成一串够长的随机字符。
+
+### ⑤ 重新部署一次
+
+**Deployments** → 最新那条 → 右侧 `⋯` → **Retry deployment**。
+（绑定和变量是部署时注入的，跳过这一步打开网站会报 `env.DB is undefined`。）
+
+打开 `https://<项目名>.pages.dev/ui`，用 `ADMIN_PASSWORD` 登录就能用了。
+
+> **不想用 GitHub**：本地 `npm install && npm run build:pages`，把生成的 `dist-pages` 目录用 **Create → Pages → Upload assets** 直接拖上去，再照 ③④⑤ 做。
+>
+> **想用 Workers 而不是 Pages**：**Create → Workers → Hello World**，把本地 `npm run build:single` 生成的 `worker.single.js` 粘进编辑器 → Deploy，然后在 **Settings → Bindings / Variables and Secrets** 里同样绑 `DB` 和三个口令。功能完全一样。
 
 ---
 
@@ -64,13 +68,13 @@ pnpm exec wrangler secret put REPORT_TOKEN
 
 三个口令互相独立、都填长随机串；`SUB_TOKEN` 会出现在订阅链接里，`REPORT_TOKEN` 只给上报脚本用，泄露了不会连带订阅链接。
 
-绑定：D1 变量名必须是 **`DB`**（Pages 在 Dashboard 配，Workers 在 `wrangler.toml` 里）。
+绑定：D1 的变量名必须是 **`DB`**，不是这个名字代码取不到库。
 
 ---
 
 ## 3. 数据表
 
-建表用 `pnpm run db:init`，或者部署后调一次 `POST /api/v1/admin/schema`（幂等，老库加列也走这条）。
+建表语句就是仓库里的 `scripts/schema.sql`，部署①那一步已经执行过。以后升级版本要补列时，到 D1 Console 里再执行一次这个文件即可（幂等，重复跑不会报错）。
 
 | 表 | 一行代表什么 | 关键字段 |
 | --- | --- | --- |
@@ -105,11 +109,9 @@ curl -X POST "https://<你的域名>/api/v1/report/<机器名 URL 编码>" \
 
 支持「自动上报」的脚本：`singbox-tools`（`sb report`，见 [README-sb.md](https://github.com/jyucoeng/singbox-tools/blob/main/README-sb.md)）。
 
-### 4.3 从文件灌
+### 4.3 从 SQL 文件灌
 
-```bash
-pnpm exec wrangler d1 execute sub-merge-db --remote --file=dump.sql
-```
+D1 控制台 → 你的库 → **Import** → 上传 `.sql` 文件；或者直接 **Console** 里粘 SQL 执行。
 
 ---
 
