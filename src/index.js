@@ -176,9 +176,9 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
-#login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px var(--shadow)}
-#login h2{font-size:18px;margin:0}#login input{width:100%;margin:14px 0 0}
-#login .row{margin-top:12px}#login .status{margin-top:8px}#login .status:empty{display:none}
+#login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;width:min(360px,100%);box-shadow:0 20px 45px var(--shadow);text-align:center}
+#login h2{font-size:20px;margin:0;text-align:center}#login input{width:100%;margin:18px 0 0;text-align:center}
+#login .row{margin-top:16px;justify-content:center}#login-submit{width:100%;padding:12px 16px;font-size:15px;font-weight:600}#login .status{margin-top:10px;text-align:center}#login .status:empty{display:none}
 body.locked .wrap{display:none}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node.auto-row{grid-template-columns:1fr 1fr;gap:6px}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
@@ -186,7 +186,7 @@ body.locked .wrap{display:none}
 <body class="locked">
 <div id="login">
 <div class="box">
-<h2>sub-merge 登录</h2>
+<h2>登录</h2>
 <input id="login-username" type="text" autocomplete="username" placeholder="用户名" spellcheck="false" style="display:none">
 <input id="login-password" type="password" autocomplete="current-password" placeholder="管理员口令" spellcheck="false">
 <div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
