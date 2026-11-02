@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.24.4";
+const VERSION = "1.24.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -80,7 +80,7 @@ const UI_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sub-merge 节点管理</title>
+<title>sub-merge 节点聚合管理</title>
 <style>
 :root{--bg:#ffffff;--card:#ffffff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb;--ok:#15803d;--err:#dc2626;--input:#ffffff;--chip:#f1f5f9;--soft:#fbfbfc;--code:#f8fafc;--accbg:#eff6ff;--accline:#bfdbfe;--accink:#1d4ed8;--warnbg:#fffbeb;--warnink:#92400e;--warnline:#fde68a;--manualbg:#fef3c7;--autobg:#ecfeff;--autoline:#a5f3fc;--autoink:#0e7490;--shadow:rgba(15,23,42,.06);--mask:rgba(15,23,42,.5)}
 [data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
@@ -197,7 +197,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-merge <span class="tip">节点管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>

@@ -355,7 +355,7 @@ test("webui is a login page, credentials never ride in the URL", async () => {
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-security-policy"), /connect-src 'self'/);
   const page = await res.text();
-  assert.match(page, /节点管理/);
+  assert.match(page, /节点聚合管理/);
   assert.match(page, /机器排序/);
   assert.match(page, /background:var\(--bg\)/);
   assert.ok(page.includes('id="login-password"'));
