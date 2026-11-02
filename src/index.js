@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.6";
+const VERSION = "1.36.7";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1451,6 +1451,7 @@ body.locked .wrap{display:none}
     (state.links || []).forEach(function (l) { if (l.preset === name) hit = l; });
     return hit;
   }
+  var COPY_FLASH_MS = 3000;
   function copyToClipboard(text) {
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
   }
@@ -1583,7 +1584,7 @@ body.locked .wrap{display:none}
         btn.textContent = sl ? "复制短链" : "短链";
         btn.title = sl ? "复制这条短链 /s/" + sl.code + "（想撤销就对接口发 DELETE /api/v1/links/" + sl.code + "）" : "给这个格式生成一条不带 token 的短链";
         btn.onclick = function () {
-          var flash = function (text) { var old = btn.textContent; btn.textContent = text; setTimeout(function () { btn.textContent = old; }, 1200); };
+          var flash = function (text) { var old = btn.textContent; btn.textContent = text; setTimeout(function () { btn.textContent = old; }, COPY_FLASH_MS); };
           if (sl) { copyToClipboard(location.origin + sl.path); flash("已复制"); return; }
           api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
             .then(function (data) { copyToClipboard(data.url); return loadPresets(true); })
@@ -1834,7 +1835,7 @@ body.locked .wrap{display:none}
     var id = ev.target && ev.target.getAttribute("data-copy");
     if (!id) return;
     var text = $(id).textContent;
-    var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, 1200); };
+    var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, COPY_FLASH_MS); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
   });
   $("clash-hide-empty").onchange = function () { renderClashGroups(); };
