@@ -43,23 +43,25 @@ CREATE TABLE IF NOT EXISTS machines (
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
 
+-- presets.*  订阅档案：把「哪些协议细分 / 隧道 / 哪几台机器 / 什么格式」存下来，
+--           对外给一条短链接 /sub/p/<name>/<token>，内容是实时筛的，跟着节点变。
+CREATE TABLE IF NOT EXISTS presets (
+  name       TEXT PRIMARY KEY,
+  label      TEXT NOT NULL DEFAULT '',
+  protos     TEXT NOT NULL DEFAULT '',
+  tunnel     TEXT NOT NULL DEFAULT '',
+  machines   TEXT NOT NULL DEFAULT '',
+  format     TEXT NOT NULL DEFAULT '',
+  token      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
--- shares.*  分享快照：把选中的节点拍一份拷贝，生成 /s/<id> 独立订阅；
---           expires_at 到期即删（快照不留在库里），也可以手动 DELETE。
-CREATE TABLE IF NOT EXISTS shares (
-  id         TEXT PRIMARY KEY,
-  note       TEXT NOT NULL DEFAULT '',
-  nodes_json TEXT NOT NULL DEFAULT '[]',
-  count      INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_shares_expires_at ON shares (expires_at);
 
 -- 老库升级（已有 machines 表时执行；重复执行会报 duplicate column，忽略即可）：
 -- ALTER TABLE machines ADD COLUMN auto_content TEXT;

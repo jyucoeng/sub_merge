@@ -816,7 +816,25 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("订阅清单：搜索过滤", nodeRows().length === 1 && visibleNames()[0].indexOf("香港") >= 0, visibleNames().join("|"));
 
+  // 勾选/批量只改本地，必须点「保存勾选」才写库（这样连续操作不会每次都打一次接口）
+  const beforeStage = await api("/sub/nodes");
+  const rowToTick = nodeRows()[0];
+  rowToTick.onclick.call(rowToTick);
+  await idle();
+  const staged = await api("/sub/nodes");
+  check("订阅清单：勾一下只是暂存，没有马上写库",
+    staged.data.stats.enabled === beforeStage.data.stats.enabled && el("sub-save").disabled === false,
+    `${beforeStage.data.stats.enabled} -> ${staged.data.stats.enabled}`);
+  check("订阅清单：工具栏提示有几处没保存", el("sub-dirty").textContent === "未保存 1 处" && el("sub-dirty").style.display === "", el("sub-dirty").textContent);
+  check("订阅清单：徽章数字跟着勾选实时变", el("sub-count").textContent.indexOf((beforeStage.data.stats.enabled - 1) + " / " + beforeStage.data.stats.total) === 0, el("sub-count").textContent);
+
+  click("sub-discard");
+  await idle();
+  check("订阅清单：撤销修改回到已保存的状态", el("sub-save").disabled === true && el("sub-count").textContent.indexOf(String(beforeStage.data.stats.enabled)) === 0, el("sub-count").textContent);
+
   click("sub-only");
+  await idle();
+  click("sub-save");
   await idle();
   const onlyMine = await api("/sub/nodes");
   const mine = onlyMine.data.machines.filter((m) => m.machine === "ui-proto")[0];
@@ -830,11 +848,15 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   click("sub-all");
   await idle();
+  click("sub-save");
+  await idle();
   const allOn = await api("/sub/nodes");
   const onMine = allOn.data.machines.filter((m) => m.machine === "ui-proto")[0];
   check("订阅清单：全选把节点放回订阅", onMine.enabled === onMine.total && onMine.total === 2, `${onMine.enabled}/${onMine.total}`);
 
   click("sub-none");
+  await idle();
+  click("sub-save");
   await idle();
   const noneOn = await api("/sub/nodes");
   check("订阅清单：全不选后订阅为空", noneOn.data.stats.enabled === 0, String(noneOn.data.stats.enabled));
@@ -842,6 +864,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅清单：订阅内容跟着变空", atob(emptySub).trim() === "", atob(emptySub).slice(0, 30));
 
   click("sub-all");
+  await idle();
+  click("sub-save");
   await idle();
   const back = await api("/sub/nodes");
   const backMine = back.data.machines.filter((m) => m.machine === "ui-proto")[0];
@@ -852,6 +876,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   litAgain.onclick.call(litAgain);
   await idle();
   click("sub-all");
+  await idle();
+  click("sub-save");
   await idle();
   const restored = await api("/sub/nodes");
   check("订阅清单：去掉筛选后全选恢复全部", restored.data.stats.enabled === restored.data.stats.total, `${restored.data.stats.enabled}/${restored.data.stats.total}`);
@@ -906,6 +932,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   // 全不选 / 全选：胶囊状态跟着变
   click("sub-none");
   await idle();
+  click("sub-save");
+  await idle();
   check("订阅清单：全不选后胶囊都不在订阅", protoChips().every((chip) => chip.className.indexOf("on") === -1 && chip.className.indexOf("part") === -1), protoChips().map((c) => c.className).join(","));
   check("订阅清单：全不选后胶囊数字变成 0/总", protoChips().every((chip) => parseCount(chip) === 0 && parseTotal(chip) > 0), protoChips().map((c) => c.textContent).join(" , "));
   {
@@ -918,6 +946,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     await idle();
   }
   click("sub-all");
+  await idle();
+  click("sub-save");
   await idle();
   check("订阅清单：全选后胶囊全部回到订阅态", protoChips().every((chip) => chip.className.indexOf("on") !== -1), protoChips().map((c) => c.className).join(","));
   check("订阅清单：全选后胶囊数字变成 总/总", protoChips().every((chip) => parseCount(chip) === parseTotal(chip)), protoChips().map((c) => c.textContent).join(" , "));
@@ -935,6 +965,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const partChips = Array.from(machineChipBox()).filter((chip) => chip.className.indexOf("part") !== -1);
   check("订阅清单：取消一个节点后它那台机器胶囊变半选", partChips.length === 1 && partChips[0].textContent.indexOf("ui-proto") !== -1, Array.from(machineChipBox()).map((c) => c.className + "|" + c.textContent).join(" , "));
   click("sub-all");
+  await idle();
+  click("sub-save");
   await idle();
   click("sub-clear");
   await idle();
@@ -1089,58 +1121,52 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
 }
 
-/* ---------------- 分享：快照订阅 ---------------- */
+/* ---------------- 订阅档案 ---------------- */
 {
-  const a = "vless://11111111-1111-4111-8111-111111111111@203.0.113.40:443?security=tls#分享-A";
-  const b = "hysteria2://pw@203.0.113.41:443?sni=addons.mozilla.org#分享-B";
-  const put = await api("/nodes/ui-share", {
+  await api("/nodes/ui-preset", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nodes: [{ link: a }, { link: b }] }),
+    body: JSON.stringify({ nodes: [
+      { link: "hysteria2://pw@203.0.113.60:443?sni=addons.mozilla.org#档案-hy2" },
+      { link: "vless://11111111-1111-4111-8111-111111111111@203.0.113.61:31003?encryption=none&security=reality&sni=www.microsoft.com#档案-reality" },
+    ] }),
   });
-  check("分享：准备一台机器", put.status === 200, String(put.status));
-  click("sub-reload");
+
+  el("preset-name").value = "hy2";
+  el("preset-label").value = "只要 Hy2";
+  el("preset-protos").value = "hy2";
+  click("preset-save");
   await idle();
 
-  const search = el("sub-search");
-  search.value = "分享-A";
-  search.oninput.call(search);
+  const rows = el("presets").children.filter((c) => c.className === "preset");
+  check("订阅档案：保存后列表里有一条", rows.length === 1, String(rows.length));
+  const url = rows[0].children[1].textContent;
+  check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
+
+  const pub = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
+  const body = Buffer.from(await pub.text(), "base64").toString("utf8");
+  check("订阅档案：链接只给这个协议的节点", pub.status === 200 && body.includes("档案-hy2") && !body.includes("档案-reality"), `${pub.status} ${body.slice(0, 50)}`);
+
+  // 换独立 token：链接变了，旧链接立刻失效
+  const rotate = rows[0].children[3].children[0];
+  check("订阅档案：有换 token 按钮", rotate && rotate.textContent === "发独立 token", rotate && rotate.textContent);
+  rotate.onclick.call(rotate);
   await idle();
+  const rotatedUrl = el("presets").children.filter((c) => c.className === "preset")[0].children[1].textContent;
+  check("订阅档案：换 token 后链接变了", rotatedUrl !== url, rotatedUrl);
+  const old = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
+  const fresh = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
+  check("订阅档案：旧链接 401、新链接 200", old.status === 401 && fresh.status === 200, `${old.status}/${fresh.status}`);
 
-  click("share-selected");
+  // 删除
+  const del = el("presets").children.filter((c) => c.className === "preset")[0].children[3].children[1];
+  del.onclick.call(del);
   await idle();
-  check("分享：选中当前筛出来的节点", el("share-count").textContent.indexOf("已选 1 个节点") === 0, el("share-count").textContent);
+  check("订阅档案：删除后列表空", !el("presets").children.some((c) => c.className === "preset"), "");
+  const gone = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
+  check("订阅档案：删除后链接 404", gone.status === 404, String(gone.status));
 
-  el("share-note").value = "小王-手机";
-  el("share-days").value = "3";
-  click("share-create");
-  await idle();
-
-  const url = el("share-url").textContent;
-  check("分享：生成了 /s/<id> 链接", /\/s\/[a-f0-9]{24}$/.test(url), url);
-  const shareId = url.split("/s/")[1];
-  check("分享：列表里出现了这条备注", el("shares").children.some((row) => row.textContent.indexOf("小王-手机") !== -1), el("shares").children.map((r) => r.textContent).join(" | "));
-
-  const pub = await netFetch(`${BASE}/s/${shareId}`);
-  const body = Buffer.from(await pub.text(), "base64").toString("utf8").trim();
-  check("分享：公开链接只给这一个节点", pub.status === 200 && body === a, `${pub.status} ${body.slice(0, 40)}`);
-
-  const row = el("shares").children.filter((r) => r.textContent.indexOf("小王-手机") !== -1)[0];
-  const kill = row.children[row.children.length - 1];
-  check("分享：行尾是销毁按钮", kill && kill.textContent === "销毁", kill && kill.textContent);
-  kill.onclick.call(kill);
-  await idle();
-  check("分享：销毁后列表清空", el("shares").children.every((c) => c.className !== "share"), el("shares").children.map((c) => c.className).join(","));
-
-  const gone = await netFetch(`${BASE}/s/${shareId}`);
-  check("分享：销毁后链接 404", gone.status === 404, String(gone.status));
-
-  search.value = "";
-  search.oninput.call(search);
-  await idle();
-  await netFetch(`${BASE}/api/v1/machines/ui-share`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
-  click("sub-reload");
-  await idle();
+  await netFetch(`${BASE}/api/v1/machines/ui-preset`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
 }
 
 /* ---------------- 登录与角色 ---------------- */

@@ -1,6 +1,6 @@
 {
   "name": "sub-merge",
-  "version": "1.28.0",
+  "version": "1.31.0",
   "private": true,
   "type": "module",
   "description": "Merge many subscription endpoints into one fixed URL, on Cloudflare Workers or Pages, backed by D1",

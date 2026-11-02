@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.28.0";
+const VERSION = "1.31.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -60,19 +60,21 @@ export const SCHEMA_STATEMENTS = [
   PRIMARY KEY (machine, source)
 )`,
   "CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine)",
+  `CREATE TABLE IF NOT EXISTS presets (
+  name       TEXT PRIMARY KEY,
+  label      TEXT NOT NULL DEFAULT '',
+  protos     TEXT NOT NULL DEFAULT '',
+  tunnel     TEXT NOT NULL DEFAULT '',
+  machines   TEXT NOT NULL DEFAULT '',
+  format     TEXT NOT NULL DEFAULT '',
+  token      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`,
   `CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 )`,
-  `CREATE TABLE IF NOT EXISTS shares (
-  id         TEXT PRIMARY KEY,
-  note       TEXT NOT NULL DEFAULT '',
-  nodes_json TEXT NOT NULL DEFAULT '[]',
-  count      INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-)`,
-  "CREATE INDEX IF NOT EXISTS idx_shares_expires_at ON shares (expires_at)",
 ];
 
 /* 老库补列：D1 的 ALTER TABLE 没有 IF NOT EXISTS，重复执行会报 duplicate column，这里按幂等处理。
@@ -158,6 +160,11 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
+.presets{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.preset{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px}
+.preset .pname{min-width:0;display:flex;flex-direction:column;gap:2px}
+.preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset code{font-size:12px;word-break:break-all;color:var(--sub)}
 .sub-list{display:grid;gap:6px;margin-top:10px}
 .sub-group{display:flex;align-items:center;gap:8px;margin:12px 0 2px;font-size:12px;font-weight:600;color:#475569}
 .sub-group .tag{font-weight:500}
@@ -166,10 +173,6 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .subrow button{flex:none}
 .chipgap{display:inline-block;width:8px}
-.shares{margin-top:8px;display:flex;flex-direction:column;gap:6px}
-.share{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px}
-.share .snote{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.share .smeta{font-size:12px;color:var(--sub);white-space:nowrap}
 .subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
 .subnode:hover{border-color:#c7d5e8}
 .subnode.off{opacity:.45;background:var(--soft)}
@@ -242,16 +245,18 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span><button id="sub-toggle" class="fold" type="button">展开 +</button></h2>
+<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">勾上的才进订阅；改完点「保存勾选」才生效（连续点不会每次都请求）</span><button id="sub-toggle" class="fold" type="button">展开 +</button></h2>
 <div id="sub-body" class="hidden">
 <div class="row" style="margin-top:10px">
   <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
   <button id="sub-all" type="button">全选</button>
   <button id="sub-only" type="button">只选筛出来的</button>
   <button id="sub-none" class="danger" type="button">全不选</button>
+  <button id="sub-save" class="primary" type="button" disabled>保存勾选</button>
+  <button id="sub-discard" type="button" disabled>撤销修改</button>
+  <span class="tag manual" id="sub-dirty" style="display:none">未保存</span>
   <button id="sub-clear" type="button">清除筛选</button>
   <button id="sub-reload" type="button">刷新</button>
-  <button id="share-selected" class="primary" type="button" title="把当前筛出来的节点拍成快照，生成一条只给对方用的独立订阅">分享筛出来的节点</button>
 </div>
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
@@ -263,22 +268,23 @@ body.locked .wrap{display:none}
 </div>
 </section>
 
-<section class="card" id="card-shares">
-<h2>分享 <span class="tag auto" id="share-badge">0 条</span> <span class="tip">给别人的独立订阅：快照拷贝、到期自动销毁，改自己的节点不影响已发出的分享</span></h2>
-<div class="row" style="margin-top:10px">
-  <span class="tip" id="share-count">还没选节点：先在上面筛出要分享的节点，再点「分享筛出来的节点」</span>
+<section class="card" id="card-presets">
+<h2>订阅档案 <span class="tag auto" id="preset-badge">0 个</span> <span class="tip">把「哪些协议 / 隧道 / 哪几台机器 / 什么格式」存成一条短链接，内容是实时筛的，节点变了自动跟着变</span></h2>
+<div class="hint" style="margin-top:8px">给自己用：一个协议一条链接，加进客户端就不用管了。协议写细分名（<code>hy2</code>、<code>vless-reality</code>、<code>trojan-argo</code>…），写基础名（<code>vless</code>）会命中它的全部细分；机器留空 = 全部机器；格式留空 = 跟着客户端 User-Agent 自动选。</div>
+<div class="row" style="margin-top:8px">
+  <input id="preset-name" placeholder="档案名，比如 hy2" spellcheck="false" style="width:150px">
+  <input id="preset-label" placeholder="显示名（可空）" spellcheck="false" style="width:150px">
+  <input id="preset-protos" placeholder="协议：hy2,vless-reality" spellcheck="false" style="min-width:200px">
+  <select id="preset-tunnel"><option value="">隧道不限</option><option value="fixed">只要固定隧道</option><option value="temp">只要临时隧道</option></select>
+  <select id="preset-format"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
 </div>
-<div class="row">
-  <label for="share-note">备注</label><input id="share-note" placeholder="分享给谁，比如「小王-手机」" maxlength="80" style="min-width:220px">
-  <label for="share-days">有效天数</label><input id="share-days" type="number" min="1" max="365" value="7" style="width:80px">
-  <button id="share-create" class="primary" type="button">生成分享链接</button>
+<div class="row" style="margin-top:6px">
+  <input id="preset-machines" placeholder="机器（逗号分隔，留空 = 全部）" spellcheck="false" style="min-width:280px">
+  <button id="preset-save" class="primary" type="button">保存档案</button>
+  <button id="preset-clear" type="button">清空</button>
+  <span class="tip" id="preset-status"></span>
 </div>
-<div class="row" id="share-result-row" style="display:none">
-  <label>链接</label><code id="share-url" style="word-break:break-all"></code>
-  <button id="share-copy" type="button">复制</button>
-</div>
-<div id="shares" class="shares"></div>
-<div id="share-status" class="status"></div>
+<div id="presets" class="presets"></div>
 </section>
 
 <section class="card">
@@ -311,7 +317,7 @@ body.locked .wrap{display:none}
   <button id="ff-clear" type="button">清空筛选</button>
 </div>
 <div class="subrow"><span class="tip">筛选后的订阅</span><code id="ff-url"></code><button data-copy="ff-url" type="button">复制</button></div>
-<div class="hint" style="margin-top:4px">这类链接是<b>实时</b>的：每次拉取都按当前节点重新筛一遍，节点新增/删除/改名都会跟着变（跟「分享」的快照不一样）。<code>?proto=hy2,vless-reality</code> 可多选，<code>vless</code> 会命中它全部细分；<code>?tunnel=fixed|temp</code> 只留固定/临时隧道。</div>
+<div class="hint" style="margin-top:4px">这类链接是<b>实时</b>的：每次拉取都按当前节点重新筛一遍，节点新增/删除/改名都会跟着变。<code>?proto=hy2,vless-reality</code> 可多选，<code>vless</code> 会命中它全部细分；<code>?tunnel=fixed|temp</code> 只留固定/临时隧道。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
 </div>
@@ -320,7 +326,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], search: "", protos: [], machinesF: [], tunnel: "" }, share: { ids: [], shares: [], urls: {} }, ff: { protos: [], tunnel: "", format: "clash" } };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, ff: { protos: [], tunnel: "", format: "clash" }, presets: [] };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -621,22 +627,6 @@ body.locked .wrap{display:none}
     list.splice(to, 0, item);
     return true;
   }
-  function copyText(text) {
-    if (!text) return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text);
-    } catch (e) { /* 复制失败就算了，链接照样看得见 */ }
-  }
-  function leftText(iso) {
-    var t = Date.parse(iso); if (!isFinite(t)) return "—";
-    var ms = t - Date.now();
-    if (ms <= 0) return "已过期";
-    var d = Math.floor(ms / 86400000);
-    if (d >= 1) return "剩 " + d + " 天";
-    var h = Math.floor(ms / 3600000);
-    if (h >= 1) return "剩 " + h + " 小时";
-    return "剩 " + Math.max(1, Math.floor(ms / 60000)) + " 分钟";
-  }
   function fmtWhen(iso) {
     if (!iso) return "";
     var d = new Date(iso);
@@ -709,6 +699,27 @@ body.locked .wrap{display:none}
   }
   /* 细分类型键：vless-reality / vless-argo / vless-cdn / hy2 …，老数据没有 cls 时退回 kind */
   function subKey(node) { return (node && node.cls) || (node && node.kind) || "unknown"; }
+  /* 勾选状态先存在 draft 里，点「保存勾选」才写库；disabled 是上次保存的结果。 */
+  function subInSub(node) { return (state.sub.draft || []).indexOf(node.id) === -1; }
+  function subChanged() {
+    var draft = state.sub.draft || []; var saved = state.sub.disabled || [];
+    if (draft.length !== saved.length) return true;
+    var set = {};
+    saved.forEach(function (id) { set[id] = 1; });
+    return draft.some(function (id) { return !set[id]; });
+  }
+  function subChangedCount() {
+    var draft = state.sub.draft || []; var saved = state.sub.disabled || [];
+    var a = {}, b = {}, n = 0;
+    draft.forEach(function (id) { a[id] = 1; });
+    saved.forEach(function (id) { b[id] = 1; });
+    draft.forEach(function (id) { if (!b[id]) n += 1; });
+    saved.forEach(function (id) { if (!a[id]) n += 1; });
+    return n;
+  }
+  function subEnabledCount() {
+    return subRows().filter(function (item) { return subInSub(item.node); }).length;
+  }
   /* 分面筛选：ignore 用来算「某个胶囊自己的候选数量」——统计它时不算它自己那一维。 */
   function subVisible(ignore) {
     ignore = ignore || {};
@@ -740,7 +751,7 @@ body.locked .wrap{display:none}
         var hit = map.filter(function (x) { return x.key === key; })[0];
         if (!hit) { hit = { key: key, total: 0, shown: 0, inSub: 0, label: "", machine: item.machine }; map.push(hit); }
         hit.total += 1;
-        if (item.node.in_sub) hit.inSub += 1;
+        if (subInSub(item.node)) hit.inSub += 1;
         if (shownSet[rowKey(item)]) hit.shown += 1;
         if (!hit.label) hit.label = (item.node && (item.node.cls_label || item.node.label)) || "";
       });
@@ -816,10 +827,20 @@ body.locked .wrap{display:none}
     var box = $("sub-list"); if (!box) return;
     var badge = $("sub-count");
     var stats = state.sub.stats || { total: 0, enabled: 0 };
+    var liveEnabled = subEnabledCount();
     if (badge) {
-      badge.textContent = stats.enabled + " / " + stats.total + " 在订阅里";
-      badge.className = "tag " + (stats.disabled ? "manual" : "auto");
+      badge.textContent = liveEnabled + " / " + stats.total + " 在订阅里";
+      badge.className = "tag " + (liveEnabled === stats.total ? "auto" : "manual");
     }
+    var dirty = subChanged();
+    var dirtyTag = $("sub-dirty");
+    if (dirtyTag) {
+      dirtyTag.textContent = "未保存 " + subChangedCount() + " 处";
+      dirtyTag.style.display = dirty ? "" : "none";
+    }
+    var saveBtn = $("sub-save"), undoBtn = $("sub-discard");
+    if (saveBtn) { saveBtn.disabled = !dirty; saveBtn.textContent = dirty ? "保存勾选（" + subChangedCount() + "）" : "保存勾选"; }
+    if (undoBtn) undoBtn.disabled = !dirty;
     renderSubChips();
     box.innerHTML = "";
     var visible = subVisible();
@@ -861,17 +882,17 @@ body.locked .wrap{display:none}
         }(item.machine);
         var name = document.createElement("span"); name.textContent = item.machine;
         var count = document.createElement("span"); count.className = "tag auto";
-        var group = (state.sub.machines || []).filter(function (m) { return m.machine === item.machine; })[0];
-        count.textContent = (group ? group.enabled : 0) + " / " + (group ? group.total : 0);
+        var groupRows = subRows().filter(function (x) { return x.machine === item.machine; });
+        count.textContent = groupRows.filter(function (x) { return subInSub(x.node); }).length + " / " + groupRows.length;
         head.appendChild(name); head.appendChild(count);
         box.appendChild(head);
       }
       var node = item.node;
       var row = document.createElement("div");
-      row.className = "subnode" + (node.in_sub ? "" : " off");
+      row.className = "subnode" + (subInSub(node) ? "" : " off");
       row.title = node.link;
       var tick = document.createElement("input");
-      tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
+      tick.type = "checkbox"; tick.checked = subInSub(node);
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = node.cls_label || node.label;
       tag.title = "点标签只看这个细分类型";
@@ -909,38 +930,50 @@ body.locked .wrap{display:none}
     }).catch(function (err) { subStatusText(err.message, false); });
   }
   function toggleSubNode(node) {
-    var set = (state.sub.disabled || []).slice();
-    var at = set.indexOf(node.id);
-    if (at === -1) set.push(node.id); else set.splice(at, 1);
-    var turningOn = at !== -1;
-    putSubDisabled(set).then(function () {
+    var draft = (state.sub.draft || []).slice();
+    var at = draft.indexOf(node.id);
+    if (at === -1) draft.push(node.id); else draft.splice(at, 1);
+    state.sub.draft = draft;
+    renderSub();
+  }
+  function saveSubDraft() {
+    var draft = (state.sub.draft || []).slice();
+    var count = subChangedCount();
+    subStatusText("正在保存…", null);
+    return putSubDisabled(draft).then(function () {
       var stats = state.sub.stats || {};
-      subStatusText((turningOn ? "已让「" + (node.name || node.link) + "」回到订阅" : "已把「" + (node.name || node.link) + "」移出订阅")
-        + "，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
+      state.sub.disabled = draft.slice();
+      renderSub();
+      subStatusText("已保存 " + count + " 处改动，现在 " + (stats.enabled != null ? stats.enabled : subEnabledCount()) + " / " + stats.total + " 个节点在订阅里", true);
       loadMachines(true);
     });
+  }
+  function discardSubDraft() {
+    state.sub.draft = (state.sub.disabled || []).slice();
+    renderSub();
+    subStatusText("已撤销未保存的勾选", true);
   }
   function applySubBulk(mode) {
     var visible = subVisible();
     var visibleIds = new Set(visible.map(function (item) { return item.node.id; }));
     var allIds = subRows().map(function (item) { return item.node.id; });
-    var set = new Set(state.sub.disabled || []);
+    var set = new Set(state.sub.draft || []);
     if (mode === "all") visibleIds.forEach(function (id) { set.delete(id); });
     if (mode === "only") { allIds.forEach(function (id) { if (!visibleIds.has(id)) set.add(id); }); visibleIds.forEach(function (id) { set.delete(id); }); }
     if (mode === "none") allIds.forEach(function (id) { set.add(id); });
-    var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length) ? "筛出来的 " + visible.length + " 个" : "全部";
-    putSubDisabled([...set]).then(function () {
-      var stats = state.sub.stats || {};
-      var label = mode === "all" ? "全选" : mode === "only" ? "只选筛出来的" : "全不选";
-      subStatusText(label + "（" + scope + "）完成，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
-      loadMachines(true);
-    });
+    var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.tunnel) ? "筛出来的 " + visible.length + " 个" : "全部";
+    state.sub.draft = [...set];
+    renderSub();
+    var label = mode === "all" ? "全选" : mode === "only" ? "只选筛出来的" : "全不选";
+    subStatusText(label + "（" + scope + "）已勾好，点「保存勾选」生效", true);
   }
   function loadSubNodes(quiet) {
     return api("/sub/nodes").then(function (data) {
       state.sub.machines = data.machines || [];
       state.sub.stats = data.stats || { total: 0, enabled: 0 };
+      var wasDirty = subChanged();
       state.sub.disabled = data.disabled || [];
+      if (!wasDirty) state.sub.draft = (data.disabled || []).slice();
       renderSub();
       renderFf();
       if (!quiet) subStatusText("已加载 " + state.sub.stats.total + " 个节点，其中 " + state.sub.stats.enabled + " 个在订阅里", true);
@@ -981,80 +1014,92 @@ body.locked .wrap{display:none}
     var url = $("ff-url"); if (url) url.textContent = ffUrl();
   }
 
-  /* ---------------- 分享（快照订阅） ---------------- */
-  function shareStatusText(text, ok) {
-    var el = $("share-status"); if (!el) return;
+  /* ---------------- 订阅档案 ---------------- */
+  function presetStatus(text, ok) {
+    var el = $("preset-status"); if (!el) return;
     el.textContent = text || "";
-    el.className = "status" + (text ? (ok ? " ok" : " err") : "");
+    el.className = "tip" + (text && ok === false ? " err" : "");
   }
-  function loadShares(quiet) {
-    return api("/shares").then(function (data) {
-      state.share.shares = data.shares || [];
-      renderShares();
-      if (!quiet) shareStatusText("已加载 " + state.share.shares.length + " 条分享", true);
-    }).catch(function (err) { shareStatusText(err.message, false); });
+  function presetProtoText(item) {
+    if (!(item.protos || []).length) return "全部协议";
+    return item.protos.join("、");
   }
-  function shareUrlOf(id) {
-    return location.origin + "/s/" + id;
-  }
-  function renderShares() {
-    var box = $("shares"); if (!box) return;
+  function renderPresets() {
+    var box = $("presets"); if (!box) return;
     box.innerHTML = "";
-    var badge = $("share-badge");
-    if (badge) badge.textContent = state.share.shares.length + " 条";
-    if (!state.share.shares.length) {
+    var badge = $("preset-badge");
+    if (badge) badge.textContent = state.presets.length + " 个";
+    if (!state.presets.length) {
       var empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = "还没有分享。上面筛出节点后点「分享筛出来的节点」，填个备注和天数就能生成。";
+      empty.textContent = "还没有档案。上面填个名字（比如 hy2）、协议写 hy2，点「保存档案」就会得到 /sub/p/hy2/<token> 这样的链接。";
       box.appendChild(empty);
       return;
     }
-    state.share.shares.forEach(function (item) {
-      var row = document.createElement("div"); row.className = "share";
-      var note = document.createElement("div"); note.className = "snote";
-      note.textContent = (item.note || "（没写备注）") + " · " + item.count + " 个节点";
-      var meta = document.createElement("div"); meta.className = "smeta";
-      meta.textContent = "到期 " + fmtWhen(item.expires_at) + " · " + leftText(item.expires_at);
-      meta.title = "到期后这条分享连同快照一起自动销毁";
-      var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制链接";
-      copy.onclick = function () { copyText(shareUrlOf(item.id)); shareStatusText("链接已复制：" + shareUrlOf(item.id), true); };
-      var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "销毁";
-      del.onclick = function () {
-        if (typeof confirm === "function" && !confirm("销毁这条分享？对方手里的链接会立刻失效。")) return;
-        api("/shares/" + item.id, { method: "DELETE" }).then(function () {
-          loadShares(true);
-          shareStatusText("已销毁" + (item.note ? "「" + item.note + "」" : "这条分享"), true);
-        }).catch(function (err) { shareStatusText(err.message, false); });
+    state.presets.forEach(function (item) {
+      var row = document.createElement("div"); row.className = "preset";
+      var name = document.createElement("div"); name.className = "pname";
+      var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
+      var desc = document.createElement("div"); desc.className = "pdesc";
+      desc.textContent = presetProtoText(item)
+        + (item.tunnel ? " · " + (item.tunnel === "fixed" ? "固定隧道" : "临时隧道") : "")
+        + (item.machines.length ? " · 机器 " + item.machines.join("、") : " · 全部机器")
+        + (item.format ? " · " + item.format : " · 格式自动")
+        + (item.token ? " · 独立 token" : " · 共用主 token");
+      name.appendChild(title); name.appendChild(desc);
+
+      var link = document.createElement("code"); link.textContent = item.url;
+
+      var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
+      copy.onclick = function () { copyToClipboard(item.url); presetStatus("已复制：" + item.name, true); };
+
+      var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
+      var rotate = document.createElement("button"); rotate.type = "button"; rotate.textContent = item.token ? "换 token" : "发独立 token";
+      rotate.title = "给这个档案单独发一个 token，之后主 token 就不再能访问它；再点一次会换新的";
+      rotate.onclick = function () {
+        api("/presets/" + encodeURIComponent(item.name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rotate_token: true }) })
+          .then(function (data) { presetStatus("已换新 token：" + data.preset.name, true); loadPresets(true); })
+          .catch(function (err) { presetStatus(err.message, false); });
       };
-      row.appendChild(note); row.appendChild(meta); row.appendChild(copy); row.appendChild(del);
+      var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "删除";
+      del.onclick = function () {
+        if (typeof confirm === "function" && !confirm("删除档案「" + item.name + "」？链接会立刻失效。")) return;
+        api("/presets/" + encodeURIComponent(item.name), { method: "DELETE" })
+          .then(function () { presetStatus("已删除 " + item.name, true); loadPresets(true); })
+          .catch(function (err) { presetStatus(err.message, false); });
+      };
+      right.appendChild(rotate); right.appendChild(del);
+      row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
     });
   }
-  function pickShareNodes() {
-    var ids = [];
-    subVisible().forEach(function (item) { if (ids.indexOf(item.node.id) === -1) ids.push(item.node.id); });
-    state.share.ids = ids;
-    shareStatusText(ids.length ? "已选 " + ids.length + " 个节点（当前筛出来的那些）" : "当前没有筛出任何节点", Boolean(ids.length));
-    var tip = $("share-count");
-    if (tip) tip.textContent = ids.length ? "已选 " + ids.length + " 个节点：填备注、点生成" : "还没选节点：先在上面筛出要分享的节点，再点「分享筛出来的节点」";
+  function loadPresets(quiet) {
+    return api("/presets").then(function (data) {
+      state.presets = data.presets || [];
+      renderPresets();
+      if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案", true);
+    }).catch(function (err) { presetStatus(err.message, false); });
   }
-  function createShare() {
-    var ids = state.share.ids || [];
-    if (!ids.length) { shareStatusText("先在上面点「分享筛出来的节点」选节点", false); return; }
-    var days = Number($("share-days").value || 7);
-    if (!isFinite(days) || days < 1 || days > 365) { shareStatusText("有效天数要在 1–365 之间", false); return; }
-    shareStatusText("正在生成…", true);
-    api("/shares", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note: $("share-note").value || "", days: days, nodes: ids }),
-    }).then(function (data) {
-      var row = $("share-result-row"); if (row) row.style.display = "";
-      var url = $("share-url"); if (url) url.textContent = data.url;
-      state.share.last = data.url;
-      $("share-note").value = "";
-      loadShares(true);
-      shareStatusText("已生成：" + data.count + " 个节点，到期 " + fmtWhen(data.expires_at), true);
-    }).catch(function (err) { shareStatusText(err.message, false); });
+  function savePreset() {
+    var name = String($("preset-name").value || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("档案名只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    var body = {
+      label: String($("preset-label").value || "").trim(),
+      protos: String($("preset-protos").value || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean),
+      tunnel: $("preset-tunnel").value || "",
+      machines: String($("preset-machines").value || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean),
+      format: $("preset-format").value || "",
+    };
+    presetStatus("正在保存…", true);
+    api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (data) {
+        presetStatus("已保存：" + data.preset.name + "（" + (data.preset.protos || []).join("、") + "）", true);
+        state.presets = null;
+        loadPresets(true);
+      })
+      .catch(function (err) { presetStatus(err.message, false); });
+  }
+  function copyToClipboard(text) {
+    try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
   }
 
   function renderAutoNodes() {
@@ -1247,15 +1292,18 @@ body.locked .wrap{display:none}
   $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
   $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
+  $("preset-save").onclick = function () { savePreset(); };
+  $("preset-clear").onclick = function () {
+    ["preset-name", "preset-label", "preset-protos", "preset-machines"].forEach(function (id) { var el = $(id); if (el) el.value = ""; });
+    $("preset-tunnel").value = ""; $("preset-format").value = "";
+    presetStatus("已清空输入", true);
+  };
   $("ff-tunnel").onchange = function () { state.ff.tunnel = this.value; renderFf(); };
   $("ff-format").onchange = function () { state.ff.format = this.value; renderFf(); };
   $("ff-clear").onclick = function () { state.ff.protos = []; state.ff.tunnel = ""; $("ff-tunnel").value = ""; renderFf(); };
-  $("share-selected").onclick = function () { pickShareNodes(); };
-  $("share-create").onclick = function () { createShare(); };
-  $("share-copy").onclick = function () {
-    if (!state.share.last) return;
-    copyText(state.share.last); shareStatusText("链接已复制", true);
-  };
+
+  $("sub-save").onclick = function () { saveSubDraft(); };
+  $("sub-discard").onclick = function () { discardSubDraft(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
   $("sub-only").onclick = function () { applySubBulk("only"); };
   $("sub-none").onclick = function () { applySubBulk("none"); };
@@ -1595,7 +1643,7 @@ body.locked .wrap{display:none}
     loadMachines();
     loadSubNodes(true);
     loadClash();
-    loadShares();
+    loadPresets(true);
   }
 
   $("login-submit").onclick = function () {
@@ -1693,9 +1741,6 @@ async function handleRequest(request, env) {
         "GET /sub/:machine/:token",
         "GET /sub/all/:token",
         "GET /sub/:token",
-        "POST /api/v1/shares",
-        "GET /api/v1/shares",
-        "DELETE /api/v1/shares/:id",
         "GET /s/:id",
         "GET/PUT /api/v1/nodes/:machine",
         "POST /api/v1/machines/:machine/reset",
@@ -1918,26 +1963,26 @@ async function handleRequest(request, env) {
     return json({ ok: true, reset: true, custom: doc.custom, groups: doc.groups, rulesets: doc.rulesets });
   }
 
-  m = path.match(/^\/api\/v1\/shares$/);
+  m = path.match(/^\/api\/v1\/presets$/);
   if (m) {
     if (!authToken(env)) return missingConfig("SUB_TOKEN");
-    if (request.method === "GET") return getShares(env);
-    if (request.method === "POST") return createShare(request, env);
-    return methodNotAllowed("GET, POST");
+    if (request.method === "GET") return getPresets(env, request);
+    return methodNotAllowed("GET");
   }
 
-  m = path.match(/^\/api\/v1\/shares\/([^/]+)$/);
+  m = path.match(/^\/api\/v1\/presets\/([^/]+)$/);
   if (m) {
     if (!authToken(env)) return missingConfig("SUB_TOKEN");
-    if (request.method === "DELETE") return deleteShare(env, decodeURIComponent(m[1]));
-    return methodNotAllowed("DELETE");
+    const name = decodeURIComponent(m[1]);
+    if (request.method === "PUT") return putPreset(request, env, name);
+    if (request.method === "DELETE") return deletePreset(env, name);
+    return methodNotAllowed("PUT, DELETE");
   }
 
-  // 分享链接：公开，不用 token，路径里就是分享 id
-  m = path.match(/^\/s\/([^/]+)$/);
+  m = path.match(/^\/sub\/p\/([^/]+)\/([^/]+)$/);
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    return serveShare(env, decodeURIComponent(m[1]), request);
+    return servePreset(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
   }
 
   m = path.match(/^\/sub\/all\/([^/]+)$/);
@@ -2740,6 +2785,135 @@ async function getOne(env, machine, token, request) {
   });
 }
 
+/* ---- 订阅档案：把「筛哪些协议/隧道/机器、用什么格式」存下来，给一条短链接 ----
+ * /sub/p/<档案名>/<token>：token 默认就是 SUB_TOKEN，也可以给单个档案单独发一个（可单独吊销）。 */
+const PRESET_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const PRESET_MAX = 200;
+
+function presetToken() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function presetFromRow(row) {
+  return {
+    name: row.name,
+    label: row.label || row.name,
+    protos: String(row.protos || "").split(",").filter(Boolean),
+    tunnel: row.tunnel || "",
+    machines: String(row.machines || "").split("").filter(Boolean),
+    format: row.format || "",
+    token: row.token || "",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function listPresets(env) {
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets ORDER BY created_at ASC").all();
+  return (res.results || []).map(presetFromRow);
+}
+
+async function findPreset(env, name) {
+  if (!PRESET_NAME_RE.test(String(name || ""))) return null;
+  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets WHERE name = ?1").bind(name).first();
+  return row ? presetFromRow(row) : null;
+}
+
+/* body: { label, protos:[], tunnel, machines:[], format, rotate_token } */
+async function putPreset(request, env, name) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!PRESET_NAME_RE.test(String(name || ""))) return json({ ok: false, error: "name must match ^[A-Za-z0-9_-]{1,32}$" }, 400);
+  const text = await request.text();
+  let data;
+  try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+  const protos = (Array.isArray(data.protos) ? data.protos : String(data.protos || "").split(","))
+    .map((x) => String(x).trim().toLowerCase()).filter((x) => /^[a-z0-9-]{1,32}$/.test(x)).slice(0, 40);
+  const tunnelRaw = String(data.tunnel || "").toLowerCase();
+  const tunnel = ["fixed", "temp"].includes(tunnelRaw) ? tunnelRaw : "";
+  const machines = (Array.isArray(data.machines) ? data.machines : String(data.machines || "").split(","))
+    .map((x) => String(x).trim()).filter(Boolean).slice(0, 50);
+  const formatRaw = String(data.format || "").toLowerCase();
+  const format = ["clash", "proxies", "singbox", "base64"].includes(formatRaw) ? formatRaw : "";
+  const label = String(data.label || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 40) || name;
+
+  const existing = await findPreset(env, name);
+  if (!existing) {
+    const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM presets").first());
+    if (count && Number(count.n) >= PRESET_MAX) return json({ ok: false, error: `at most ${PRESET_MAX} presets` }, 400);
+  }
+  const now = new Date().toISOString();
+  const token = data.rotate_token === true || (!existing && data.own_token === true) ? presetToken() : (existing ? existing.token : "");
+  const machinesKey = machines.join("");
+  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9`)
+    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now)
+    .run();
+  const saved = await findPreset(env, name);
+  return json({ ok: true, preset: saved, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
+}
+
+async function deletePreset(env, name) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!PRESET_NAME_RE.test(String(name || ""))) return json({ ok: false, error: "invalid preset name" }, 400);
+  await env.DB.prepare("DELETE FROM presets WHERE name = ?1").bind(name).run();
+  return json({ ok: true, deleted: name });
+}
+
+async function getPresets(env, request) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const list = await listPresets(env);
+  const base = baseUrl(request);
+  return json({
+    ok: true,
+    presets: list.map((item) => ({ ...item, token: item.token ? "own" : "", url: `${base}/sub/p/${encodeURIComponent(item.name)}/${item.token || authToken(env)}` })),
+  });
+}
+
+/* 公开：/sub/p/<档案名>/<token>，按档案里存的条件实时筛 */
+async function servePreset(env, name, token, request) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const preset = await findPreset(env, name);
+  if (!preset) return json({ ok: false, error: "preset not found" }, 404);
+  const expected = preset.token || authToken(env);
+  if (!expected) return missingConfig("SUB_TOKEN");
+  if (!checkToken(token, expected)) return unauthorized();
+
+  const records0 = await loadAllRecords(env);
+  const records = preset.machines.length ? records0.filter((r) => preset.machines.includes(r.machine)) : records0;
+  const order = await getMachineOrder(env);
+  const format = preset.format || formatOf(request);
+  const rules = format === "clash" ? await loadClashRules(env) : null;
+  const protocolMap = await loadProtocolMap(env);
+  const disabled = await loadDisabledGlobal(env);
+  const filter = { protos: preset.protos, tunnel: preset.tunnel };
+  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + preset.machines.length;
+  const key = subCacheKey("preset:" + preset.name + ":" + rev + (rules ? ":" + rules.rev : ""), format, order, records);
+  const baseHeaders = { "x-preset": encodeURIComponent(preset.name), "x-machines": String(records.length), "x-storage": "d1" };
+  const hit = subCacheGet(key);
+  if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
+
+  const rank = new Map(order.map((m, i) => [m, i]));
+  const items = [];
+  for (const record of records) {
+    const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabled);
+    for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
+  }
+  items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
+  const nodes = items.map((item) => item.node).filter((node) => matchesFilter(node, filter));
+  const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
+  return cachedSubResponse(rendered, {
+    ...baseHeaders,
+    "x-nodes": String(nodes.length),
+    ...(filter.protos.length ? { "x-proto": filter.protos.join(",") } : {}),
+    ...(filter.tunnel ? { "x-tunnel": filter.tunnel } : {}),
+    "x-sub-cache": "miss",
+  });
+}
+
 async function getAll(env, token, request) {
   if (!authToken(env)) return missingConfig("SUB_TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
@@ -2867,120 +3041,6 @@ async function subNodesView(env) {
     .filter((item) => item.count > 0);
   const stats = { total, enabled, disabled: total - enabled, protocols, classes, tunnels };
   return { machines, disabled: [...disabled], stats };
-}
-
-/* ---- 分享：把选中的节点拍成快照，生成一条独立订阅链接 ----
- * 快照是拷贝：之后改机器、删节点、改规则都不影响已发出的分享；
- * 到期（expires_at）自动销毁，也可以随时手动删。 */
-const SHARE_ID_RE = /^[a-f0-9]{24}$/;
-const SHARE_MAX_DAYS = 365;
-const SHARE_DEFAULT_DAYS = 7;
-const SHARE_MAX_NODES = 500;
-const SHARE_NOTE_MAX = 80;
-
-function shareId() {
-  const bytes = new Uint8Array(12);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/* 到期的分享一律当场删掉：快照不留在库里 */
-async function purgeExpiredShares(env, nowIso) {
-  const at = nowIso || new Date().toISOString();
-  await env.DB.prepare("DELETE FROM shares WHERE expires_at <= ?1").bind(at).run();
-}
-
-async function findShare(env, id) {
-  if (!SHARE_ID_RE.test(String(id || ""))) return null;
-  const row = await env.DB.prepare("SELECT id, note, nodes_json, count, created_at, expires_at FROM shares WHERE id = ?1").bind(id).first();
-  if (!row) return null;
-  if (String(row.expires_at) <= new Date().toISOString()) {
-    await env.DB.prepare("DELETE FROM shares WHERE id = ?1").bind(id).run();
-    return null;
-  }
-  return row;
-}
-
-async function listShares(env) {
-  await purgeExpiredShares(env);
-  const res = await env.DB.prepare("SELECT id, note, count, created_at, expires_at FROM shares ORDER BY created_at DESC").all();
-  return (res.results || []).map((row) => ({
-    id: row.id,
-    note: row.note || "",
-    count: Number(row.count) || 0,
-    created_at: row.created_at,
-    expires_at: row.expires_at,
-  }));
-}
-
-async function getShares(env) {
-  if (!dbEnv(env)) return missingConfig("DB");
-  const shares = await listShares(env);
-  return json({ ok: true, shares });
-}
-
-/* 建分享：body = { note, days, nodes: ["<节点 id>", …] } */
-async function createShare(request, env) {
-  if (!dbEnv(env)) return missingConfig("DB");
-  const text = await request.text();
-  if (text.length > 256 * 1024) return json({ ok: false, error: "body too large" }, 413);
-  let data;
-  try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
-  const ids = Array.isArray(data.nodes) ? data.nodes.filter((x) => typeof x === "string" && x) : [];
-  if (!ids.length) return json({ ok: false, error: "nodes must be a non-empty array of node ids" }, 400);
-  if (ids.length > SHARE_MAX_NODES) return json({ ok: false, error: `at most ${SHARE_MAX_NODES} nodes per share` }, 400);
-  const days = data.days === undefined || data.days === null || data.days === "" ? SHARE_DEFAULT_DAYS : Number(data.days);
-  if (!Number.isInteger(days) || days < 1 || days > SHARE_MAX_DAYS) return json({ ok: false, error: `days must be an integer between 1 and ${SHARE_MAX_DAYS}` }, 400);
-  const note = String(data.note === undefined || data.note === null ? "" : data.note).replace(/[\r\n\t]+/g, " ").trim().slice(0, SHARE_NOTE_MAX);
-
-  // 从当前所有机器里按 id 找回链接（同一 id 只留一条，保持传入顺序）
-  const wanted = new Set(ids);
-  const found = new Map();
-  const records = await loadAllRecords(env);
-  for (const record of records) {
-    for (const item of await nodeEntries(record, new Set())) {
-      if (!wanted.has(item.id) || found.has(item.id)) continue;
-      found.set(item.id, { link: item.link, name: item.name || "" });
-    }
-    if (found.size === wanted.size) break;
-  }
-  const picked = ids.filter((id) => found.has(id)).map((id) => found.get(id));
-  if (!picked.length) return json({ ok: false, error: "none of those nodes exist any more" }, 400);
-
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + days * 86400000).toISOString();
-  const id = shareId();
-  await purgeExpiredShares(env, now.toISOString());
-  await env.DB.prepare("INSERT INTO shares (id, note, nodes_json, count, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-    .bind(id, note, JSON.stringify(picked), picked.length, now.toISOString(), expiresAt)
-    .run();
-  return json({ ok: true, id, note, count: picked.length, created_at: now.toISOString(), expires_at: expiresAt, url: `${baseUrl(request)}/s/${id}` });
-}
-
-async function deleteShare(env, id) {
-  if (!dbEnv(env)) return missingConfig("DB");
-  if (!SHARE_ID_RE.test(String(id || ""))) return json({ ok: false, error: "invalid share id" }, 400);
-  await env.DB.prepare("DELETE FROM shares WHERE id = ?1").bind(id).run();
-  return json({ ok: true, deleted: id });
-}
-
-/* 公开的分享订阅：不要 token，只吐快照里的那几条，过期就 404 */
-async function serveShare(env, id, request) {
-  if (!dbEnv(env)) return missingConfig("DB");
-  const row = await findShare(env, id);
-  if (!row) return json({ ok: false, error: "share not found or expired" }, 404);
-  let list = [];
-  try { list = JSON.parse(row.nodes_json) || []; } catch { list = []; }
-  const nodes = list
-    .filter((x) => x && typeof x.link === "string" && x.link)
-    .map((x) => ({ link: x.link, name: typeof x.name === "string" ? x.name : "" }));
-  if (!nodes.length) return json({ ok: false, error: "share is empty" }, 404);
-  const format = formatOf(request);
-  const rules = format === "clash" ? await loadClashRules(env) : null;
-  const rendered = subBody(nodes, format, rules);
-  return new Response(rendered.body, {
-    headers: subHeaders(rendered.type, { "x-share": row.id, "x-nodes": String(nodes.length), "x-expires-at": String(row.expires_at) }),
-  });
 }
 
 /* 全站：设置哪些节点不进订阅（空数组 = 全部显示）。 */
@@ -3478,7 +3538,7 @@ function parseLinkCached(link) {
 /* 动态筛选：?proto=hy2,vless-reality&tunnel=fixed
  * proto 既认细分类型（vless-reality / trojan-argo / vless-cdn），也认基础协议（vless 会命中它全部细分）。
  * tunnel 只对 argo 节点有意义：fixed=固定隧道，temp=临时隧道。
- * 这些是「实时」筛选：每次拉取都按当前节点算，跟着节点变化，不像分享那样是快照。 */
+ * 这些是「实时」筛选：每次拉取都按当前节点算，跟着节点变化。 */
 function filterOf(request) {
   const u = new URL(request.url);
   const raw = (u.searchParams.get("proto") || u.searchParams.get("protocol") || u.searchParams.get("types") || "").trim();

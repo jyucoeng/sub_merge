@@ -16,7 +16,7 @@ class MockD1 {
     this.machines = new Map();
     this.settings = new Map();
     this.reports = new Map();
-    this.shares = new Map();
+    this.presets = new Map();
   }
   prepare(sql) {
     return new MockStatement(this, sql);
@@ -59,8 +59,11 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
-    if (/^SELECT id, note, nodes_json, count, created_at, expires_at FROM shares WHERE id = \?1$/i.test(this.sql)) {
-      return this.db.shares.get(this.args[0]) || null;
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets WHERE name = \?1$/i.test(this.sql)) {
+      return this.db.presets.get(this.args[0]) || null;
+    }
+    if (/^SELECT COUNT\(\*\) AS n FROM presets$/i.test(this.sql)) {
+      return { n: this.db.presets.size };
     }
     if (/^SELECT value FROM settings WHERE key = \?1$/i.test(this.sql)) {
       const value = this.db.settings.get(this.args[0]);
@@ -69,17 +72,15 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
+      const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT key, value FROM settings WHERE key LIKE '(protocols|disabled):%'$/i.test(this.sql)) {
       const prefix = this.sql.match(/'(protocols|disabled):%/)[1] + ":";
       const rows = [...this.db.settings.entries()]
         .filter(([key]) => key.startsWith(prefix))
         .map(([key, value]) => ({ key, value }));
-      return { results: rows, success: true, meta: { changes: 0 } };
-    }
-    if (/^SELECT id, note, count, created_at, expires_at FROM shares ORDER BY created_at DESC$/i.test(this.sql)) {
-      const rows = [...this.db.shares.values()]
-        .map(({ id, note, count, created_at, expires_at }) => ({ id, note, count, created_at, expires_at }))
-        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
     if (/^SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'$/i.test(this.sql)) {
@@ -131,19 +132,6 @@ class MockStatement {
       for (const key of [...this.db.reports.keys()]) if (key.startsWith(`${args[0]}\u0000`)) { this.db.reports.delete(key); changes += 1; }
       return { success: true, meta: { changes } };
     }
-    if (/^INSERT INTO shares \(id, note, nodes_json, count, created_at, expires_at\) VALUES/i.test(this.sql)) {
-      const [id, note, nodes_json, count, created_at, expires_at] = args;
-      this.db.shares.set(id, { id, note, nodes_json, count, created_at, expires_at });
-      return { success: true, meta: { changes: 1 } };
-    }
-    if (/^DELETE FROM shares WHERE id = \?1$/i.test(this.sql)) {
-      return { success: true, meta: { changes: this.db.shares.delete(args[0]) ? 1 : 0 } };
-    }
-    if (/^DELETE FROM shares WHERE expires_at <= \?1$/i.test(this.sql)) {
-      let changes = 0;
-      for (const [id, row] of [...this.db.shares.entries()]) if (String(row.expires_at) <= String(args[0])) { this.db.shares.delete(id); changes += 1; }
-      return { success: true, meta: { changes } };
-    }
     if (/^DELETE FROM settings WHERE key = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.settings.delete(args[0]) ? 1 : 0 } };
     }
@@ -153,6 +141,14 @@ class MockStatement {
     if (/^INSERT INTO settings .+ ON CONFLICT\(key\) DO UPDATE/i.test(this.sql)) {
       this.db.settings.set(args[0], args[1]);
       return { success: true, meta: { changes: 1 } };
+    }
+    if (/^INSERT INTO presets/i.test(this.sql)) {
+      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at] = args;
+      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^DELETE FROM presets WHERE name = \?1$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.presets.delete(args[0]) ? 1 : 0 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
@@ -1695,62 +1691,6 @@ test("protocol classes split reality, argo and cdn apart", async () => {
   assert.deepEqual(view.machines[0].nodes.map((n) => n.kind), ["vless", "trojan", "vless", "vmess", "vmess", "hy2", "vless"]);
 });
 
-test("shares snapshot nodes into their own subscription and clean themselves up", async () => {
-  const env = makeEnv();
-  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
-  const a = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-A";
-  const b = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-B";
-  await call(env, "PUT", "/api/v1/nodes/mach-share", JSON.stringify({ nodes: [{ link: a }, { link: b }] }), auth);
-  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, auth)).json();
-  const [first, second] = view.machines[0].nodes;
-
-  const made = await call(env, "POST", "/api/v1/shares", JSON.stringify({ note: "给小王", days: 3, nodes: [first.id] }), auth);
-  assert.equal(made.status, 200);
-  const share = await made.json();
-  assert.equal(share.count, 1);
-  assert.equal(share.note, "给小王");
-  assert.match(share.id, /^[a-f0-9]{24}$/);
-  assert.equal(share.url, `https://sub.example.workers.dev/s/${share.id}`);
-
-  // 公开链接：不用 token，只有快照里那一条
-  const pub = await call(env, "GET", `/s/${share.id}`, null, {});
-  assert.equal(pub.status, 200);
-  assert.deepEqual(unb64(await pub.text()).trim().split("\n"), [a]);
-  const clash = await call(env, "GET", `/s/${share.id}?format=clash`, null, {});
-  const yaml = await clash.text();
-  assert.ok(yaml.includes("香港-A"), "clash 里应该有这个节点");
-  assert.ok(!yaml.includes("东京-B"), "没分享的节点不该出现");
-
-  // 隔离：之后改机器、加节点都不影响已发出的分享
-  await call(env, "PUT", "/api/v1/nodes/mach-share", JSON.stringify({ nodes: [{ link: b }] }), auth);
-  assert.equal(unb64(await (await call(env, "GET", `/s/${share.id}`, null, {})).text()).trim(), a);
-
-  // 列表能看到备注和到期时间
-  const list = await (await call(env, "GET", "/api/v1/shares", null, auth)).json();
-  assert.deepEqual(list.shares.map((s) => [s.note, s.count]), [["给小王", 1]]);
-
-  // 到期自动销毁：直接塞一条过期的
-  await env.DB.prepare("INSERT INTO shares (id, note, nodes_json, count, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-    .bind("a".repeat(24), "过期了", JSON.stringify([{ link: a, name: "香港-A" }]), 1, "2020-01-01T00:00:00.000Z", "2020-01-02T00:00:00.000Z")
-    .run();
-  assert.equal((await call(env, "GET", `/s/${"a".repeat(24)}`, null, {})).status, 404);
-  if (env.DB.shares) assert.equal(env.DB.shares.has("a".repeat(24)), false, "过期的那条被删掉了");
-
-  // 手动销毁
-  const del = await call(env, "DELETE", `/api/v1/shares/${share.id}`, null, auth);
-  assert.equal(del.status, 200);
-  assert.equal((await call(env, "GET", `/s/${share.id}`, null, {})).status, 404);
-  assert.deepEqual((await (await call(env, "GET", "/api/v1/shares", null, auth)).json()).shares, []);
-
-  // 参数校验与鉴权
-  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [] }), auth)).status, 400);
-  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id], days: 0 }), auth)).status, 400);
-  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id], days: 999 }), auth)).status, 400);
-  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: ["nope"] }), auth)).status, 400);
-  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id] }), {})).status, 401);
-  assert.equal((await call(env, "GET", "/s/" + "f".repeat(24), null, {})).status, 404);
-});
-
 test("subscriptions can be filtered by protocol class and tunnel type, live", async () => {
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
@@ -1796,4 +1736,53 @@ test("subscriptions can be filtered by protocol class and tunnel type, live", as
   const clash = await call(env, "GET", `/sub/all/${TOKEN}?format=clash&proto=vless-reality`, null, {});
   const yaml = await clash.text();
   assert.ok(yaml.includes("阿姆-reality") && !yaml.includes("东京-hy2"), "clash 也只含筛出来的节点");
+});
+
+test("presets give short live links that can carry their own token", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const hy2a = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const reality = "vless://11111111-1111-4111-8111-111111111111@1.2.3.4:31003?encryption=none&security=reality&sni=www.microsoft.com#阿姆-reality";
+  await call(env, "PUT", "/api/v1/nodes/mach-a", JSON.stringify({ nodes: [{ link: hy2a }, { link: reality }] }), auth);
+
+  const made = await call(env, "PUT", "/api/v1/presets/hy2", JSON.stringify({ label: "只要 Hy2", protos: ["hy2"] }), auth);
+  assert.equal(made.status, 200);
+  const saved = await made.json();
+  assert.deepEqual(saved.preset.protos, ["hy2"]);
+  assert.equal(saved.url, `https://sub.example.workers.dev/sub/p/hy2/${TOKEN}`);
+
+  const names = async (path) => {
+    const res = await call(env, "GET", path, null, {});
+    if (res.status !== 200) return res.status;
+    return unb64(await res.text()).split("\n").filter(Boolean).map((line) => decodeURIComponent(line.split("#")[1] || ""));
+  };
+  assert.deepEqual(await names(`/sub/p/hy2/${TOKEN}`), ["东京-hy2"]);
+  assert.deepEqual(await names(`/sub/p/hy2/${TOKEN}?format=base64`), ["东京-hy2"]);
+
+  // 实时：节点变了，同一个档案链接立刻跟着变
+  await call(env, "PUT", "/api/v1/nodes/mach-b", JSON.stringify({ nodes: [{ link: "hysteria2://pw2@sg.example.io:443?sni=addons.mozilla.org#新加坡-hy2b" }] }), auth);
+  assert.deepEqual((await names(`/sub/p/hy2/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2b"].sort());
+
+  // 只含某几台机器
+  await call(env, "PUT", "/api/v1/presets/only-a", JSON.stringify({ protos: ["hy2"], machines: ["mach-a"] }), auth);
+  assert.deepEqual(await names(`/sub/p/only-a/${TOKEN}`), ["东京-hy2"]);
+
+  // 独立 token：换了之后主 token 进不来
+  const rotated = await (await call(env, "PUT", "/api/v1/presets/hy2", JSON.stringify({ protos: ["hy2"], rotate_token: true }), auth)).json();
+  const own = rotated.preset.token;
+  assert.match(own, /^[a-f0-9]{36}$/);
+  assert.equal(await names(`/sub/p/hy2/${TOKEN}`), 401);
+  assert.deepEqual((await names(`/sub/p/hy2/${own}`)).sort(), ["东京-hy2", "新加坡-hy2b"].sort());
+
+  // 列表 + 删除
+  const list = await (await call(env, "GET", "/api/v1/presets", null, auth)).json();
+  assert.deepEqual(list.presets.map((p) => p.name).sort(), ["hy2", "only-a"]);
+  assert.equal(list.presets.find((p) => p.name === "hy2").token, "own");
+  const del = await call(env, "DELETE", "/api/v1/presets/hy2", null, auth);
+  assert.equal(del.status, 200);
+  assert.equal(await names(`/sub/p/hy2/${own}`), 404);
+
+  // 鉴权与参数校验
+  assert.equal((await call(env, "PUT", "/api/v1/presets/x", "{}", { "content-type": "application/json" })).status, 401);
+  assert.equal((await call(env, "PUT", "/api/v1/presets/bad name", "{}", auth)).status, 400);
 });

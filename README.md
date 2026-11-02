@@ -314,7 +314,8 @@ mihomo -t -f c.yaml -d .                                                        
 合并订阅时：**手动在前，自动在后，按 link 去重**。自动上报永远不会覆盖你自己写的那层；
 想长期保留上报来的某条节点，点它右边的「转 ① 手动」，会复制一份到 ①。
 
-4. 「订阅中的节点」卡片决定谁进订阅：默认全勾，点行取消；支持按协议细分/按机器筛选、搜索、批量勾选。
+4. 「订阅中的节点」卡片决定谁进订阅：默认全勾，点行取消；支持按协议细分/按机器筛选、搜索、批量勾选（全选 / 只选筛出来的 / 全不选）。
+   勾选和批量操作都只是**本地暂存**，头顶会显示「未保存 N 处」，点 **「保存勾选」** 才一次性写库（这样连续点十几个不会每次都发请求，手感快很多）；点错就 **「撤销修改」** 回到上次保存的样子。
 
 ### 协议细分（reality / argo / cdn）
 
@@ -421,33 +422,10 @@ Argo 就是 Cloudflare Tunnel，两种形态在客户端看来只差「连的域
 | `GET /sub/all/<SUB_TOKEN>?tunnel=temp` | 只要临时隧道（Argo quick tunnel） |
 | `...&format=clash` | 和 `format` 随便叠加，clash / proxies / singbox / base64 都支持 |
 
-- 这是**实时**筛选：每次拉取都按当前节点重新算，节点新增、删除、改名、改协议都会立刻反映；跟「分享」的快照不是一回事
+- 这是**实时**筛选：每次拉取都按当前节点重新算，节点新增、删除、改名、改协议都会立刻反映
 - `proto` 与 `tunnel` 可以和 `format` 任意组合，也能用在单机链接 `/sub/<machine>/<SUB_TOKEN>?proto=hy2` 上
 - 筛完什么都没有时返回空订阅（200 + 空内容），不会报错；响应头会带 `x-proto` / `x-tunnel` / `x-nodes` 方便核对
 - 缓存键里带了筛选条件，所以不同筛选互不串味
-
-## 分享给别人（快照订阅）
-
-「订阅中的节点」里筛出要给的节点 → 点 **「分享筛出来的节点」** → 填备注和有效天数 → **「生成分享链接」**，
-拿到一条 `https://<你的域名>/s/<id>`，只包含那一刻选中的那些节点。
-
-- **快照拷贝**：创建时把链接复制一份进 `shares` 表。之后你改机器、删节点、改分流规则，
-  已经发出去的分享都不受影响；对方的链接也看不到你的其他节点、机器名和上报来源。
-- **到期自动销毁**：`expires_at` 一到，这条快照在下次被访问（或你打开分享列表）时直接 `DELETE`，
-  库里不留任何痕迹，链接变成 404。
-- **随时手动销毁**：分享列表里点「销毁」，链接立刻失效（快照一起删）。
-- **备注**：就是「分享给了谁」，列表里能按备注认人（最长 80 字，换行会被压成空格）。
-
-| 接口 | 说明 |
-|---|---|
-| `POST /api/v1/shares` | `{note, days, nodes:["<节点 id>"]}` → `{id, url, count, expires_at}`；`days` 1–365，默认 7 |
-| `GET /api/v1/shares` | 现有分享：`{id, note, count, created_at, expires_at}`（过期的会顺手删掉） |
-| `DELETE /api/v1/shares/:id` | 手动销毁 |
-| `GET /s/<id>` | **公开**，不需要任何 token；`?format=base64|clash|proxies|singbox` 跟主订阅一样 |
-
-节点 id 就是「订阅中的节点」里每条的身份（`link` 去掉 `#名字` 那段），`GET /api/v1/sub/nodes` 里能看到。
-分享只读快照，**不占用主订阅的 token**，也不影响任何其他分享；不做流量限制（流量不经过 Worker，
-真要限流得去节点服务器的面板里做，比如 3x-ui 的 inbound 统计）。
 
 ## 订阅链接
 
@@ -472,9 +450,33 @@ curl -o config.yaml "https://<域名>/sub/$SUB_TOKEN?format=clash"
 curl "https://<域名>/sub/荷兰-1/$SUB_TOKEN?source=nlefni&format=singbox"
 ```
 
-响应头里 `x-sub-cache: hit|miss` 告诉你这次有没有走缓存。缓存键包含规则版本和排除清单，所以**改完规则/勾选立即生效**。
+响应头里 `x-sub-cache: hit|miss` 告诉你这次有没有走缓存。缓存键包含规则版本和排除清单，所以**改完规则、或点过「保存勾选」之后立即生效**。
 
 ---
+
+### 订阅档案（定制订阅，给一条短链接）
+
+同一条筛选链接每次都要背 query 太麻烦，可以存成「订阅档案」，得到干净路径：
+
+```
+/sub/p/hy2/<SUB_TOKEN>          → 只有 Hysteria2
+/sub/p/reality/<SUB_TOKEN>      → 只有 Reality
+/sub/p/fixed-argo/<SUB_TOKEN>   → 只有固定隧道的 argo 节点
+```
+
+界面上「订阅档案」卡片：填档案名（`hy2`）、显示名、协议（`hy2` 或 `vless-reality,trojan-argo`，写 `vless` 命中它的全部细分）、隧道、格式、机器范围（留空 = 全部），点保存即可。
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/v1/presets` | 列出现有档案（含拼好的链接） |
+| `PUT /api/v1/presets/<名字>` | `{label, protos:[], tunnel:"", machines:[], format:"", own_token?:true, rotate_token?:true}` 建/改 |
+| `DELETE /api/v1/presets/<名字>` | 删掉，链接立刻 404 |
+| `GET /sub/p/<名字>/<token>` | 公开；`?format=` 可临时覆盖档案里存的格式 |
+
+- **实时**：内容每次拉取都按当前节点重算，节点增删改名自动跟着变，不像快照那样冻结
+- **独立 token**：默认共用 `SUB_TOKEN`；点「发独立 token」后这个档案只认自己的 token，主 token 进不来，再点一次换新的（等于吊销旧链接）
+- **机器范围**：填了机器名就只从这几台里取节点，适合「只把荷兰那台给某个设备」
+- 档案数量上限 200 个
 
 ## 上报脚本
 
@@ -590,12 +592,13 @@ curl -X POST -H "Authorization: Bearer $SUB_TOKEN" https://<域名>/api/v1/clash
 
 ## 数据表
 
-三张表，全在 D1（`scripts/schema.sql` 是权威定义）：
+四张表，全在 D1（`scripts/schema.sql` 是权威定义）：
 
 | 表 | 键 | 存什么 |
 |---|---|---|
 | `machines` | `machine` | 单机聚合快照：`content/hash/bytes`、`nodes_json`（自动）、`manual_nodes_json`（手动）、`manual`、`updated_at`、`manual_updated_at` |
 | `reports` | `(machine, source)` | 每个上报来源的原始 base64、hash、节点 JSON、`updated_at`（一台机器多源互不覆盖） |
+| `presets` | `name` | 订阅档案：`label`、`protos`、`tunnel`、`machines`、`format`、`token`（独立 token，空 = 共用主 token） |
 | `settings` | `key` | `machine_order`、`clash_rules`、`disabled`、`protocols:<machine>`、`login-fail:<ip>` |
 
 - 不做历史：每次上报是**覆盖**，只保留最新一份（要留档请在你自己的机器上留）。
