@@ -35,7 +35,7 @@ pnpm run deploy:pages      # 构建 dist-pages/ 并上传
 部署完到 Dashboard 给这个 Pages 项目补两样东西（**Pages 不读 wrangler.toml 的绑定**）：
 
 1. **Settings → Bindings → D1 database**：变量名必须填 `DB`，库选 `sub-merge-db`
-2. **Settings → Variables and Secrets**：加 `SUB_TOKEN`、`ADMIN_PASSWORD`、（可选）`REPORT_TOKEN`
+2. **Settings → Variables and Secrets**：加三个变量 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`
 
 > 绑完 D1 后再 Re-deploy 一次，Worker 才拿得到 `env.DB`。
 
@@ -45,7 +45,7 @@ pnpm run deploy:pages      # 构建 dist-pages/ 并上传
 pnpm exec wrangler deploy
 pnpm exec wrangler secret put SUB_TOKEN
 pnpm exec wrangler secret put ADMIN_PASSWORD
-pnpm exec wrangler secret put REPORT_TOKEN   # 可选
+pnpm exec wrangler secret put REPORT_TOKEN
 ```
 
 `wrangler.toml` 里已经写了 `binding = "DB"`，不用再手动绑。
@@ -60,8 +60,9 @@ pnpm exec wrangler secret put REPORT_TOKEN   # 可选
 | --- | --- | --- |
 | `SUB_TOKEN` | ✅ | 订阅链接里的口令：`/sub/all/<SUB_TOKEN>`。够长够随机就行 |
 | `ADMIN_PASSWORD` | ✅ | WebUI 登录口令 |
-| `REPORT_TOKEN` | 可选 | 只给上报用的口令；不填就用 `SUB_TOKEN` |
-| `TOKEN` | 兼容 | `SUB_TOKEN` 的旧名字，两者填一个即可 |
+| `REPORT_TOKEN` | ✅ | 服务器上报用的口令（`/api/v1/report/...` 的 Bearer） |
+
+三个口令互相独立、都填长随机串；`SUB_TOKEN` 会出现在订阅链接里，`REPORT_TOKEN` 只给上报脚本用，泄露了不会连带订阅链接。
 
 绑定：D1 变量名必须是 **`DB`**（Pages 在 Dashboard 配，Workers 在 `wrangler.toml` 里）。
 
