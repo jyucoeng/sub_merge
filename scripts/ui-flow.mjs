@@ -1221,6 +1221,19 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：短链不带 token 也能拉到订阅", shortRes.status === 200, `${shortRes.status} ${shortBody.slice(0, 40)}`);
   check("订阅档案：短链响应能对上是哪条短链", shortRes.headers.get("x-link") === shortCode && !!shortRes.headers.get("x-preset"), `${shortRes.headers.get("x-link")} / ${shortRes.headers.get("x-preset")}`);
 
+  // 标识留空：用显示名自动生成一个
+  el("preset-new").onclick.call(el("preset-new"));
+  await idle();
+  setInput("pe-label", "自动取名");
+  el("pe-all").onclick.call(el("pe-all"));
+  await el("pe-save").onclick.call(el("pe-save"));
+  await idle();
+  const auto = presets().filter((r) => r.children[0].children[0].textContent.includes("自动取名"))[0];
+  check("订阅档案：标识留空会自动生成", !!auto, auto && auto.children[0].children[0].textContent);
+  const autoName = auto ? auto.children[0].children[0].textContent.match(/（([a-z0-9-]+)）$/)[1] : "";
+  check("订阅档案：自动标识是 url 安全的", /^[a-z0-9][a-z0-9-]*$/.test(autoName), autoName);
+  if (autoName) { await api(`/presets/${autoName}`, { method: "DELETE" }); }
+
   // 搜短链也要能搜到这条档案
   setInput("preset-search", shortCode);
   check("订阅档案：用短链能搜到档案", presets().length === 1, String(presets().length));

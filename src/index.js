@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.0";
+const VERSION = "1.36.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -330,7 +330,7 @@ body.locked .wrap{display:none}
 <div id="preset-editor" class="peditor hidden">
   <div class="row" style="margin-top:4px">
     <b id="pe-title">新建档案</b>
-    <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="档案名，比如 hy2" spellcheck="false" style="width:150px" title="档案名就是链接路径里的那段：/sub/p/档案名/token。只能用字母、数字、下划线、横线，1–32 位；保存后不能改（要换名字就新建一个再把旧的删掉）"></span>
+    <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="标识（可留空，用显示名自动生成）" spellcheck="false" style="width:190px" title="内部标识：API 路径和长链接 /sub/p/标识/token 会用到它；发短链之后链接里看不到它了。只能用字母、数字、下划线、横线，1–32 位；留空会自动用显示名生成。建好之后不能改"></span>
     <input id="pe-label" placeholder="显示名 / 备注（可空）" spellcheck="false" style="width:190px" title="给你自己看的名字或备注，比如「给手机用」「只留 Hy2」；只显示在界面里、也只用于搜索，不影响链接和内容，随时能改">
     <select id="pe-format" title="这个档案以后固定输出什么格式。留「格式自动」= 按客户端的 User-Agent 猜，跟普通订阅链接一样"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
     <span id="pe-clash" class="tag auto" title="这个档案的 clash 输出用的分流规则来源。inherit = 跟随「分流规则」卡片里那一份全局规则，改一次全部档案一起变">分流规则：跟随全局</span>
@@ -1103,8 +1103,8 @@ body.locked .wrap{display:none}
     if (wrap) {
       wrap.className = item ? "lockwrap locked" : "lockwrap";
       wrap.title = item
-        ? "档案名建好就固定了，不能改（它就是链接里的那一段）；要换名字：新建一个档案，再把旧的删掉"
-        : "档案名就是链接路径里的那段：/sub/p/档案名/token。只能用字母、数字、下划线、横线，1–32 位；建好之后不能改";
+        ? "标识建好就固定了，不能改（API 路径和长链接用它）；短链不依赖它"
+        : "标识只给 API 和长链接用（/sub/p/标识/token），发短链之后链接里看不到它；留空会自动用显示名生成，建好之后不能改";
     }
     if ($("pe-label")) $("pe-label").value = state.presetEdit.label;
     if ($("pe-format")) $("pe-format").value = state.presetEdit.format;
@@ -1303,10 +1303,22 @@ body.locked .wrap{display:none}
       list.appendChild(row);
     });
   }
+  function presetSlug(text, taken) {
+    var base = String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+    if (!base) base = "preset-" + Math.random().toString(36).slice(2, 6);
+    var name = base, n = 2;
+    while ((taken || []).indexOf(name) >= 0 && n < 100) { name = base + "-" + n; n += 1; }
+    return name;
+  }
   function savePresetEdit() {
     var st = state.presetEdit; if (!st) return;
     var name = String($("pe-name").value || "").trim();
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("档案名只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    if (!name && !st.name) {
+      name = presetSlug($("pe-label").value || "", (state.presets || []).map(function (p) { return p.name; }));
+      $("pe-name").value = name;
+    }
+    if (!name) { presetStatus("先给它起个显示名，或者手填一个标识", false); return; }
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("标识只能用字母、数字、下划线、横线（1–32 位）", false); return; }
     var body = {
       label: String($("pe-label").value || "").trim(),
       format: $("pe-format").value || "",
