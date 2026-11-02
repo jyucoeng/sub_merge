@@ -197,8 +197,8 @@ pnpm run deploy:pages
 部署成功会给你两个地址：
 
 ```text
-https://sub-merge-asm.pages.dev          ← 生产（Production，跟 branch=main 对应）
-https://<hash>.sub-merge-asm.pages.dev   ← 这次部署的预览地址
+https://sub-merge.pages.dev          ← 生产（Production，跟 branch=main 对应）
+https://<hash>.sub-merge.pages.dev   ← 这次部署的预览地址
 ```
 
 #### 3. 绑 D1（**不做这步会 500**）
@@ -228,7 +228,7 @@ Dashboard → **Workers & Pages** → `sub-merge` → **Settings** → **Binding
 
 ```bash
 # 用同一个 D1，所以和 Worker 共用表；新库才需要初始化
-curl -X POST https://sub-merge-asm.pages.dev/api/v1/admin/schema \
+curl -X POST https://sub-merge.pages.dev/api/v1/admin/schema \
   -H "Authorization: Bearer $SUB_TOKEN"
 ```
 
@@ -241,10 +241,10 @@ pnpm run db:init
 #### 6. 验证
 
 ```bash
-curl https://sub-merge-asm.pages.dev/health
-curl -o /dev/null -w "%{http_code}\n" https://sub-merge-asm.pages.dev/ui          # 200，登录页
-curl "https://sub-merge-asm.pages.dev/sub/$SUB_TOKEN" | head -c 80               # base64 订阅
-curl "https://sub-merge-asm.pages.dev/sub/$SUB_TOKEN?format=clash" > c.yaml
+curl https://sub-merge.pages.dev/health
+curl -o /dev/null -w "%{http_code}\n" https://sub-merge.pages.dev/ui          # 200，登录页
+curl "https://sub-merge.pages.dev/sub/$SUB_TOKEN" | head -c 80               # base64 订阅
+curl "https://sub-merge.pages.dev/sub/$SUB_TOKEN?format=clash" > c.yaml
 mihomo -t -f c.yaml -d .                                                          # configuration test is successful
 ```
 
@@ -507,7 +507,7 @@ curl "https://<域名>/sub/荷兰-1/$SUB_TOKEN?source=nlefni&format=singbox"
 `/sub/p/hy2/<SUB_TOKEN>` 这类链接有两个毛病：太长，而且把 `SUB_TOKEN` 明文写进了客户端配置——手机、电视盒子、朋友转发一次就等于把主 token 发出去了。所以每个档案可以再发一条**短链**：
 
 ```
-https://sub.dingdang.de5.net/s/7k3m9pq2xa     → 等价于 /sub/p/hy2/<token>
+https://sub.example.com/s/7k3m9pq2xa     → 等价于 /sub/p/hy2/<token>
 ```
 
 - 在「订阅档案」每行点「短链」，服务器就生成一条 10 位短码（字母表 `23456789abcdefghjkmnpqrstuvwxyz`，去掉了 0/o/1/l/i 这些容易看错的），生成后自动复制到剪贴板
