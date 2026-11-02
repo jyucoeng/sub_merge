@@ -551,7 +551,8 @@ test("default machine order follows region proximity and default node order foll
   assert.equal(res.status, 200);
   res = await call(env, "GET", "/api/v1/nodes/order-proto", null, { authorization: `Bearer ${TOKEN}` });
   const nodeData = await res.json();
-  assert.deepEqual(nodeData.nodes.map((n) => n.name), ["Reality", "AnyTLS", "Node-Argo", "Node-CDN", "HY2", "TUIC", "SOCKS5"]);
+  /* 机器内按协议名的字母升序：anytls → hy2 → socks5 → tuic → vless（同协议内按粘贴顺序） */
+  assert.deepEqual(nodeData.nodes.map((n) => n.name), ["AnyTLS", "HY2", "SOCKS5", "TUIC", "Reality", "Node-Argo", "Node-CDN"]);
 });
 
 test("subscription formats adapt from query and user-agent", async () => {
@@ -588,10 +589,10 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(res.status, 200);
   const singbox = JSON.parse(await res.text());
   assert.equal(singbox.outbounds.length, 4);
-  assert.equal(singbox.outbounds[0].type, "vless");
-  assert.equal(singbox.outbounds[1].type, "anytls");
-  assert.equal(singbox.outbounds[2].type, "hysteria2");
-  assert.equal(singbox.outbounds[3].type, "tuic");
+  assert.equal(singbox.outbounds[0].type, "anytls");
+  assert.equal(singbox.outbounds[1].type, "hysteria2");
+  assert.equal(singbox.outbounds[2].type, "tuic");
+  assert.equal(singbox.outbounds[3].type, "vless");
 
   res = await call(env, "GET", `/sub/fmt/${TOKEN}`, null, { "user-agent": "clash-meta/1.0" });
   assert.match(await res.text(), /^rule-providers:$/m);
@@ -712,21 +713,21 @@ test("link fragments become node names, duplicates and blanks are dropped", asyn
   assert.equal(data.nodes.length, 3);
   /* 顺序由协议 rank 决定（vless-reality → anytls → argo/ws vless → vmess → hy2 → tuic），
      不再跟随粘贴顺序：同一台机器里协议混着排，订阅拉下来比客户端自己排的还乱。 */
-  assert.deepEqual(data.nodes.map((n) => n.protocol), ["vless", "hy2", "tuic"]);
+  assert.deepEqual(data.nodes.map((n) => n.protocol), ["hy2", "tuic", "vless"]);
   assert.deepEqual(data.nodes.map((n) => n.name), [
-    "小叮当-洛杉矶-cloudnium-vless-reality-localhost",
     "小叮当-洛杉矶-cloudnium-hy2-localhost",
     "小叮当-洛杉矶-cloudnium-tuic-localhost",
+    "小叮当-洛杉矶-cloudnium-vless-reality-localhost",
   ]);
   /* order 记的是「粘贴时的原始序号」，排序变了它不动：reality 原本是第 3 条（下标 2） */
-  assert.deepEqual(data.nodes.map((n) => n.order), [2, 0, 1]);
+  assert.deepEqual(data.nodes.map((n) => n.order), [0, 1, 2]);
 
   // 去重后只有 3 条，且按协议 rank 输出（reality vless → hy2 → tuic），不再按粘贴顺序
   res = await call(env, "GET", `/sub/paste/${TOKEN}`);
   const merged = unb64(await res.text());
   assert.equal(merged.split("\n").length, 3);
-  assert.ok(merged.indexOf(reality) < merged.indexOf(hy2), "vless-reality 排最前");
-  assert.ok(merged.indexOf(hy2) < merged.indexOf(tuic));
+  assert.ok(merged.indexOf(hy2) < merged.indexOf(tuic), "hy2 在 tuic 前（字母序）");
+  assert.ok(merged.indexOf(tuic) < merged.indexOf(reality), "tuic 在 vless 前（字母序）");
 });
 
 test("webui can create an empty machine and rejects invalid machine names", async () => {
@@ -1737,7 +1738,7 @@ test("nodes inside one machine come out in protocol order, not paste order", asy
 
   await call(env, "PUT", "/api/v1/nodes/order-mix", JSON.stringify({ nodes: [{ link: tuic }, { link: hy2 }, { link: vmess }, { link: anytls }, { link: reality }] }), auth);
   const view = await (await call(env, "GET", "/api/v1/nodes/order-mix", null, { authorization: `Bearer ${TOKEN}` })).json();
-  assert.deepEqual(view.nodes.map((n) => n.protocol), ["vless", "anytls", "vmess", "hy2", "tuic"]);
+  assert.deepEqual(view.nodes.map((n) => n.protocol), ["anytls", "hy2", "tuic", "vless", "vmess"]);
 
   /* 订阅走的是同一个 nodesOf，顺序跟着节点视图走；这里再确认一次条数没丢 */
   const sub = await call(env, "GET", `/sub/order-mix/${TOKEN}`);
@@ -1763,7 +1764,7 @@ test("machines sharing a rank stay grouped instead of interleaving their nodes",
     const hash = line.indexOf("#");
     return hash >= 0 ? decodeURIComponent(line.slice(hash + 1)) : line.slice(0, 30);
   });
-  assert.deepEqual(names, ["东京A-vless", "东京A-hy2", "东京B-vless", "东京B-hy2"],
+  assert.deepEqual(names, ["东京A-hy2", "东京A-vless", "东京B-hy2", "东京B-vless"],
     "同一 rank 的两台机器必须各自成组，不能按节点下标交错");
 });
 

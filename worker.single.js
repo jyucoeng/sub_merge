@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.14";
+const VERSION = "1.37.15";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4257,14 +4257,21 @@ function linkIdentity(link) {
   return cut >= 0 ? text.slice(0, cut) : text;
 }
 
+/* 机器内的排序：按协议名的字母升序（anytls → hy2 → tuic → vless → vmess），
+ * 同协议内再按粘贴顺序、最后按名字。以前用的是一套自定义优先级（reality 优先等），
+ * 那是按「好用程度」排的，跟「看得懂、找得到」是两回事——列表里跳跃着看不舒服。
+ * useRank = false 时完全不排序，保持数组原样（给调用方显式要求场景用）。 */
 function sortNodes(nodes, useRank) {
+  if (!useRank) return nodes.slice();
   const decorated = nodes.map((node) => ({
     node,
-    rank: useRank ? protocolRank(node) : 0,
+    kind: String(nodeKind(node) || "").toLowerCase(),
     order: Number(node.order) || 0,
-    name: useRank ? String(node.name == null ? "" : node.name) : "",
+    name: String(node.name == null ? "" : node.name),
   }));
-  decorated.sort((a, b) => a.rank - b.rank || a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  decorated.sort(
+    (a, b) => a.kind.localeCompare(b.kind) || a.order - b.order || a.name.localeCompare(b.name),
+  );
   return decorated.map((item) => item.node);
 }
 
@@ -4314,23 +4321,6 @@ async function nodesOf(record, allowed, disabled) {
   const merged = [...sortNodes(manualPart, true), ...sortNodes(autoRenamed, true)]
     .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
-}
-
-function protocolRank(node) {
-  const p = node && node.link ? parseLinkCached(node.link) : null;
-  if (!p) return 90;
-  if (p.kind === "vless" && p.reality) return 10;
-  if (p.kind === "anytls") return 20;
-  if (p.kind === "vless" && p.network === "ws") {
-    const text = `${node.name || ""} ${node.link || ""}`.toLowerCase();
-    return text.includes("argo") || text.includes("trycloudflare") ? 30 : 40;
-  }
-  if (p.kind === "vmess") return 45;
-  if (p.kind === "hy2" || p.kind === "hysteria2") return 50;
-  if (p.kind === "tuic") return 60;
-  if (p.kind === "socks5" || p.kind === "socks") return 70;
-  if (p.kind === "trojan") return 75;
-  return 90;
 }
 
 async function normalizeNodes(links, previous, inputs) {
