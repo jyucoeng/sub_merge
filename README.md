@@ -121,6 +121,11 @@ pnpm exec wrangler secret put ADMIN_PASSWORD    # WebUI 管理员口令
 pnpm exec wrangler secret put REPORT_TOKEN      # 可选：上报专用口令，泄露了不影响订阅
 ```
 
+> 想以后能在面板里直接看到值（不容易忘），就用**明文变量**而不是 secret：
+> Dashboard → Settings → Variables and Secrets → 选 **Text** 而不是 **Secret**；
+> wrangler 对应 `wrangler deploy --keep-vars --var SUB_TOKEN:xxx --var ADMIN_PASSWORD:xxx`。
+> 代价是谁能进你的 Cloudflare 账号就能看到口令——自己权衡。
+
 > `wrangler.toml` 里有 `keep_vars = true`，作用是 `wrangler deploy` 时**不会**清掉你在 Dashboard 手填的变量。
 
 ### 5. 部署
@@ -213,9 +218,9 @@ Dashboard → **Workers & Pages** → `sub-merge` → **Settings** → **Binding
 
 | 名称 | 类型 | 说明 |
 |---|---|---|
-| `ADMIN_PASSWORD` | Secret | WebUI 管理员口令，必填 |
-| `SUB_TOKEN` | Secret | 订阅 token，必填 |
-| `REPORT_TOKEN` | Secret | 上报专用 token，可选 |
+| `ADMIN_PASSWORD` | Text | WebUI 管理员口令，必填。选 **Text** 而不是 Secret，以后面板里能直接看到 |
+| `SUB_TOKEN` | Text | 订阅 token，必填。同样建议用 Text，方便日后查看 |
+| `REPORT_TOKEN` | Text | 上报专用 token，可选。同样建议用 Text |
 
 改完**要重新部署一次**（`pnpm run deploy:pages`）才会生效到现有部署上。
 
