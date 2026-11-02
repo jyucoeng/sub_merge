@@ -1132,37 +1132,103 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
     ] }),
   });
 
+  click("sub-reload");
+  await idle();
+
+  const clickChip = (boxId, prefix) => {
+    const chip = el(boxId).children.filter((c) => typeof c.className === "string" && c.className.indexOf("proto") === 0 && String(c.textContent).indexOf(prefix) === 0)[0];
+    if (!chip) throw new Error("找不到胶囊 " + prefix + " in " + boxId + ": " + el(boxId).children.map((c) => c.textContent).join(" / "));
+    chip.onclick.call(chip);
+  };
+  check("订阅档案：协议是胶囊不是输入框", !!el("preset-proto-chips") && el("preset-proto-chips").children.length > 0, el("preset-proto-chips").children.map((c) => c.className + "|" + c.textContent).join(" / "));
+  check("订阅档案：胶囊和订阅卡片的协议一致", el("preset-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2 · 1") === 0), el("preset-proto-chips").children.map((c) => c.textContent).join(" / "));
   el("preset-name").value = "hy2";
   el("preset-label").value = "只要 Hy2";
-  el("preset-protos").value = "hy2";
+  clickChip("preset-proto-chips", "Hysteria2");
+  const hy2Chip = el("preset-proto-chips").children.filter((c) => String(c.textContent).indexOf("Hysteria2") === 0)[0];
+  check("订阅档案：点了胶囊会高亮", hy2Chip && String(hy2Chip.className).indexOf("picked") !== -1, hy2Chip && hy2Chip.className);
   click("preset-save");
   await idle();
 
-  const rows = el("presets").children.filter((c) => c.className === "preset");
+  const wraps = () => el("presets").children.filter((c) => c.className === "presetwrap");
+  const rowOf = () => wraps()[0].children[0];
+  const rows = wraps();
   check("订阅档案：保存后列表里有一条", rows.length === 1, String(rows.length));
-  const url = rows[0].children[1].textContent;
+  const url = rowOf().children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
+  check("订阅档案：描述里带当前匹配条数", /现在 1 条/.test(rowOf().children[0].children[1].children[1].textContent), rowOf().children[0].children[1].children[1].textContent);
+
+  // 点标题展开：能看到这个档案现在匹配哪些节点
+  const toggle = rowOf().children[0];
+  check("订阅档案：标题是展开按钮", toggle.className === "ptoggle" && toggle.children[0].textContent === "▸", toggle.children[0].textContent);
+  toggle.onclick.call(toggle);
+  await idle();
+  const panel = wraps()[0].children[1];
+  check("订阅档案：点开后出现节点面板", !!panel && panel.className === "pnodebox", panel && panel.className);
+  const line = panel.children[0];
+  check("订阅档案：面板里是这条 hy2 节点", line.children[2].textContent === "档案-hy2", line.children[2].textContent);
+  check("订阅档案：面板标了协议和机器", line.children[1].textContent === "Hysteria2" && line.children[3].textContent === "ui-preset", line.children[1].textContent + "/" + line.children[3].textContent);
+  check("订阅档案：每行有本组勾选框，默认勾上", line.children[0].type === "checkbox" && line.children[0].checked === true, String(line.children[0].checked));
+
+  // 只把这个节点从本组摘掉：本档案少一条，总订阅不变
+  const masterBefore = await netFetch(`${BASE}/sub/all/${TOKEN}`);
+  const masterNames = Buffer.from(await masterBefore.text(), "base64").toString("utf8");
+  const cb = line.children[0];
+  cb.checked = false;
+  cb.onchange.call(cb);
+  await idle();
+  const afterPanel = wraps()[0].children[1];
+  check("订阅档案：取消勾选后这行不再勾着", afterPanel.children[0].children[0].checked === false, String(afterPanel.children[0].children[0].checked));
+  check("订阅档案：描述里出现「本组已关 1 个」", /本组已关 1 个/.test(rowOf().children[0].children[1].children[1].textContent), rowOf().children[0].children[1].children[1].textContent);
+  const narrowed = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
+  const narrowedBody = Buffer.from(await narrowed.text(), "base64").toString("utf8");
+  check("订阅档案：链接里没有这条节点了", narrowed.status === 200 && !narrowedBody.includes("档案-hy2") && !narrowedBody.includes("://"), `${narrowed.status} ${narrowedBody.trim().slice(0, 30)}`);
+  const masterAfter = await netFetch(`${BASE}/sub/all/${TOKEN}`);
+  const masterAfterBody = Buffer.from(await masterAfter.text(), "base64").toString("utf8");
+  check("订阅档案：总订阅完全没变", masterAfterBody.trim() === masterNames.trim(), "总订阅被影响了");
+
+  // 勾回来
+  const cb2 = wraps()[0].children[1].children[0].children[0];
+  cb2.checked = true;
+  cb2.onchange.call(cb2);
+  await idle();
+  const back = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
+  const backBody = Buffer.from(await back.text(), "base64").toString("utf8");
+  check("订阅档案：勾回来后节点又回到本档案", back.status === 200 && backBody.includes("档案-hy2"), `${back.status}`);
+  check("订阅档案：展开后箭头朝下", rowOf().children[0].children[0].textContent === "▾", rowOf().children[0].children[0].textContent);
+  rowOf().children[0].onclick.call(rowOf().children[0]);
+  await idle();
+  check("订阅档案：再点收起面板", wraps()[0].children.length === 1, String(wraps()[0].children.length));
+
+  // 编辑：把条件载入表单
+  rowOf().children[3].children[0].onclick.call(rowOf().children[3].children[0]);
+  await idle();
+  const pickedChips = el("preset-proto-chips").children.filter((c) => String(c.className).indexOf("picked") !== -1).map((c) => c.textContent);
+  check("订阅档案：编辑把协议/机器胶囊也载回表单", el("preset-name").value === "hy2" && pickedChips.length === 1 && pickedChips[0].indexOf("Hysteria2") === 0, el("preset-name").value + " " + pickedChips.join(","));
+  click("preset-clear");
+  await idle();
+  check("订阅档案：清空后胶囊全部取消", el("preset-proto-chips").children.every((c) => String(c.className).indexOf("picked") === -1), "");
 
   const pub = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
   const body = Buffer.from(await pub.text(), "base64").toString("utf8");
   check("订阅档案：链接只给这个协议的节点", pub.status === 200 && body.includes("档案-hy2") && !body.includes("档案-reality"), `${pub.status} ${body.slice(0, 50)}`);
 
   // 换独立 token：链接变了，旧链接立刻失效
-  const rotate = rows[0].children[3].children[0];
+  const rotate = rowOf().children[3].children[1];
   check("订阅档案：有换 token 按钮", rotate && rotate.textContent === "发独立 token", rotate && rotate.textContent);
   rotate.onclick.call(rotate);
   await idle();
-  const rotatedUrl = el("presets").children.filter((c) => c.className === "preset")[0].children[1].textContent;
+  const rotatedUrl = rowOf().children[1].textContent;
   check("订阅档案：换 token 后链接变了", rotatedUrl !== url, rotatedUrl);
   const old = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
   const fresh = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：旧链接 401、新链接 200", old.status === 401 && fresh.status === 200, `${old.status}/${fresh.status}`);
 
   // 删除
-  const del = el("presets").children.filter((c) => c.className === "preset")[0].children[3].children[1];
+  const del = rowOf().children[3].children[2];
   del.onclick.call(del);
   await idle();
-  check("订阅档案：删除后列表空", !el("presets").children.some((c) => c.className === "preset"), "");
+  check("订阅档案：删除后列表空", wraps().length === 0, String(wraps().length));
   const gone = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：删除后链接 404", gone.status === 404, String(gone.status));
 

@@ -59,7 +59,7 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets WHERE name = \?1$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
       return this.db.presets.get(this.args[0]) || null;
     }
     if (/^SELECT COUNT\(\*\) AS n FROM presets$/i.test(this.sql)) {
@@ -72,7 +72,7 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)? FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
       const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
@@ -143,14 +143,21 @@ class MockStatement {
       return { success: true, meta: { changes: 1 } };
     }
     if (/^INSERT INTO presets/i.test(this.sql)) {
-      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at] = args;
-      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at });
+      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips] = args;
+      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "" });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE presets SET skips = \?2, updated_at = \?3 WHERE name = \?1$/i.test(this.sql)) {
+      const row = this.db.presets.get(args[0]);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      this.db.presets.set(args[0], { ...row, skips: args[1], updated_at: args[2] });
       return { success: true, meta: { changes: 1 } };
     }
     if (/^DELETE FROM presets WHERE name = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.presets.delete(args[0]) ? 1 : 0 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
+    if (/^ALTER TABLE presets ADD COLUMN skips/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
       const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
       if (this.db[column]) throw new Error("duplicate column name");
@@ -1736,6 +1743,53 @@ test("subscriptions can be filtered by protocol class and tunnel type, live", as
   const clash = await call(env, "GET", `/sub/all/${TOKEN}?format=clash&proto=vless-reality`, null, {});
   const yaml = await clash.text();
   assert.ok(yaml.includes("阿姆-reality") && !yaml.includes("东京-hy2"), "clash 也只含筛出来的节点");
+});
+
+test("a preset can drop single nodes without touching the master subscription", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const hy2a = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const hy2b = "hysteria2://pw2@sg.example.io:443?sni=addons.mozilla.org#新加坡-hy2";
+  await call(env, "PUT", "/api/v1/nodes/mach-a", JSON.stringify({ nodes: [{ link: hy2a }, { link: hy2b }] }), auth);
+  await call(env, "PUT", "/api/v1/presets/hy2", JSON.stringify({ protos: ["hy2"] }), auth);
+
+  const names = async (path) => {
+    const res = await call(env, "GET", path, null, {});
+    if (res.status !== 200) return res.status;
+    return unb64(await res.text()).split("\n").filter(Boolean).map((line) => decodeURIComponent(line.split("#")[1] || ""))
+      .map((name) => name);
+  };
+  assert.deepEqual((await names(`/sub/p/hy2/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2"].sort());
+  assert.deepEqual((await names(`/sub/all/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2"].sort());
+
+  // 档案里关掉一个节点：档案少一条，总订阅和别的档案都不动
+  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, auth)).json();
+  const target = view.machines[0].nodes.find((n) => n.name === "东京-hy2");
+  assert.ok(target && target.id, "节点身份要能取到");
+  await call(env, "PUT", "/api/v1/presets/all-hy2", JSON.stringify({ protos: ["hy2"] }), auth);
+  const off = await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: target.id, on: false }), auth);
+  assert.equal(off.status, 200);
+  const offBody = await off.json();
+  assert.equal(offBody.preset.skips.length, 1);
+  assert.deepEqual(await names(`/sub/p/hy2/${TOKEN}`), ["新加坡-hy2"]);
+  assert.deepEqual((await names(`/sub/all/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2"].sort());
+  assert.deepEqual((await names(`/sub/p/all-hy2/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2"].sort());
+
+  // 重新勾回来：只影响这个档案
+  await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: target.id, on: true }), auth);
+  assert.deepEqual((await names(`/sub/p/hy2/${TOKEN}`)).sort(), ["东京-hy2", "新加坡-hy2"].sort());
+
+  // 总订阅里取消勾选：档案也跟着少（档案永远是总订阅的子集）
+  await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: [target.id] }), auth);
+  assert.deepEqual(await names(`/sub/p/hy2/${TOKEN}`), ["新加坡-hy2"]);
+  assert.deepEqual(await names(`/sub/all/${TOKEN}`), ["新加坡-hy2"]);
+  await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: [] }), auth);
+
+  // 参数与鉴权
+  assert.equal((await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({}), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/presets/none/toggle", JSON.stringify({ id: "x" }), auth)).status, 404);
+  assert.equal((await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: "x" }), { "content-type": "application/json" })).status, 401);
+  assert.equal((await call(env, "GET", "/api/v1/presets/hy2/toggle", null, auth)).status, 405);
 });
 
 test("presets give short live links that can carry their own token", async () => {

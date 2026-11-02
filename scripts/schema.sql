@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS presets (
   format     TEXT NOT NULL DEFAULT '',
   token      TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  skips      TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS settings (
