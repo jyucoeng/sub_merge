@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.2";
+const VERSION = "1.37.3";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -184,6 +184,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
 .presets{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.pe-hint{font-size:12px;color:var(--sub);margin:0 0 6px}
+.peditor.pe-new{border-color:var(--acc);box-shadow:inset 3px 0 0 var(--acc)}
 .peditor{margin-top:10px;padding:10px;border:1px solid var(--accline);border-radius:10px;background:var(--soft)}
 .peditor.hidden{display:none}
 .peditor .row label{min-width:48px}
@@ -333,6 +335,7 @@ body.locked .wrap{display:none}
   <span class="tip" id="preset-status"></span>
 </div>
 <div id="preset-editor" class="peditor hidden">
+  <div class="pe-hint" id="pe-mode-hint"></div>
   <div class="row" style="margin-top:4px">
     <b id="pe-title">新建档案</b>
     <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="标识（可留空，用显示名自动生成）" spellcheck="false" style="width:190px" title="内部标识：API 路径和长链接 /sub/p/标识/token 会用到它；发短链之后链接里看不到它了。只能用字母、数字、下划线、横线，1–32 位；留空会自动用显示名生成。建好之后不能改"></span>
@@ -1095,8 +1098,15 @@ body.locked .wrap{display:none}
       origLabel: item ? (item.label === item.name ? "" : item.label) : "",
       origFormat: item ? (item.format || "") : "",
     };
-    var box = $("preset-editor"); if (box) box.className = "peditor";
-    if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案";
+    var box = $("preset-editor"); if (box) box.className = item ? "peditor" : "peditor pe-new";
+    if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案（跟已有档案无关）";
+    var hint = $("pe-mode-hint");
+    if (hint) {
+      hint.textContent = item
+        ? "正在改「" + item.name + "」：下面默认勾好的就是它现在的节点，改动要按「保存档案」才生效。"
+        : "新建：下面列出的是主订阅的全部节点，一个都没勾；要改已有档案请点它那一行的「编辑」。";
+      hint.style.display = "";
+    }
     var name = $("pe-name");
     if (name) {
       name.value = state.presetEdit.name;

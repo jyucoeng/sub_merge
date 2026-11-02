@@ -1136,7 +1136,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("preset-new");
   await idle();
   check("订阅档案：点新建打开编辑面板", String(el("preset-editor").className).indexOf("hidden") < 0, String(el("preset-editor").className));
-  check("订阅档案：面板标题是新建", el("pe-title").textContent === "新建档案", el("pe-title").textContent);
+  check("订阅档案：面板标题是新建", el("pe-title").textContent.indexOf("新建档案") === 0, el("pe-title").textContent);
+  check("订阅档案：新建时写明跟已有档案无关", (el("pe-mode-hint").textContent || "").indexOf("主订阅的全部节点") >= 0 && String(el("preset-editor").className).indexOf("pe-new") >= 0, `${el("pe-mode-hint").textContent}|${el("preset-editor").className}`);
   check("订阅档案：面板写明分流规则来源", html.includes('id="pe-clash"') && html.includes("分流规则：跟随全局"), "pe-clash 标签");
   check("订阅档案：面板列出主订阅的全部节点", peRows().length >= 2, String(peRows().length));
   check("订阅档案：条件胶囊就在面板里", el("pe-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2") > -1), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
