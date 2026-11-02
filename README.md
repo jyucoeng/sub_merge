@@ -290,7 +290,6 @@ mihomo -t -f c.yaml -d .                                                        
 | `SUB_TOKEN` | ✅ | 订阅 + 管理 API 的 Bearer。建议 `openssl rand -hex 24` |
 | `ADMIN_PASSWORD` | ✅ | WebUI 登录口令；同时是会话签名密钥的一部分，**改了所有人要重新登录** |
 | `REPORT_TOKEN` | ⭕ | 上报专用。配了就只认它，`SUB_TOKEN` 不能上报；不配则退回 `SUB_TOKEN` |
-| `TOKEN` | ⭕ | 老部署兼容名，等价于 `SUB_TOKEN`（新部署别用） |
 | `ADMIN_USERNAME` | ⭕ | 配了就要同时输用户名，**只有随机串才有意义**（等价于加长口令） |
 | `UI_PATH` | ⭕ | 配了就只在这个前缀下开 UI（例如 `/x7k2`），`/ui` 变 404，用来躲扫描 |
 

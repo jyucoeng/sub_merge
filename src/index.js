@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.24.2";
+const VERSION = "1.24.3";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1466,7 +1466,7 @@ async function handleRequest(request, env) {
   const openApi = /^\/api\/v1\/(auth\/(login|session|mode)|report\/)/.test(path);
   let session = null;
   if (path.startsWith("/api/v1/") && !openApi) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     session = await sessionOf(request, env);
     if (!session) return unauthorized();
 
@@ -1588,7 +1588,7 @@ async function handleRequest(request, env) {
   let m = path.match(/^\/api\/v1\/admin\/schema$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     return initSchema(env);
   }
 
@@ -1600,7 +1600,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     const machine = decodeURIComponent(m[1]);
     if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
@@ -1611,7 +1611,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/sub\/nodes$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "GET") return methodNotAllowed("GET");
     return json({ ok: true, ...(await subNodesView(env)) });
@@ -1619,7 +1619,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/sub\/disabled$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putSubDisabled(request, env);
@@ -1627,7 +1627,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/disabled$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putDisabled(request, env, decodeURIComponent(m[1]));
@@ -1635,7 +1635,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/protocols$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putProtocols(request, env, decodeURIComponent(m[1]));
@@ -1643,7 +1643,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return resetMachine(env, decodeURIComponent(m[1]));
@@ -1657,7 +1657,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/rename$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return renameMachine(request, env, decodeURIComponent(m[1]));
@@ -1665,7 +1665,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/order$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return json({ ok: true, machine_order: await getMachineOrder(env) });
     if (request.method !== "PUT") return methodNotAllowed("GET, PUT");
@@ -1674,7 +1674,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines(?:\/([^/]+))?$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET" && !m[1]) return listMachines(env);
     if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
@@ -1683,7 +1683,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/clash\/rules$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return getClashRules(env);
     if (request.method === "PUT") return putClashRules(request, env);
@@ -1693,14 +1693,14 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/clash\/rules\/default$/);
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     return json({ ok: true, defaults: true, ...defaultClashRules() });
   }
 
   m = path.match(/^\/api\/v1\/clash\/rules\/reset$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     await resetClashRules(env);
     const doc = await loadClashRules(env);
@@ -2327,7 +2327,7 @@ async function deleteSource(env, machine, source) {
 
 async function report(request, env, machine) {
   const expected = reportToken(env);
-  if (!expected) return missingConfig("TOKEN");
+  if (!expected) return missingConfig("SUB_TOKEN");
   // 上报只认上报凭证；配了 REPORT_TOKEN 后 TOKEN 不再能上报，避免订阅链接泄露就能写数据
   if (!checkBearer(request, expected)) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
@@ -2404,7 +2404,7 @@ async function report(request, env, machine) {
 }
 
 async function getOne(env, machine, token, request) {
-  if (!authToken(env)) return missingConfig("TOKEN");
+  if (!authToken(env)) return missingConfig("SUB_TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
@@ -2425,7 +2425,7 @@ async function getOne(env, machine, token, request) {
 }
 
 async function getAll(env, token, request) {
-  if (!authToken(env)) return missingConfig("TOKEN");
+  if (!authToken(env)) return missingConfig("SUB_TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
   const records = await loadAllRecords(env);
