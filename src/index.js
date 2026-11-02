@@ -1484,9 +1484,11 @@ body.locked .wrap{display:none}
     });
   }
   function loadPresets(quiet) {
-    return Promise.all([api("/presets"), api("/links").catch(function () { return { links: [] }; })]).then(function (out) {
+    return Promise.all([api("/presets"), api("/links").catch(function () { return null; })]).then(function (out) {
       state.presets = out[0].presets || [];
-      state.links = out[1].links || [];
+      // 短链接口失败时保留上一次的列表。若覆盖成空数组，每一行都会以为「还没生成过短链」
+      // 而重新亮出「短链」按钮，用户点下去就把视图状态搞乱了。
+      if (out[1]) state.links = out[1].links || [];
       renderPresets();
       renderPresetEditor();
       renderUrls();

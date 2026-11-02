@@ -135,10 +135,17 @@ const navigatorShim = { clipboard: { writeText: async (t) => { clipboard.push(t)
 /* ---------------- 网络 ---------------- */
 let inflight = 0;
 const netFetch = (url, init) => fetch(url, init);
+// 可注入的接口失败规则，用来测「某个接口挂了」时页面的降级行为
+let failRules = [];
 async function shimFetch(input, init) {
   const url = String(input).startsWith("http") ? String(input) : BASE + String(input);
+  const method = String((init && init.method) || "GET").toUpperCase();
+  const hit = failRules.find((r) => url.includes(r.path) && (!r.method || r.method === method));
   inflight++;
-  try { return await netFetch(url, init); } finally { inflight--; }
+  try {
+    if (hit) return new Response(JSON.stringify({ ok: false, error: "injected failure" }), { status: hit.status || 500, headers: { "Content-Type": "application/json" } });
+    return await netFetch(url, init);
+  } finally { inflight--; }
 }
 async function idle(timeout = 25000) {
   const t0 = Date.now();
@@ -654,6 +661,15 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const shortedPath = text("url-base").replace(/^https?:\/\/[^/]+/, "");
   const shortedRes = await netFetch(BASE + shortedPath);
   check("订阅链接：短链能拉到全部订阅", shortedRes.status === 200 && shortedRes.headers.get("x-preset") === "all", `${shortedRes.status} ${shortedRes.headers.get("x-preset")}`);
+
+  // 回归：短链接口（GET /api/v1/links）失败时，不能把 state.links 覆盖成空，
+  // 否则每一行都会误以为「还没生成过短链」而重新亮出「短链」按钮。
+  check("订阅链接：此时 base64 行有短链，绿色短链按钮是收起的", el("short-url-base").style.display === "none", String(el("short-url-base").style.display));
+  failRules = [{ path: "/api/v1/links", method: "GET", status: 500 }];
+  shortBaseBtn.onclick.call(shortBaseBtn);
+  await idle();
+  check("订阅链接：短链列表拉取失败时，仍按已有短链收起绿色按钮", el("short-url-base").style.display === "none", String(el("short-url-base").style.display));
+  failRules = [];
   clipboard.length = 0;
   const btn = { textContent: "复制", getAttribute: (k) => (k === "data-copy" ? "url-base" : null) };
   docListeners.click[0]({ target: btn });
