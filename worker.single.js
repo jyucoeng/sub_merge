@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.10";
+const VERSION = "1.37.11";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3603,7 +3603,10 @@ async function servePreset(env, name, token, request, opts) {
     const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabled);
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
-  items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
+  /* 排序必须和 /api/v1/machines 给出的机器列表一致，否则 UI 里看着是「一台机器一组」，
+     订阅拉下来却是「所有机器的第 1 个节点排一起、第 2 个排一起」——rk 相同的机器
+     一旦按节点下标 i 排序就会这样交错。改成 rk 相同时先按机器名分组，i 只做组内次要键。 */
+  items.sort((a, b) => a.rk - b.rk || String(a.m).localeCompare(String(b.m)) || a.i - b.i);
   const skipSet = new Set(preset.skips);
   const memberSet = new Set(preset.members);
   const nodes = items.map((item) => item.node)
@@ -3648,7 +3651,10 @@ async function getAll(env, token, request, opts) {
     const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabledGlobal);
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
-  items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
+  /* 排序必须和 /api/v1/machines 给出的机器列表一致，否则 UI 里看着是「一台机器一组」，
+     订阅拉下来却是「所有机器的第 1 个节点排一起、第 2 个排一起」——rk 相同的机器
+     一旦按节点下标 i 排序就会这样交错。改成 rk 相同时先按机器名分组，i 只做组内次要键。 */
+  items.sort((a, b) => a.rk - b.rk || String(a.m).localeCompare(String(b.m)) || a.i - b.i);
   const all = items.map((item) => item.node).filter((node) => matchesFilter(node, filter));
   const rendered = subCachePut(key, { ...subBody(all, format, rules), nodes: all.length });
   return cachedSubResponse(rendered, {

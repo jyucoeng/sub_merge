@@ -1657,6 +1657,29 @@ test("subscription node list spans every machine in machine order and toggles gl
   assert.equal((await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: "x" }), auth)).status, 400);
 });
 
+test("machines sharing a rank stay grouped instead of interleaving their nodes", async () => {
+  /* 两台都识别成 JP 的机器 defaultMachineRank 相同。旧排序是 rk -> i（节点下标）-> 机器名，
+     rk 一样时按节点下标排，结果就是「两台机器的第 1 个节点排一起、第 2 个排一起」，
+     UI 里看着是一台一组，订阅拉下来却是交错的。 */
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const a1 = "vless://11111111-1111-4111-8111-111111111111@tokyo-a.example.com:443?security=reality&sni=www.bing.com#东京A-vless";
+  const a2 = "hysteria2://pw@tokyo-a.example.com:8443?sni=www.bing.com&insecure=1#东京A-hy2";
+  const b1 = "vless://22222222-2222-4222-8222-222222222222@tokyo-b.example.com:443?security=reality&sni=www.bing.com#东京B-vless";
+  const b2 = "hysteria2://pw@tokyo-b.example.com:8443?sni=www.bing.com&insecure=1#东京B-hy2";
+
+  await call(env, "PUT", "/api/v1/nodes/东京A", JSON.stringify({ nodes: [{ link: a1 }, { link: a2 }] }), auth);
+  await call(env, "PUT", "/api/v1/nodes/东京B", JSON.stringify({ nodes: [{ link: b1 }, { link: b2 }] }), auth);
+
+  const text = unb64(await (await call(env, "GET", `/sub/all/${TOKEN}`)).text());
+  const names = text.split("\n").filter(Boolean).map((line) => {
+    const hash = line.indexOf("#");
+    return hash >= 0 ? decodeURIComponent(line.slice(hash + 1)) : line.slice(0, 30);
+  });
+  assert.deepEqual(names, ["东京A-vless", "东京A-hy2", "东京B-vless", "东京B-hy2"],
+    "同一 rank 的两台机器必须各自成组，不能按节点下标交错");
+});
+
 test("shadowsocks links work in both the old base64 form and the SIP002 form", async () => {
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
