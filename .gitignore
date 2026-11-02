@@ -10,3 +10,7 @@ dist-pages/
 __pycache__/
 *.pyc
 CREDENTIALS.local.md
+
+# 本地测试产物，不入库
+docs/ui-test-report.md
+docs/ui-test-results.json
