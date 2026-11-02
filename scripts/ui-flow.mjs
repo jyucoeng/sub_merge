@@ -164,6 +164,7 @@ const html = await pageRes.text();
 check("GET /ui/<token> 200", pageRes.status === 200, `${html.length} B`);
 const code = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1];
 check("页面含内联脚本", Boolean(code), `${code ? code.length : 0} B`);
+check("标题后面有 GitHub 图标链接（新标签打开）", /<a id="gh" href="https:\/\/github\.com\/jyucoeng\/sub_merge" target="_blank" rel="noopener"/.test(html), "a#gh");
 
 const sandbox = {
   document: documentShim,
