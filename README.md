@@ -19,7 +19,7 @@
 
 ### 方式 A：Workers —— 把代码粘进网页编辑器
 
-1. 打开 [worker.single.js](https://raw.githubusercontent.com/jyucoeng/sub_merge/main/worker.single.js)，**全选复制**（打开就是纯文本，Ctrl/Cmd+A 即可）。这就是全部代码，一个文件约 260 KB，不用在本地装任何东西。
+1. 打开仓库根目录的 [worker.single.js](worker.single.js)（点右上角 **Raw** 看纯文本），**全选复制**。这就是全部代码，一个文件约 260 KB，不用在本地装任何东西。
    （想自己生成：仓库里跑 `npm run build:single`，产物是根目录的 `worker.single.js`，内容和上面那个一样。）
 2. Dashboard → **Workers & Pages → Create → Workers → Hello World**，起个名字（例如 `sub-merge`）→ **Deploy**
 3. 点 **Edit code**（部分界面叫 **Edit**）→ 编辑器里那段 Hello World 默认代码 **Ctrl/Cmd+A 全选删掉** → 粘贴刚才复制的内容 → 右上角 **Deploy**
