@@ -252,6 +252,12 @@ check("保存配置：状态文案", text("status").includes("已保存 ① 的 
   check("保存配置：服务端两条且 order 连续", n.length === 2 && n[0].order === 0 && n[1].order === 1, JSON.stringify(n.map((x) => [x.order, x.protocol])));
   check("保存配置：协议识别", n[0].protocol === "hy2" && n[1].protocol === "tuic", n.map((x) => x.protocol).join(","));
 }
+{
+  // 保存之后，下面的「订阅中的节点」必须立刻反映这台机器，而不是等手动点刷新
+  const subText = text("sub-list");
+  check("保存配置：订阅中的节点跟着刷新", subText.includes("香港-小叮当") && subText.includes("小叮当-洛杉矶-cloudnium-hy2-localhost"), subText.slice(0, 120));
+  check("保存配置：订阅徽章计入新节点", /\d+ \/ \d+ 在订阅里/.test(text("sub-count")), text("sub-count"));
+}
 
 /* 未保存状态、撤销、清空手动节点、切换机器守卫 */
 {

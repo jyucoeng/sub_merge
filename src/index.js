@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.24.5";
+const VERSION = "1.24.6";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -965,7 +965,7 @@ body.locked .wrap{display:none}
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function () {
           var tip = $("order-status"); tip.textContent = "已删除 " + m.machine; tip.className = "status ok";
-          return loadMachines();
+          return loadMachines().then(function () { return loadSubNodes(true); });
         }).catch(function (e) { var tip = $("order-status"); tip.textContent = "删除失败：" + e.message; tip.className = "status err"; });
       };
       edit.onclick = function () { state.current = m.machine; $("machine").value = m.machine; loadNodes(); };
@@ -1079,7 +1079,11 @@ body.locked .wrap{display:none}
     });
     setStatus("保存中...");
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
-      .then(function (data) { markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true); return loadMachines(true); })
+      .then(function (data) {
+        markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true);
+        // 手动节点变了，下面的「订阅中的节点」也要跟着变，否则看起来像没保存
+        return loadMachines(true).then(function () { return loadSubNodes(true); });
+      })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
@@ -1120,7 +1124,8 @@ body.locked .wrap{display:none}
         if (pending.length) $("bulk").value = "";
         return loadMachines(true).then(function () {
           state.current = name; $("machine").value = name; return loadNodes(true);
-        }).then(function () {
+        }).then(function () { return loadSubNodes(true); })
+        .then(function () {
           var tip = $("bulk-status"); if (tip) tip.textContent = "";
           state.nodes.forEach(function (n) { if (!n.name) n.name = ""; });
           setStatus(pending.length
@@ -1144,7 +1149,7 @@ body.locked .wrap{display:none}
     }).then(function (data) {
       if (data.renamed === false) { setStatus("名字没变", true); return; }
       state.current = to;
-      return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); })
+      return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); }).then(function () { return loadSubNodes(true); })
         .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
@@ -1169,7 +1174,7 @@ body.locked .wrap{display:none}
         setStatus(data && data.cleared === false
           ? "这台机器没有手动节点，不需要清空"
           : "已清空手动节点，只剩自动上报的节点", true);
-        return loadMachines(true);
+        return loadMachines(true).then(function () { return loadSubNodes(true); });
       })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
   };
