@@ -620,6 +620,10 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 {
   check("订阅链接展示", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
 
+  // 回归：视图停在 long（之前点过「换长链」）时点「短链」生成，
+  // 应当直接显示短链，不该还要再点一次「换短链」才看到结果。
+  storage.set("sub-worker-linkview", JSON.stringify({ "all:base64": "long" }));
+
   // 订阅链接也能发短链：点「短链」后这一行换成 /s/xxx
   const shortBaseBtn = el("short-url-base");
   check("订阅链接：没短链时有短链按钮", !!shortBaseBtn && shortBaseBtn.textContent === "短链" && shortBaseBtn.style.display !== "none", shortBaseBtn && shortBaseBtn.textContent);
@@ -1245,6 +1249,10 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const old = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
   const fresh = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：旧链接 401、新链接 200", old.status === 401 && fresh.status === 200, `${old.status}/${fresh.status}`);
+
+  // 回归：同上，档案这一行视图停在 long 时生成短链，也应直接显示短链
+  const presetNameForShort = rotatedUrl.split("/sub/p/")[1].split("/")[0];
+  storage.set("sub-worker-linkview", JSON.stringify({ ["p:" + presetNameForShort]: "long" }));
 
   // 短链：点了按钮生成 /s/xxx，且不带 token
   const shortBtn = byText("短链");

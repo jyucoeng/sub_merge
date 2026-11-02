@@ -1,4 +1,4 @@
-// sub-worker single-file build
+// sub_merge single-file build
 // 直接粘贴到 Cloudflare Dashboard -> Workers & Pages -> 你的 Worker -> Edit code。
 // 变量模式：在 Settings -> Variables and Secrets 设置一个 TOKEN（Secret）。
 // 对外域名由请求 Origin 自动决定，无需配置。
@@ -6,7 +6,7 @@
 // 建表：部署后调用一次 POST /api/v1/admin/schema（Bearer TOKEN），或在 Dashboard 的 D1 控制台执行 scripts/schema.sql。
 
 /**
- * sub-worker
+ * sub-merge
  *
  * 固定订阅入口 + 多机器自动上报 + WebUI 节点编辑/排序 + 客户端格式适配
  *
@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.23.4";
+const VERSION = "1.37.8";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -67,6 +67,30 @@ export const SCHEMA_STATEMENTS = [
   PRIMARY KEY (machine, source)
 )`,
   "CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine)",
+  `CREATE TABLE IF NOT EXISTS links (
+  code TEXT PRIMARY KEY,
+  preset TEXT NOT NULL,
+  format TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0,
+  last_at TEXT
+)`,
+  `CREATE TABLE IF NOT EXISTS presets (
+  name       TEXT PRIMARY KEY,
+  label      TEXT NOT NULL DEFAULT '',
+  protos     TEXT NOT NULL DEFAULT '',
+  tunnel     TEXT NOT NULL DEFAULT '',
+  machines   TEXT NOT NULL DEFAULT '',
+  format     TEXT NOT NULL DEFAULT '',
+  token      TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  skips      TEXT NOT NULL DEFAULT '',
+  members    TEXT NOT NULL DEFAULT '',
+  mode       TEXT NOT NULL DEFAULT '',
+  clash_mode TEXT NOT NULL DEFAULT 'inherit'
+)`,
   `CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -80,6 +104,9 @@ export const MIGRATION_STATEMENTS = [
   "ALTER TABLE machines ADD COLUMN auto_content TEXT",
   "ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE machines ADD COLUMN manual_updated_at TEXT",
+  "ALTER TABLE presets ADD COLUMN skips TEXT NOT NULL DEFAULT ''",  "ALTER TABLE presets ADD COLUMN members TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE presets ADD COLUMN mode TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE presets ADD COLUMN clash_mode TEXT NOT NULL DEFAULT 'inherit'",
 ];
 
 const UI_HTML = `<!doctype html>
@@ -87,7 +114,7 @@ const UI_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sub-worker 节点管理</title>
+<title>sub-merge 节点聚合管理</title>
 <style>
 :root{--bg:#ffffff;--card:#ffffff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb;--ok:#15803d;--err:#dc2626;--input:#ffffff;--chip:#f1f5f9;--soft:#fbfbfc;--code:#f8fafc;--accbg:#eff6ff;--accline:#bfdbfe;--accink:#1d4ed8;--warnbg:#fffbeb;--warnink:#92400e;--warnline:#fde68a;--manualbg:#fef3c7;--autobg:#ecfeff;--autoline:#a5f3fc;--autoink:#0e7490;--shadow:rgba(15,23,42,.06);--mask:rgba(15,23,42,.5)}
 [data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
@@ -100,6 +127,19 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+button.shortlink{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12);color:#15803d}
+button.shortlink:hover{background:#16a34a;border-color:#16a34a;color:#fff}
+[data-theme="dark"] button.shortlink{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
+[data-theme="dark"] button.shortlink:hover{background:#22c55e;border-color:#22c55e;color:#052e14}
+button.editing{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;box-shadow:0 0 0 2px rgba(37,99,235,.18)}
+button.editing:hover{background:var(--acc);color:#fff}
+button.linkview{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:var(--accline);background:var(--accbg);color:var(--acc)}
+button.linkview:hover{background:var(--acc);border-color:var(--acc);color:#fff}
+button.ghost{background:transparent;color:var(--sub);padding:8px 8px}
+button.ghost:hover{color:var(--ink);border-color:var(--acc)}
+button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);color:#15803d;font-weight:500}
+button.copied::before{content:"✓ ";font-weight:700}
+[data-theme="dark"] button.copied{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
@@ -113,6 +153,8 @@ textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);bor
 textarea:focus{border-color:var(--acc)}
 .bulk{margin-top:12px}.bulk .tip{margin-left:6px}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
+.tag.dirty{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.45);color:#dc2626;font-weight:500}
+[data-theme="dark"] .tag.dirty{background:rgba(248,113,113,.16);border-color:rgba(248,113,113,.45);color:#fca5a5}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
@@ -126,8 +168,9 @@ textarea:focus{border-color:var(--acc)}
 .status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
 #clash-body.hidden,#sub-body.hidden{display:none}
 .theme{padding:4px 9px;font-size:14px;line-height:1.1;background:var(--card);border:1px solid var(--line);border-radius:9px;margin-right:4px}
-.fold{margin-left:8px;padding:3px 10px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--sub);cursor:pointer;vertical-align:1px}
-.fold:hover{border-color:#9db7e0;color:var(--ink)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
+.fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
+.fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink)}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
@@ -156,6 +199,44 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
+.presets{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.pe-hint{font-size:12px;color:var(--sub);margin:0 0 6px}
+.peditor.pe-new{border-color:var(--acc);box-shadow:inset 3px 0 0 var(--acc)}
+.peditor{margin-top:10px;padding:10px;border:1px solid var(--accline);border-radius:10px;background:var(--soft)}
+.peditor.hidden{display:none}
+.peditor .row label{min-width:48px}
+.pe-node{grid-template-columns:20px 112px minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 8px}
+.pe-node .nlmeta{min-width:0;display:grid;gap:1px;font-size:12.5px}
+.pe-node .nlname{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pe-node .nllink{font:10.5px ui-monospace,Consolas,monospace;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pe-node .nlsrc{font-size:11.5px;color:var(--sub);white-space:nowrap}
+input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
+.lockwrap{display:inline-block}
+.lockwrap.locked{cursor:not-allowed}
+.lockwrap.locked input{cursor:not-allowed}
+#pe-badge{font-weight:600}
+#pe-badge.warn{color:var(--warnink)}
+.sub-list-narrow{max-height:320px;overflow:auto}
+.preset{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
+.preset .pname{min-width:0;display:flex;flex-direction:column;gap:2px}
+.preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
+.preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
+.preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
+.preset code{font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
+.presetwrap{display:flex;flex-direction:column}
+.preset .ptoggle{display:flex;align-items:center;gap:6px;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
+.preset .ptoggle .caret{flex:none;width:11px;font-size:12px;color:var(--acc)}
+.preset .ptoggle .pname{min-width:0}
+.preset .ptoggle .pname b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset.open{border-radius:9px 9px 0 0}
+.pnodebox{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border:1px solid var(--line);border-top:0;border-radius:0 0 9px 9px;background:var(--soft);font-size:12.5px}
+.pnode{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.pnode input[type=checkbox]{margin:0}
+.pnode .pnm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pnode .pmac{font-size:11.5px;color:var(--sub);white-space:nowrap}
+.pnode .pin{font-size:11.5px;color:var(--err);white-space:nowrap}
+.pnodebox .empty{padding:2px 0;font-size:12px}
 .sub-list{display:grid;gap:6px;margin-top:10px}
 .sub-group{display:flex;align-items:center;gap:8px;margin:12px 0 2px;font-size:12px;font-weight:600;color:#475569}
 .sub-group .tag{font-weight:500}
@@ -163,7 +244,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .subrow .tip{flex:none;width:170px}
 .subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .subrow button{flex:none}
-.subnode{display:grid;grid-template-columns:20px 76px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
+.chipgap{display:inline-block;width:8px}
+.subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
 .subnode:hover{border-color:#c7d5e8}
 .subnode.off{opacity:.45;background:var(--soft)}
 .subnode.off .nlname,.subnode.off .nllink{text-decoration:line-through}
@@ -183,9 +265,12 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
-#login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(430px,100%);box-shadow:0 20px 45px var(--shadow)}
-#login h2{font-size:18px;margin:0 0 4px}#login input{width:100%;margin:12px 0 0}
-#login .row{margin-top:12px}#login .status{margin-top:8px}
+h1 #gh{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:8px;border-radius:7px;color:var(--sub);vertical-align:-4px;text-decoration:none;border:1px solid transparent}
+h1 #gh:hover{color:var(--ink);background:var(--chip);border-color:var(--line)}
+h1 #gh svg{width:17px;height:17px;fill:currentColor;display:block}
+#login .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;width:min(360px,100%);box-shadow:0 20px 45px var(--shadow);text-align:center}
+#login h2{font-size:20px;margin:0;text-align:center}#login input{width:100%;margin:18px 0 0;text-align:center}
+#login .row{margin-top:16px;justify-content:center}#login-submit{width:100%;padding:12px 16px;font-size:15px;font-weight:600}#login .status{margin-top:10px;text-align:center}#login .status:empty{display:none}
 body.locked .wrap{display:none}
 @media(max-width:850px){.node{grid-template-columns:28px 1fr;padding-bottom:8px;border-bottom:1px dashed var(--line)}.node.auto-row{grid-template-columns:1fr 1fr;gap:6px}.node input.name{grid-column:2}.node button{grid-row:2}.node .idx-input{grid-row:1/span 2}}
 </style>
@@ -193,8 +278,7 @@ body.locked .wrap{display:none}
 <body class="locked">
 <div id="login">
 <div class="box">
-<h2>sub-worker 登录</h2>
-<div class="hint">只有管理员一种身份：输口令进来就能读写。口令在 Cloudflare 后台的 Variables and Secrets 里配。</div>
+<h2>登录</h2>
 <input id="login-username" type="text" autocomplete="username" placeholder="用户名" spellcheck="false" style="display:none">
 <input id="login-password" type="password" autocomplete="current-password" placeholder="管理员口令" spellcheck="false">
 <div class="row"><button id="login-submit" class="primary" type="button">进入</button></div>
@@ -202,7 +286,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-worker <span class="tip">节点管理</span></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -233,13 +317,15 @@ body.locked .wrap{display:none}
 </section>
 
 <section class="card">
-<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">按上面「机器排序」的顺序列出全部机器、全部节点；勾上的才进订阅，改完立即生效</span><button id="sub-toggle" class="fold" type="button">展开 +</button></h2>
+<h2>订阅中的节点 <span class="tag auto" id="sub-count">0 / 0</span> <span class="tip">勾上的才进订阅；改完点「保存勾选」才生效（连续点不会每次都请求）</span><button id="sub-toggle" class="fold" type="button">展开 +</button></h2>
 <div id="sub-body" class="hidden">
 <div class="row" style="margin-top:10px">
   <input id="sub-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px">
   <button id="sub-all" type="button">全选</button>
   <button id="sub-only" type="button">只选筛出来的</button>
   <button id="sub-none" class="danger" type="button">全不选</button>
+  <button id="sub-save" class="primary" type="button" disabled>保存勾选</button>
+  <button id="sub-discard" type="button" disabled>撤销修改</button>
   <button id="sub-clear" type="button">清除筛选</button>
   <button id="sub-reload" type="button">刷新</button>
 </div>
@@ -249,8 +335,50 @@ body.locked .wrap{display:none}
 <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；胶囊上的数字 = 在订阅 / 全部。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div class="hint" style="margin-top:4px">胶囊样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
 <div id="sub-list" class="sub-list"></div>
-<div id="sub-status" class="status"></div>
+<div class="row" style="margin-top:8px">
+  <span class="tag dirty" id="sub-dirty" style="display:none">未保存</span>
+  <span id="sub-status" class="status" style="margin:0"></span>
 </div>
+</div>
+</section>
+
+<section class="card" id="card-presets">
+<h2>订阅档案 <span class="tag auto" id="preset-badge">0 个</span> <span class="tip">挑一批节点存成一条固定链接，格式可固定，随时编辑</span></h2>
+<div class="hint" style="margin-top:8px">一个档案 = 一条固定链接。点「新建档案 / 编辑」后，下面会把<b>主订阅的全部节点</b>列出来，已经在这个档案里的会提前勾好；你可以先用协议 / 机器 / 隧道 / 搜索把列表筛一遍，勾完点「保存档案」，选中的节点才绑到这个档案上。主订阅里没启用的节点不会进档案，节点被删掉时档案也跟着少。</div>
+<div class="row" style="margin-top:8px">
+  <input id="preset-search" placeholder="搜档案：名字 / 显示名 / 链接（长链或短链都行）" spellcheck="false" style="min-width:300px">
+  <button id="preset-new" class="primary" type="button">新建档案</button>
+  <span class="tip" id="preset-status"></span>
+</div>
+<div id="preset-editor" class="peditor hidden">
+  <div class="pe-hint" id="pe-mode-hint"></div>
+  <div class="row" style="margin-top:4px">
+    <b id="pe-title">新建档案</b>
+    <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="标识（可留空，用显示名自动生成）" spellcheck="false" style="width:190px" title="内部标识：API 路径和长链接 /sub/p/标识/token 会用到它；发短链之后链接里看不到它了。只能用字母、数字、下划线、横线，1–32 位；留空会自动用显示名生成。建好之后不能改"></span>
+    <input id="pe-label" placeholder="显示名 / 备注（可空）" spellcheck="false" style="width:190px" title="给你自己看的名字或备注，比如「给手机用」「只留 Hy2」；只显示在界面里、也只用于搜索，不影响链接和内容，随时能改">
+    <select id="pe-format" title="这个档案以后固定输出什么格式。留「格式自动」= 按客户端的 User-Agent 猜，跟普通订阅链接一样"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
+    <span id="pe-clash" class="tag auto" title="这个档案的 clash 输出用的分流规则来源。inherit = 跟随「分流规则」卡片里那一份全局规则，改一次全部档案一起变">分流规则：跟随全局</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <input id="pe-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px" title="在下面这个列表里按节点名、协议、机器名搜；只是筛列表，不影响已勾选的内容">
+    <button id="pe-all" type="button">全选</button>
+    <button id="pe-only" type="button">只选筛出来的</button>
+    <button id="pe-none" class="danger" type="button">全不选</button>
+    <button id="pe-save" class="primary" type="button">保存档案</button>
+    <button id="pe-cancel" type="button">取消</button>
+    <button id="pe-clear-filter" type="button">清除筛选</button>
+  </div>
+  <div class="row" style="margin-top:8px"><label>按协议</label><span id="pe-proto-chips" class="protocols"></span></div>
+  <div class="row" style="margin-top:6px"><label>按机器</label><span id="pe-machine-chips" class="protocols"></span></div>
+  <div class="row" style="margin-top:8px"><label>当前显示</label><span id="pe-shown" class="tip">全部节点</span></div>
+  <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都勾进这个档案了，◐ = 只勾了一部分，没有标记 = 一个都没勾；胶囊上的数字 = 已勾进档案 / 共几个（跟着其它筛选条件变）。行尾划掉 + 「没在订阅里」的那些是主订阅里没启用的，勾不上。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
+  <div id="pe-list" class="sub-list sub-list-narrow"></div>
+  <div class="row" style="margin-top:8px">
+    <span class="tag dirty" id="pe-badge" style="display:none">未保存</span>
+    <span id="pe-status" class="status" style="margin:0"></span>
+  </div>
+</div>
+<div id="presets" class="presets"></div>
 </section>
 
 <section class="card">
@@ -270,10 +398,11 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button></div>
+<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" class="shortlink" type="button">短链</button><button data-linkview="base64" id="unshort-url-base" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" class="shortlink" type="button">短链</button><button data-linkview="clash" id="unshort-url-clash" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" class="shortlink" type="button">短链</button><button data-linkview="proxies" id="unshort-url-proxies" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" class="shortlink" type="button">短链</button><button data-linkview="singbox" id="unshort-url-singbox" class="linkview" type="button" style="display:none">换长链</button></div>
+<div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
 </div>
@@ -282,7 +411,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], search: "", protos: [], machinesF: [] } };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -653,14 +782,39 @@ body.locked .wrap{display:none}
     });
     return out;
   }
+  /* 细分类型键：vless-reality / vless-argo / vless-cdn / hy2 …，老数据没有 cls 时退回 kind */
+  function subKey(node) { return (node && node.cls) || (node && node.kind) || "unknown"; }
+  /* 勾选状态先存在 draft 里，点「保存勾选」才写库；disabled 是上次保存的结果。 */
+  function subInSub(node) { return (state.sub.draft || []).indexOf(node.id) === -1; }
+  function subChanged() {
+    var draft = state.sub.draft || []; var saved = state.sub.disabled || [];
+    if (draft.length !== saved.length) return true;
+    var set = {};
+    saved.forEach(function (id) { set[id] = 1; });
+    return draft.some(function (id) { return !set[id]; });
+  }
+  function subChangedCount() {
+    var draft = state.sub.draft || []; var saved = state.sub.disabled || [];
+    var a = {}, b = {}, n = 0;
+    draft.forEach(function (id) { a[id] = 1; });
+    saved.forEach(function (id) { b[id] = 1; });
+    draft.forEach(function (id) { if (!b[id]) n += 1; });
+    saved.forEach(function (id) { if (!a[id]) n += 1; });
+    return n;
+  }
+  function subEnabledCount() {
+    return subRows().filter(function (item) { return subInSub(item.node); }).length;
+  }
   /* 分面筛选：ignore 用来算「某个胶囊自己的候选数量」——统计它时不算它自己那一维。 */
   function subVisible(ignore) {
     ignore = ignore || {};
     var q = String(state.sub.search || "").trim().toLowerCase();
     var protos = state.sub.protos || [];
     var machines = state.sub.machinesF || [];
+    var tunnel = state.sub.tunnel || "";
     return subRows().filter(function (item) {
-      if (!ignore.proto && protos.length && protos.indexOf(item.node.kind) === -1) return false;
+      if (!ignore.proto && protos.length && protos.indexOf(subKey(item.node)) === -1) return false;
+      if (!ignore.tunnel && tunnel && (item.node.tunnel || "") !== tunnel) return false;
       if (!ignore.machine && machines.length && machines.indexOf(item.machine) === -1) return false;
       if (!q) return true;
       var hay = (item.node.name || "") + " " + (item.node.link || "") + " " + item.machine;
@@ -682,9 +836,9 @@ body.locked .wrap{display:none}
         var hit = map.filter(function (x) { return x.key === key; })[0];
         if (!hit) { hit = { key: key, total: 0, shown: 0, inSub: 0, label: "", machine: item.machine }; map.push(hit); }
         hit.total += 1;
-        if (item.node.in_sub) hit.inSub += 1;
+        if (subInSub(item.node)) hit.inSub += 1;
         if (shownSet[rowKey(item)]) hit.shown += 1;
-        if (!hit.label && item.node.label) hit.label = item.node.label;
+        if (!hit.label) hit.label = (item.node && (item.node.cls_label || item.node.label)) || "";
       });
       return map;
     }
@@ -707,7 +861,7 @@ body.locked .wrap{display:none}
     }
     if (protoBox) {
       protoBox.innerHTML = "";
-      var byProto = tally(function (item) { return item.node.kind; });
+      var byProto = tally(function (item) { return subKey(item.node); });
       var order = [];
       byProto.forEach(function (x) { if (order.indexOf(x.key) === -1) order.push(x.key); });
       byProto.sort(function (a, b) { return order.indexOf(a.key) - order.indexOf(b.key); });
@@ -721,8 +875,20 @@ body.locked .wrap{display:none}
           var at = list.indexOf(item.key);
           if (at === -1) list.push(item.key); else list.splice(at, 1);
           state.sub.protos = list; renderSub();
-        }, "只看这个协议"));
+        }, "只看这个细分类型"));
       });
+      // 固定/临时隧道：不分协议，只出两个合计值（vless-argo / vmess-argo / trojan-argo 全都算进来）
+      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }, null, peRows({ ignoreTunnel: true })).filter(function (x) { return x.key; });
+      byTunnel.sort(function (a, b) { return a.key === "fixed" ? -1 : b.key === "fixed" ? 1 : 0; });
+      if (byTunnel.length) {
+        var gap = document.createElement("span"); gap.className = "chipgap"; gap.textContent = ""; protoBox.appendChild(gap);
+        byTunnel.forEach(function (item) {
+          var lbl = item.key === "fixed" ? "固定隧道" : "临时隧道";
+          protoBox.appendChild(chip(lbl, item.shown, item.total, item.inSub, state.sub.tunnel === item.key, function () {
+            state.sub.tunnel = state.sub.tunnel === item.key ? "" : item.key; renderSub();
+          }, "只看" + lbl + "的节点（含 VLESS/VMess/Trojan）"));
+        });
+      }
     }
     if (machineBox) {
       machineBox.innerHTML = "";
@@ -746,10 +912,20 @@ body.locked .wrap{display:none}
     var box = $("sub-list"); if (!box) return;
     var badge = $("sub-count");
     var stats = state.sub.stats || { total: 0, enabled: 0 };
+    var liveEnabled = subEnabledCount();
     if (badge) {
-      badge.textContent = stats.enabled + " / " + stats.total + " 在订阅里";
-      badge.className = "tag " + (stats.disabled ? "manual" : "auto");
+      badge.textContent = liveEnabled + " / " + stats.total + " 在订阅里";
+      badge.className = "tag " + (liveEnabled === stats.total ? "auto" : "manual");
     }
+    var dirty = subChanged();
+    var dirtyTag = $("sub-dirty");
+    if (dirtyTag) {
+      dirtyTag.textContent = "未保存 " + subChangedCount() + " 处";
+      dirtyTag.style.display = dirty ? "" : "none";
+    }
+    var saveBtn = $("sub-save"), undoBtn = $("sub-discard");
+    if (saveBtn) { saveBtn.disabled = !dirty; saveBtn.textContent = dirty ? "保存勾选（" + subChangedCount() + "）" : "保存勾选"; }
+    if (undoBtn) undoBtn.disabled = !dirty;
     renderSubChips();
     box.innerHTML = "";
     var visible = subVisible();
@@ -758,12 +934,13 @@ body.locked .wrap{display:none}
       var totalRows = subRows().length;
       var picked = [];
       if ((state.sub.protos || []).length) {
-        var known = (state.sub.stats && state.sub.stats.protocols) || [];
-        picked.push("协议 " + state.sub.protos.map(function (kind) {
-          var hit = known.filter(function (p) { return p.kind === kind; })[0];
-          return hit ? hit.label : kind;
+        var known = (state.sub.stats && state.sub.stats.classes) || (state.sub.stats && state.sub.stats.protocols) || [];
+        picked.push("协议 " + state.sub.protos.map(function (key) {
+          var hit = known.filter(function (p) { return (p.cls || p.kind) === key; })[0];
+          return hit ? hit.label : key;
         }).join("/"));
       }
+      if (state.sub.tunnel) picked.push("隧道 " + (state.sub.tunnel === "fixed" ? "固定隧道" : "临时隧道"));
       if ((state.sub.machinesF || []).length) picked.push("机器 " + state.sub.machinesF.join("、"));
       if (state.sub.search) picked.push("搜索「" + state.sub.search + "」");
       shown.textContent = visible.length + " / " + totalRows + " 个节点" + (picked.length ? "（" + picked.join(" + ") + "）" : "（没有筛选）");
@@ -790,19 +967,20 @@ body.locked .wrap{display:none}
         }(item.machine);
         var name = document.createElement("span"); name.textContent = item.machine;
         var count = document.createElement("span"); count.className = "tag auto";
-        var group = (state.sub.machines || []).filter(function (m) { return m.machine === item.machine; })[0];
-        count.textContent = (group ? group.enabled : 0) + " / " + (group ? group.total : 0);
+        var groupRows = subRows().filter(function (x) { return x.machine === item.machine; });
+        count.textContent = groupRows.filter(function (x) { return subInSub(x.node); }).length + " / " + groupRows.length;
         head.appendChild(name); head.appendChild(count);
         box.appendChild(head);
       }
       var node = item.node;
       var row = document.createElement("div");
-      row.className = "subnode" + (node.in_sub ? "" : " off");
+      row.className = "subnode" + (subInSub(node) ? "" : " off");
       row.title = node.link;
       var tick = document.createElement("input");
-      tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
-      var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = node.label;
-      tag.title = "点标签只看这个协议";
+      tick.type = "checkbox"; tick.checked = subInSub(node);
+      var tag = document.createElement("span"); tag.className = "ptag";
+      tag.textContent = node.cls_label || node.label;
+      tag.title = "点标签只看这个细分类型";
       tag.onclick = function (kind) {
         return function (ev) {
           if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -811,10 +989,10 @@ body.locked .wrap{display:none}
           if (at === -1) list.push(kind); else list.splice(at, 1);
           state.sub.protos = list; renderSub();
         };
-      }(node.kind);
+      }(subKey(node));
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
-      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
+      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link; raw.title = node.link;
       meta.appendChild(label); meta.appendChild(raw);
       var src = document.createElement("span");
       src.className = "nlsrc srctag " + (node.source === "manual" ? "manual" : "auto");
@@ -837,42 +1015,512 @@ body.locked .wrap{display:none}
     }).catch(function (err) { subStatusText(err.message, false); });
   }
   function toggleSubNode(node) {
-    var set = (state.sub.disabled || []).slice();
-    var at = set.indexOf(node.id);
-    if (at === -1) set.push(node.id); else set.splice(at, 1);
-    var turningOn = at !== -1;
-    putSubDisabled(set).then(function () {
+    var draft = (state.sub.draft || []).slice();
+    var at = draft.indexOf(node.id);
+    if (at === -1) draft.push(node.id); else draft.splice(at, 1);
+    state.sub.draft = draft;
+    renderSub();
+  }
+  function saveSubDraft() {
+    var draft = (state.sub.draft || []).slice();
+    var count = subChangedCount();
+    subStatusText("正在保存…", null);
+    return putSubDisabled(draft).then(function () {
       var stats = state.sub.stats || {};
-      subStatusText((turningOn ? "已让「" + (node.name || node.link) + "」回到订阅" : "已把「" + (node.name || node.link) + "」移出订阅")
-        + "，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
+      state.sub.disabled = draft.slice();
+      renderSub();
+      subStatusText("已保存 " + count + " 处改动，现在 " + (stats.enabled != null ? stats.enabled : subEnabledCount()) + " / " + stats.total + " 个节点在订阅里", true);
       loadMachines(true);
     });
+  }
+  function discardSubDraft() {
+    state.sub.draft = (state.sub.disabled || []).slice();
+    renderSub();
+    subStatusText("已撤销未保存的勾选", true);
   }
   function applySubBulk(mode) {
     var visible = subVisible();
     var visibleIds = new Set(visible.map(function (item) { return item.node.id; }));
     var allIds = subRows().map(function (item) { return item.node.id; });
-    var set = new Set(state.sub.disabled || []);
+    var set = new Set(state.sub.draft || []);
     if (mode === "all") visibleIds.forEach(function (id) { set.delete(id); });
     if (mode === "only") { allIds.forEach(function (id) { if (!visibleIds.has(id)) set.add(id); }); visibleIds.forEach(function (id) { set.delete(id); }); }
     if (mode === "none") allIds.forEach(function (id) { set.add(id); });
-    var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length) ? "筛出来的 " + visible.length + " 个" : "全部";
-    putSubDisabled([...set]).then(function () {
-      var stats = state.sub.stats || {};
-      var label = mode === "all" ? "全选" : mode === "only" ? "只选筛出来的" : "全不选";
-      subStatusText(label + "（" + scope + "）完成，现在 " + stats.enabled + " / " + stats.total + " 个节点在订阅里", true);
-      loadMachines(true);
-    });
+    var scope = (state.sub.search || (state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.tunnel) ? "筛出来的 " + visible.length + " 个" : "全部";
+    state.sub.draft = [...set];
+    renderSub();
+    var label = mode === "all" ? "全选" : mode === "only" ? "只选筛出来的" : "全不选";
+    subStatusText(label + "（" + scope + "）已勾好，点「保存勾选」生效", true);
   }
   function loadSubNodes(quiet) {
     return api("/sub/nodes").then(function (data) {
       state.sub.machines = data.machines || [];
       state.sub.stats = data.stats || { total: 0, enabled: 0 };
+      var wasDirty = subChanged();
       state.sub.disabled = data.disabled || [];
+      if (!wasDirty) state.sub.draft = (data.disabled || []).slice();
       renderSub();
+      renderPresets();
+      renderPresetEditor();
       if (!quiet) subStatusText("已加载 " + state.sub.stats.total + " 个节点，其中 " + state.sub.stats.enabled + " 个在订阅里", true);
     }).catch(function (err) { subStatusText(err.message, false); });
   }
+  /* ---------------- 订阅档案 ---------------- */
+  function presetStatus(text, ok) {
+    var el = (state.presetEdit && $("pe-status")) || $("preset-status"); if (!el) return;
+    el.textContent = text || "";
+    el.className = "status" + (text && ok === true ? " ok" : (text && ok === false ? " err" : ""));
+  }
+  /* 跟「订阅中的节点」同一套胶囊外观，但这里数的「在不在」指的是在不在这个档案里：
+   * ✓ 这组全在档案里 / ◐ 部分在 / 无标记 = 都不在；数字 = 在档案 / 共。蓝框 = 正在按它筛 */
+  function presetChip(label, shown, total, inSub, picked, filtering, onClick, hint) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    var cls = "proto";
+    if (total && inSub === total) cls += " on";
+    else if (inSub > 0) cls += " part";
+    if (picked) cls += " picked";
+    if (filtering && shown === 0) cls += " dim";
+    btn.className = cls;
+    var mark = (total && inSub === total) ? "✓ " : (inSub > 0 ? "◐ " : "");
+    btn.textContent = mark + label + " · " + inSub + "/" + total;
+    btn.title = (picked ? "取消只看它" : hint) + "（在档案里 " + inSub + " 个 / 共 " + total + " 个；当前列出 " + shown + " 个）";
+    btn.onclick = onClick;
+    return btn;
+  }
+  function presetProtoText(item) {
+    if ((item.members || []).length) return "绑定 " + item.members.length + " 条节点";
+    if (!(item.protos || []).length) return "全部协议";
+    return "条件：" + item.protos.join("、");
+  }
+  /* 编辑面板：列出主订阅的全部节点，档案里已有的提前勾上 */
+  function openPresetEditor(item) {
+    /* 换档案 / 新建时把上一条「已保存 …」清掉，免得挂在别人面板上 */
+    if (state.presetEdit && state.presetEdit.closeTimer) clearTimeout(state.presetEdit.closeTimer);
+    [ "pe-status", "preset-status" ].forEach(function (id) {
+      var el = $(id); if (el) { el.textContent = ""; el.className = id === "pe-status" ? "status" : "tip"; }
+    });
+    state.presetEdit = {
+      mode: item ? "edit" : "new",
+      name: item ? item.name : "",
+      label: item ? (item.label === item.name ? "" : item.label) : "",
+      format: item ? (item.format || "") : "",
+      protos: [],
+      tunnel: "",
+      machines: [],
+      search: "",
+      picked: item ? (item.members || []).slice() : [],
+      orig: item ? (item.members || []).slice() : [],
+      origLabel: item ? (item.label === item.name ? "" : item.label) : "",
+      origFormat: item ? (item.format || "") : "",
+    };
+    if (typeof renderPresets === "function" && state.presets) renderPresets();
+    var box = $("preset-editor"); if (box) box.className = item ? "peditor" : "peditor pe-new";
+    if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案（跟已有档案无关）";
+    var hint = $("pe-mode-hint");
+    if (hint) {
+      hint.textContent = item
+        ? "正在改「" + item.name + "」：下面默认勾好的就是它现在的节点，改动要按「保存档案」才生效。"
+        : "新建：下面列出的是主订阅的全部节点，一个都没勾；要改已有档案请点它那一行的「编辑」。";
+      hint.style.display = "";
+    }
+    var name = $("pe-name");
+    if (name) {
+      name.value = state.presetEdit.name;
+      name.readOnly = !!item;
+      name.className = item ? "locked" : "";
+      name.style.pointerEvents = item ? "none" : "";
+    }
+    var wrap = $("pe-name-wrap");
+    if (wrap) {
+      wrap.className = item ? "lockwrap locked" : "lockwrap";
+      wrap.title = item
+        ? "标识建好就固定了，不能改（API 路径和长链接用它）；短链不依赖它"
+        : "标识只给 API 和长链接用（/sub/p/标识/token），发短链之后链接里看不到它；留空会自动用显示名生成，建好之后不能改";
+    }
+    if ($("pe-label")) $("pe-label").value = state.presetEdit.label;
+    if ($("pe-format")) $("pe-format").value = state.presetEdit.format;
+    if ($("pe-search")) $("pe-search").value = "";
+    renderPresetEditor();
+    try { if (box) box.scrollIntoView({ block: "center" }); } catch (e) {}
+  }
+  /* 保存成功 3 秒后自动收起编辑面板；期间用户再动一下就取消收起 */
+  function schedulePresetClose() {
+    var st = state.presetEdit; if (!st) return;
+    if (st.closeTimer) clearTimeout(st.closeTimer);
+    st.closeTimer = setTimeout(function () {
+      if (state.presetEdit !== st) return;
+      st.closeTimer = null;
+      closePresetEditor();
+      loadPresets(true);
+    }, 5000);
+  }
+  function cancelPresetClose() {
+    var st = state.presetEdit; if (!st || !st.closeTimer) return;
+    clearTimeout(st.closeTimer);
+    st.closeTimer = null;
+    st.saved = false;
+  }
+  function closePresetEditor() {
+    if (state.presetEdit && state.presetEdit.closeTimer) clearTimeout(state.presetEdit.closeTimer);
+    state.presetEdit = null;
+    var box = $("preset-editor"); if (box) box.className = "peditor hidden";
+    var name = $("pe-name"); if (name) { name.readOnly = false; name.className = ""; name.style.pointerEvents = ""; }
+    var wrap = $("pe-name-wrap"); if (wrap) { wrap.className = "lockwrap"; wrap.title = ""; }
+    if (typeof renderPresets === "function" && state.presets) renderPresets();
+  }
+  function peHas(id) { return (state.presetEdit && state.presetEdit.picked.indexOf(id) >= 0); }
+  function peToggle(id, on) {
+    var st = state.presetEdit; if (!st) return;
+    cancelPresetClose();
+    var at = st.picked.indexOf(id);
+    if (on && at < 0) st.picked.push(id);
+    if (!on && at >= 0) st.picked.splice(at, 1);
+    renderPresetEditor();
+  }
+  function peDirty() {
+    var st = state.presetEdit; if (!st) return 0;
+    var before = {};
+    (st.orig || []).forEach(function (id) { before[id] = 1; });
+    var after = {};
+    st.picked.forEach(function (id) { after[id] = 1; });
+    var n = 0;
+    Object.keys(after).forEach(function (id) { if (!before[id]) n += 1; });
+    Object.keys(before).forEach(function (id) { if (!after[id]) n += 1; });
+    var lbl = String(($("pe-label") && $("pe-label").value) || "").trim();
+    var fmt = ($("pe-format") && $("pe-format").value) || "";
+    if (lbl !== (st.origLabel || "")) n += 1;
+    if (fmt !== (st.origFormat || "")) n += 1;
+    return n;
+  }
+  function peBadge() {
+    var el = $("pe-badge"); if (!el) return;
+    var dirty = peDirty();
+    el.textContent = dirty ? "未保存 " + dirty + " 处" : "未保存";
+    el.style.display = dirty ? "" : "none";
+    el.title = dirty
+      ? "勾选或设置改过了，点「保存档案」才写进这个档案；点「取消」丢弃"
+      : "跟已保存的档案一致";
+  }
+  /* opt 里可以忽略某一维，用来算「分面计数」：协议胶囊的数字跟着机器/隧道/搜索走，机器胶囊的跟着协议/隧道/搜索走 */
+  function peRows(opt) {
+    var st = state.presetEdit; if (!st) return [];
+    var o = opt || {};
+    var q = String(st.search || "").trim().toLowerCase();
+    var out = [];
+    (state.sub.machines || []).forEach(function (m) {
+      if (!o.ignoreMachine && st.machines.length && st.machines.indexOf(m.machine) < 0) return;
+      (m.nodes || []).forEach(function (n) {
+        if (!o.ignoreTunnel && st.tunnel && n.tunnel !== st.tunnel) return;
+        if (!o.ignoreProto && st.protos.length) {
+          var cls = n.cls || n.kind;
+          if (st.protos.indexOf(cls) < 0 && st.protos.indexOf(n.kind) < 0) return;
+        }
+        if (q) {
+          var hay = ((n.name || "") + " " + m.machine + " " + (n.cls_label || n.label || "")).toLowerCase();
+          if (hay.indexOf(q) < 0) return;
+        }
+        out.push({ machine: m.machine, node: n });
+      });
+    });
+    return out;
+  }
+  function renderPresetEditor() {
+    var st = state.presetEdit;
+    var list = $("pe-list");
+    var box = $("preset-editor");
+    if (!st || !list) { if (box) box.className = "peditor hidden"; return; }
+    var all = [];
+    (state.sub.machines || []).forEach(function (m) {
+      (m.nodes || []).forEach(function (n) { all.push({ machine: m.machine, node: n }); });
+    });
+    var visible = peRows();
+    var shownSet = {};
+    var rowKey = function (item) { return item.machine + "|" + item.node.id; };
+    visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
+    var filtering = Boolean((st.protos || []).length || (st.machines || []).length || st.tunnel || String(st.search || "").trim());
+    function tally(keyOf, labelOf, rowsOf) {
+      var map = [];
+      (rowsOf || all).forEach(function (item) {
+        var key = keyOf(item);
+        if (!key) return;
+        var hit = map.filter(function (x) { return x.key === key; })[0];
+        if (!hit) { hit = { key: key, total: 0, inSub: 0, shown: 0, label: labelOf ? labelOf(item) : key }; map.push(hit); }
+        hit.total += 1;
+        if (peHas(item.node.id)) hit.inSub += 1;
+        if (shownSet[rowKey(item)]) hit.shown += 1;
+      });
+      return map;
+    }
+    var protoBox = $("pe-proto-chips");
+    if (protoBox) {
+      protoBox.innerHTML = "";
+      var byProto = tally(function (item) { return subKey(item.node); }, function (item) { return item.node.cls_label || item.node.label || ""; }, peRows({ ignoreProto: true }));
+      if (!byProto.length) {
+        var none = document.createElement("span"); none.className = "tip"; none.textContent = "还没有节点"; protoBox.appendChild(none);
+      }
+      byProto.forEach(function (item) {
+        var on = st.protos.indexOf(item.key) !== -1;
+        protoBox.appendChild(presetChip(item.label || item.key, item.shown, item.total, item.inSub, on, filtering, function () {
+          var at = st.protos.indexOf(item.key);
+          if (at === -1) st.protos.push(item.key); else st.protos.splice(at, 1);
+          renderPresetEditor();
+        }, "只在列表里显示这个细分类型"));
+      });
+      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }).filter(function (x) { return x.key; });
+      byTunnel.sort(function (a, b) { return a.key === "fixed" ? -1 : b.key === "fixed" ? 1 : 0; });
+      if (byTunnel.length) {
+        var gap = document.createElement("span"); gap.className = "chipgap"; protoBox.appendChild(gap);
+        byTunnel.forEach(function (item) {
+          var lbl = item.key === "fixed" ? "固定隧道" : "临时隧道";
+          protoBox.appendChild(presetChip(lbl, item.shown, item.total, item.inSub, st.tunnel === item.key, filtering, function () {
+            st.tunnel = st.tunnel === item.key ? "" : item.key;
+            renderPresetEditor();
+          }, "只在列表里显示" + lbl));
+        });
+      }
+    }
+    var machineBox = $("pe-machine-chips");
+    if (machineBox) {
+      machineBox.innerHTML = "";
+      var byMachine = tally(function (item) { return item.machine; }, function (item) { return item.machine; }, peRows({ ignoreMachine: true }));
+      (state.sub.machines || []).forEach(function (m) {
+        var hit = byMachine.filter(function (x) { return x.key === m.machine; })[0] || { shown: 0, total: 0, inSub: 0 };
+        machineBox.appendChild(presetChip(m.machine, hit.shown, hit.total, hit.inSub, st.machines.indexOf(m.machine) >= 0, filtering, function () {
+          var at = st.machines.indexOf(m.machine);
+          if (at === -1) st.machines.push(m.machine); else st.machines.splice(at, 1);
+          renderPresetEditor();
+        }, "只在列表里显示这台机器"));
+      });
+    }
+    var rows = peRows();
+    peBadge();
+    var shownEl = $("pe-shown");
+    if (shownEl) {
+      var bits = [];
+      if (st.protos.length) bits.push("协议 " + st.protos.join("、"));
+      if (st.machines.length) bits.push("机器 " + st.machines.join("、"));
+      if (st.tunnel) bits.push("隧道 " + (st.tunnel === "fixed" ? "固定" : "临时"));
+      if (String(st.search || "").trim()) bits.push("搜「" + String(st.search).trim() + "」");
+      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选") + "）；已勾选 " + st.picked.length + " 条";
+    }
+    list.innerHTML = "";
+    if (!rows.length) {
+      var empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = "这个筛选条件下没有节点；把胶囊取消或者清掉搜索再看看。";
+      list.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (hit) {
+      var inMaster = hit.node.in_sub !== false;
+      var row = document.createElement("div"); row.className = "subnode pe-node" + (inMaster ? "" : " off");
+      var box = document.createElement("input"); box.type = "checkbox";
+      box.checked = inMaster && peHas(hit.node.id);
+      box.disabled = !inMaster;
+      box.title = inMaster ? "勾上 = 这条进档案" : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
+      box.onchange = function () { peToggle(hit.node.id, box.checked); };
+      var tag = document.createElement("span"); tag.className = "ptag";
+      tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
+      var meta = document.createElement("div"); meta.className = "nlmeta";
+      var nm = document.createElement("div"); nm.className = "nlname";
+      nm.textContent = hit.node.name || "（无名）";
+      var raw = document.createElement("div"); raw.className = "nllink";
+      raw.textContent = hit.node.link || "";
+      raw.title = hit.node.link || "";
+      meta.appendChild(nm); meta.appendChild(raw);
+      row.appendChild(box); row.appendChild(tag); row.appendChild(meta);
+      if (!inMaster) {
+        var off = document.createElement("span"); off.className = "nlsrc"; off.textContent = "没在订阅里"; off.title = "这条在主订阅里被关掉了，所以不会进这个档案；想让它进来先去「订阅中的节点」勾上";
+        row.appendChild(off);
+      }
+      list.appendChild(row);
+    });
+  }
+  function presetSlug(text, taken) {
+    var base = String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+    if (!base) base = "preset-" + Math.random().toString(36).slice(2, 6);
+    var name = base, n = 2;
+    while ((taken || []).indexOf(name) >= 0 && n < 100) { name = base + "-" + n; n += 1; }
+    return name;
+  }
+  function savePresetEdit() {
+    var st = state.presetEdit; if (!st) return;
+    var name = String($("pe-name").value || "").trim();
+    if (!name && !st.name) {
+      name = presetSlug($("pe-label").value || "", (state.presets || []).map(function (p) { return p.name; }));
+      $("pe-name").value = name;
+    }
+    if (!name) { presetStatus("先给它起个显示名，或者手填一个标识", false); return; }
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("标识只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    var isNew = st.mode === "new";
+    if (isNew && (state.presets || []).some(function (p) { return p.name === name; })) {
+      presetStatus("标识「" + name + "」已经被别的档案用了，换一个（留空就自动生成）", false);
+      return;
+    }
+    var body = {
+      label: String($("pe-label").value || "").trim(),
+      format: $("pe-format").value || "",
+      members: st.picked.slice(),
+      mode: "members",
+      protos: [],
+      tunnel: "",
+      machines: [],
+      skips: [],
+      create: st.mode === "new",
+    };
+    presetStatus("正在保存…", null);
+    api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (data) {
+        var msg = "已保存 " + data.preset.name + "：绑定 " + (data.preset.members || []).length + " 条节点";
+        presetStatus(msg, true);
+        /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
+        st.orig = st.picked.slice();
+        st.origLabel = String($("pe-label").value || "").trim();
+        st.origFormat = $("pe-format").value || "";
+        st.saved = true;
+        renderPresetEditor();
+        if ($("pe-status")) $("pe-status").textContent = msg;
+        loadPresets(true);
+        loadSubNodes(true);
+        schedulePresetClose();
+      })
+      .catch(function (err) { presetStatus(err.message, false); });
+  }
+  function presetMatchesSearch(item, q) {
+    if (!q) return true;
+    var sl = presetLink(item.name);
+    var hay = ((item.name || "") + " " + (item.label || "") + " " + (item.url || "") + " "
+      + (sl ? sl.code + " " + sl.path + " " + location.origin + sl.path + " " + sl.url : "")).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }
+  function renderPresets() {
+    var box = $("presets"); if (!box) return;
+    box.innerHTML = "";
+    var badge = $("preset-badge");
+    var q = String(state.presetSearch || "").trim().toLowerCase();
+    var shown = state.presets.filter(function (item) { return presetMatchesSearch(item, q); });
+    if (badge) badge.textContent = q ? shown.length + " / " + state.presets.length + " 个" : state.presets.length + " 个";
+    if (!state.presets.length) {
+      var empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = "还没有档案。点「新建档案」，勾几台机器上的节点，保存就得到一条 /sub/p/<名字>/<token> 链接。";
+      box.appendChild(empty);
+      return;
+    }
+    if (!shown.length) {
+      var nohit = document.createElement("div"); nohit.className = "empty";
+      nohit.textContent = "没有匹配「" + state.presetSearch + "」的档案。";
+      box.appendChild(nohit);
+      return;
+    }
+    shown.forEach(function (item) {
+      var row = document.createElement("div"); row.className = "preset";
+      var name = document.createElement("div"); name.className = "pname";
+      var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
+      var desc = document.createElement("span"); desc.className = "pdesc";
+      desc.appendChild(document.createTextNode(presetProtoText(item) + (item.format ? " · " + item.format : " · 格式自动") + " · "));
+      var tk = document.createElement("span");
+      tk.className = "tk " + (item.token ? "own" : "shared");
+      tk.textContent = item.token ? "独立 token" : "共用主 token";
+      tk.title = item.token ? "这条档案有自己的 token，主 SUB_TOKEN 进不来" : "这条档案用主 SUB_TOKEN，换主 token 时它跟着变";
+      desc.appendChild(tk);
+      desc.appendChild(document.createTextNode(" · 规则跟随全局"));
+      desc.title = desc.textContent;
+      name.appendChild(title); name.appendChild(desc);
+
+      var sl = presetLink(item.name);
+      var view = linkViewOf("p:" + item.name);
+      var shownUrl = (sl && view === "short") ? location.origin + sl.path : item.url;
+      var link = document.createElement("code"); link.textContent = shownUrl;
+      link.title = !sl ? item.url
+        : (view === "short" ? shownUrl + "（短链，指向档案 " + item.name + "；长链接是 " + item.url + "）" : shownUrl + "（长链接；短链是 /s/" + sl.code + "）");
+
+      var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
+      copy.title = (sl && view === "short") ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
+      copy.onclick = function () { copyToClipboard(shownUrl); flashButton(copy, "已复制"); };
+
+      var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
+      var editing = !!(state.presetEdit && state.presetEdit.mode === "edit" && state.presetEdit.name === item.name);
+      var edit = document.createElement("button"); edit.type = "button";
+      edit.textContent = editing ? "编辑中" : "编辑";
+      edit.className = editing ? "editing" : "";
+      edit.title = editing ? "正在编辑这条，改完点「保存档案」或「取消」" : "列出主订阅的全部节点，把已经在这个档案里的勾好，改完点保存";
+      edit.onclick = function () { openPresetEditor(item); };
+      var rotate = document.createElement("button"); rotate.type = "button"; rotate.textContent = item.token ? "换 token" : "发独立 token";
+      rotate.title = "给这个档案单独发一个 token，之后主 token 就不再能访问它；再点一次会换新的";
+      rotate.onclick = function () {
+        api("/presets/" + encodeURIComponent(item.name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rotate_token: true }) })
+          .then(function (data) { presetStatus("已换新 token：" + data.preset.name, true); loadPresets(true); })
+          .catch(function (err) { presetStatus(err.message, false); });
+      };
+      var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "删除";
+      del.onclick = function () {
+        if (typeof confirm === "function" && !confirm("删除档案「" + item.name + "」？链接会立刻失效。")) return;
+        api("/presets/" + encodeURIComponent(item.name), { method: "DELETE" })
+          .then(function () {
+            presetStatus("已删除 " + item.name, true);
+            if (state.presetEdit && state.presetEdit.name === item.name) closePresetEditor();
+            loadPresets(true);
+          })
+          .catch(function (err) { presetStatus(err.message, false); });
+      };
+      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.className = "shortlink"; shortBtn.textContent = "短链";
+      shortBtn.title = "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+      shortBtn.style.display = sl ? "none" : "";
+      shortBtn.onclick = function () {
+        api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
+          .then(function (data) {
+            copyToClipboard(data.url);
+            // 同主订阅链接：生成后直接把这一条切到短链视图，
+            // 否则视图停在 long 时还得再点一次「换短链」。
+            setLinkView("p:" + item.name, "short");
+            loadPresets(true);
+          })
+          .catch(function (err) { presetStatus(err.message, false); });
+      };
+      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
+      if (sl) {
+        var sw = document.createElement("button"); sw.type = "button"; sw.className = "linkview";
+        sw.textContent = view === "short" ? "换长链" : "换短链";
+        sw.title = view === "short" ? "这个档案改成显示长链接（短链还在，随时能换回来）" : "这个档案改回短链 /s/" + sl.code;
+        sw.onclick = function () { setLinkView("p:" + item.name, view === "short" ? "long" : "short"); renderPresets(); };
+        right.appendChild(sw);
+      }
+      right.appendChild(del);
+      row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
+      box.appendChild(row);
+    });
+  }
+  function loadPresets(quiet) {
+    return Promise.all([api("/presets"), api("/links").catch(function () { return { links: [] }; })]).then(function (out) {
+      state.presets = out[0].presets || [];
+      state.links = out[1].links || [];
+      renderPresets();
+      renderPresetEditor();
+      renderUrls();
+      if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案、" + state.links.length + " 条短链", true);
+    }).catch(function (err) { presetStatus(err.message, false); });
+  }
+  function presetLink(name) {
+    var hit = null;
+    (state.links || []).forEach(function (l) { if (l.preset === name) hit = l; });
+    return hit;
+  }
+  var COPY_FLASH_MS = 3000;
+  function flashButton(btn, text) {
+    if (!btn) return;
+    var oldText = btn.textContent;
+    var oldClass = String(btn.className || "");
+    btn.textContent = text;
+    btn.className = (oldClass ? oldClass.trim() + " " : "") + "copied";
+    setTimeout(function () {
+      btn.textContent = oldText;
+      btn.className = oldClass;
+    }, COPY_FLASH_MS);
+  }
+  function copyToClipboard(text) {
+    try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
+  }
+
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
@@ -970,7 +1618,7 @@ body.locked .wrap{display:none}
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function () {
           var tip = $("order-status"); tip.textContent = "已删除 " + m.machine; tip.className = "status ok";
-          return loadMachines();
+          return loadMachines().then(function () { return loadSubNodes(true); });
         }).catch(function (e) { var tip = $("order-status"); tip.textContent = "删除失败：" + e.message; tip.className = "status err"; });
       };
       edit.onclick = function () { state.current = m.machine; $("machine").value = m.machine; loadNodes(); };
@@ -978,14 +1626,66 @@ body.locked .wrap{display:none}
       box.appendChild(row);
     });
   }
+  function linkViewMap() {
+    try { return JSON.parse(window.localStorage.getItem("sub-worker-linkview") || "{}") || {}; } catch (e) { return {}; }
+  }
+  function linkViewOf(key) { return linkViewMap()[key] === "long" ? "long" : "short"; }
+  function setLinkView(key, v) {
+    var m = linkViewMap();
+    if (v === "long") m[key] = "long"; else delete m[key];
+    try { window.localStorage.setItem("sub-worker-linkview", JSON.stringify(m)); } catch (e) {}
+  }
   var SUB_TOKEN = "";
+  function subAllLink(fmt) {
+    var hit = null;
+    (state.links || []).forEach(function (l) { if (!l.preset && (l.format || "") === fmt) hit = l; });
+    return hit;
+  }
   function renderUrls() {
     if (!SUB_TOKEN) return;
     var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
-    $("url-base").textContent = base;
-    $("url-clash").textContent = base + "?format=clash";
-    $("url-proxies").textContent = base + "?format=proxies";
-    $("url-singbox").textContent = base + "?format=singbox";
+    var rows = { "url-base": "base64", "url-clash": "clash", "url-proxies": "proxies", "url-singbox": "singbox" };
+    Object.keys(rows).forEach(function (id) {
+      var el = $(id); if (!el) return;
+      var fmt = rows[id];
+      var full = fmt === "base64" ? base : base + "?format=" + fmt;
+      var sl = subAllLink(fmt);
+      var view = linkViewOf("all:" + fmt);
+      var text = (sl && view === "short") ? location.origin + sl.path : full;
+      el.textContent = text;
+      el.title = !sl ? full : (view === "short" ? text + "（短链；长链接是 " + full + "）" : text + "（长链接；短链是 /s/" + sl.code + "）");
+
+      var btn = $("short-" + id);
+      if (btn) {
+        btn.style.display = sl ? "none" : "";
+        btn.textContent = "短链";
+        btn.title = "给这个格式生成一条不带 token 的短链";
+        btn.onclick = function () {
+          api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
+            .then(function (data) {
+              copyToClipboard(data.url);
+              // 生成短链就意味着「这一行要看短链」。视图可能还停在 long
+              // （之前点过「换长链」），不清掉的话生成完仍显示长链接，
+              // 还得再点一次「换短链」才看到结果。
+              setLinkView("all:" + fmt, "short");
+              return loadPresets(true);
+            })
+            .then(function () { flashButton(btn, "已生成"); })
+            .catch(function () { flashButton(btn, "失败"); });
+        };
+      }
+
+      var sw = $("unshort-" + id);
+      if (sw) {
+        sw.style.display = sl ? "" : "none";
+        sw.className = "linkview";
+        sw.textContent = view === "short" ? "换长链" : "换短链";
+        sw.title = view === "short"
+          ? "这一行改成显示长链接（短链还在，随时能换回来）"
+          : "这一行改回短链 /s/" + (sl ? sl.code : "");
+        sw.onclick = function () { setLinkView("all:" + fmt, view === "short" ? "long" : "short"); renderUrls(); };
+      }
+    });
   }
   function loadNodes(quiet) {
     if (!state.current) { state.nodes = []; state.autoNodes = []; render(); renderAutoNodes(); markClean(); return Promise.resolve(); }
@@ -1061,8 +1761,43 @@ body.locked .wrap{display:none}
   }
   setSubOpen(false);
   $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
-  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; $("sub-search").value = ""; renderSub(); };
+  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
+  $("preset-new").onclick = function () { openPresetEditor(null); };
+  $("preset-search").oninput = function () { state.presetSearch = this.value || ""; renderPresets(); };
+  $("pe-save").onclick = function () { savePresetEdit(); };
+  $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("已取消", true); };
+  $("pe-search").oninput = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.search = this.value || ""; renderPresetEditor(); } };
+  $("pe-all").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    peRows().forEach(function (hit) { if (hit.node.in_sub !== false && !peHas(hit.node.id)) state.presetEdit.picked.push(hit.node.id); });
+    renderPresetEditor();
+  };
+  $("pe-only").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.picked = peRows().filter(function (hit) { return hit.node.in_sub !== false; }).map(function (hit) { return hit.node.id; });
+    renderPresetEditor();
+  };
+  $("pe-none").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.picked = [];
+    renderPresetEditor();
+  };
+  $("pe-clear-filter").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.search = "";
+    if ($("pe-search")) $("pe-search").value = "";
+    renderPresetEditor();
+  };
+  $("pe-format").onchange = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.format = this.value || ""; renderPresetEditor(); } };
+  $("pe-label").oninput = function () { if (state.presetEdit) { cancelPresetClose(); renderPresetEditor(); } };
+
+  $("sub-save").onclick = function () { saveSubDraft(); };
+  $("sub-discard").onclick = function () { discardSubDraft(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
   $("sub-only").onclick = function () { applySubBulk("only"); };
   $("sub-none").onclick = function () { applySubBulk("none"); };
@@ -1084,7 +1819,11 @@ body.locked .wrap{display:none}
     });
     setStatus("保存中...");
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
-      .then(function (data) { markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true); return loadMachines(true); })
+      .then(function (data) {
+        markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true);
+        // 手动节点变了，下面的「订阅中的节点」也要跟着变，否则看起来像没保存
+        return loadMachines(true).then(function () { return loadSubNodes(true); });
+      })
       .catch(function (e) { setStatus("保存失败：" + e.message, false); });
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
@@ -1125,7 +1864,8 @@ body.locked .wrap{display:none}
         if (pending.length) $("bulk").value = "";
         return loadMachines(true).then(function () {
           state.current = name; $("machine").value = name; return loadNodes(true);
-        }).then(function () {
+        }).then(function () { return loadSubNodes(true); })
+        .then(function () {
           var tip = $("bulk-status"); if (tip) tip.textContent = "";
           state.nodes.forEach(function (n) { if (!n.name) n.name = ""; });
           setStatus(pending.length
@@ -1149,7 +1889,7 @@ body.locked .wrap{display:none}
     }).then(function (data) {
       if (data.renamed === false) { setStatus("名字没变", true); return; }
       state.current = to;
-      return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); })
+      return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); }).then(function () { return loadSubNodes(true); })
         .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
@@ -1174,7 +1914,7 @@ body.locked .wrap{display:none}
         setStatus(data && data.cleared === false
           ? "这台机器没有手动节点，不需要清空"
           : "已清空手动节点，只剩自动上报的节点", true);
-        return loadMachines(true);
+        return loadMachines(true).then(function () { return loadSubNodes(true); });
       })
       .catch(function (e) { setStatus("恢复失败：" + e.message, false); });
   };
@@ -1188,7 +1928,7 @@ body.locked .wrap{display:none}
     var id = ev.target && ev.target.getAttribute("data-copy");
     if (!id) return;
     var text = $(id).textContent;
-    var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, 1200); };
+    var done = function () { flashButton(ev.target, "已复制"); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
   });
   $("clash-hide-empty").onchange = function () { renderClashGroups(); };
@@ -1397,6 +2137,7 @@ body.locked .wrap{display:none}
     loadMachines();
     loadSubNodes(true);
     loadClash();
+    loadPresets(true);
   }
 
   $("login-submit").onclick = function () {
@@ -1474,7 +2215,7 @@ async function handleRequest(request, env) {
   const openApi = /^\/api\/v1\/(auth\/(login|session|mode)|report\/)/.test(path);
   let session = null;
   if (path.startsWith("/api/v1/") && !openApi) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     session = await sessionOf(request, env);
     if (!session) return unauthorized();
 
@@ -1483,7 +2224,7 @@ async function handleRequest(request, env) {
   // 接口索引在 /api；根路径和别的路径一律 404，只有 /ui 是入口
   if (request.method === "GET" && (path === "/api" || path === "/api/")) {
     return json({
-      name: "sub-worker",
+      name: "sub-merge",
       version: VERSION,
       storage: "d1",
       subscription_base: baseUrl(request),
@@ -1494,6 +2235,7 @@ async function handleRequest(request, env) {
         "GET /sub/:machine/:token",
         "GET /sub/all/:token",
         "GET /sub/:token",
+        "GET /s/:id",
         "GET/PUT /api/v1/nodes/:machine",
         "POST /api/v1/machines/:machine/reset",
         "POST /api/v1/machines/:machine/rename",
@@ -1572,7 +2314,7 @@ async function handleRequest(request, env) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     const known = {
       DB: "D1 数据库绑定",
-      SUB_TOKEN: "订阅 token（老的 TOKEN 仍兼容）",
+      SUB_TOKEN: "订阅 + 管理 API 的 token",
       ADMIN_PASSWORD: "管理员口令",
       REPORT_TOKEN: "机器上报专用凭证（可选）",
     };
@@ -1596,7 +2338,7 @@ async function handleRequest(request, env) {
   let m = path.match(/^\/api\/v1\/admin\/schema$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     return initSchema(env);
   }
 
@@ -1608,7 +2350,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     const machine = decodeURIComponent(m[1]);
     if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
@@ -1619,7 +2361,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/sub\/nodes$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "GET") return methodNotAllowed("GET");
     return json({ ok: true, ...(await subNodesView(env)) });
@@ -1627,7 +2369,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/sub\/disabled$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putSubDisabled(request, env);
@@ -1635,7 +2377,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/disabled$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putDisabled(request, env, decodeURIComponent(m[1]));
@@ -1643,7 +2385,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/protocols$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "PUT") return methodNotAllowed("PUT");
     return putProtocols(request, env, decodeURIComponent(m[1]));
@@ -1651,7 +2393,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/reset$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return resetMachine(env, decodeURIComponent(m[1]));
@@ -1665,7 +2407,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/([^/]+)\/rename$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return renameMachine(request, env, decodeURIComponent(m[1]));
@@ -1673,7 +2415,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines\/order$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return json({ ok: true, machine_order: await getMachineOrder(env) });
     if (request.method !== "PUT") return methodNotAllowed("GET, PUT");
@@ -1682,7 +2424,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/machines(?:\/([^/]+))?$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET" && !m[1]) return listMachines(env);
     if (request.method === "DELETE" && m[1]) return deleteMachine(env, decodeURIComponent(m[1]));
@@ -1691,7 +2433,7 @@ async function handleRequest(request, env) {
 
   m = path.match(/^\/api\/v1\/clash\/rules$/);
   if (m) {
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     if (request.method === "GET") return getClashRules(env);
     if (request.method === "PUT") return putClashRules(request, env);
@@ -1701,18 +2443,68 @@ async function handleRequest(request, env) {
   m = path.match(/^\/api\/v1\/clash\/rules\/default$/);
   if (m) {
     if (request.method !== "GET") return methodNotAllowed("GET");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     return json({ ok: true, defaults: true, ...defaultClashRules() });
   }
 
   m = path.match(/^\/api\/v1\/clash\/rules\/reset$/);
   if (m) {
     if (request.method !== "POST") return methodNotAllowed("POST");
-    if (!authToken(env)) return missingConfig("TOKEN");
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (!dbEnv(env)) return missingConfig("DB");
     await resetClashRules(env);
     const doc = await loadClashRules(env);
     return json({ ok: true, reset: true, custom: doc.custom, groups: doc.groups, rulesets: doc.rulesets });
+  }
+
+  m = path.match(/^\/api\/v1\/presets$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method === "GET") return getPresets(env, request);
+    return methodNotAllowed("GET");
+  }
+
+  m = path.match(/^\/api\/v1\/presets\/([^/]+)$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    const name = decodeURIComponent(m[1]);
+    if (request.method === "PUT") return putPreset(request, env, name);
+    if (request.method === "DELETE") return deletePreset(env, name);
+    return methodNotAllowed("PUT, DELETE");
+  }
+
+  m = path.match(/^\/api\/v1\/presets\/([^/]+)\/toggle$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    return togglePresetNode(request, env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/links$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method === "GET") return getLinks(env, request);
+    if (request.method === "POST") return putLink(request, env);
+    return methodNotAllowed("GET, POST");
+  }
+
+  m = path.match(/^\/api\/v1\/links\/([^/]+)$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method !== "DELETE") return methodNotAllowed("DELETE");
+    return deleteLink(env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/s\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return serveShortLink(env, decodeURIComponent(m[1]), request);
+  }
+
+  m = path.match(/^\/sub\/p\/([^/]+)\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return servePreset(env, decodeURIComponent(m[1]), decodeURIComponent(m[2]), request);
   }
 
   m = path.match(/^\/sub\/all\/([^/]+)$/);
@@ -2086,6 +2878,76 @@ function nodeKind(node) {
   return parsed && parsed.kind ? parsed.kind : "unknown";
 }
 
+/* 节点细分类型：基础协议 + 接入方式，用来区分 vless-reality / *-argo / *-cdn。
+ * 判定依据与 sb00.sh 的命名一致：
+ *   reality → 链接里 security=reality
+ *   argo    → ws + 名字或 path 里带 argo（path=/%uuid-vl|vm|tr）
+ *   cdn     → ws + path 里带 -cdn（path=/%uuid-vl-cdn|vm-cdn|tr-cdn） */
+const NODE_CLASS_LABELS = {
+  "vless-reality": "VLESS·Reality",
+  "vless-argo": "VLESS·Argo",
+  "vless-cdn": "VLESS·CDN",
+  "vmess-argo": "VMess·Argo",
+  "vmess-cdn": "VMess·CDN",
+  "trojan-argo": "Trojan·Argo",
+  "trojan-cdn": "Trojan·CDN",
+  "trojan-reality": "Trojan·Reality",
+};
+
+function nodeClassLabel(cls) {
+  const key = String(cls || "");
+  if (NODE_CLASS_LABELS[key]) return NODE_CLASS_LABELS[key];
+  const m = /^(.*)-(reality|argo|cdn)(?:-(fixed|temp))?$/.exec(key);
+  if (m) {
+    const tail = m[2] === "argo" && m[3] ? "Argo" + (m[3] === "fixed" ? "固定" : "临时") : m[2][0].toUpperCase() + m[2].slice(1);
+    return protocolLabel(m[1]) + "·" + tail;
+  }
+  return protocolLabel(key);
+}
+
+/* Argo 隧道分两种，靠「客户端连的域名」区分：
+ *   临时隧道（quick tunnel）→ *.trycloudflare.com，域名每次重启都变
+ *   固定隧道（named tunnel）→ 自己绑的域名（custom hostname），域名不变
+ * 优先看 ws 的 Host / SNI（那是隧道真正的域名），没有再看连接地址。 */
+function argoKind(parsed) {
+  const host = String((parsed && (parsed.host || parsed.sni)) || "").toLowerCase();
+  const server = String((parsed && parsed.server) || "").toLowerCase();
+  const probe = host || server;
+  if (/\.trycloudflare\.com$/.test(probe)) return "temp";
+  if (/\.cfargotunnel\.com$/.test(probe)) return "fixed";
+  if (!host && /trycloudflare\.com$/.test(server)) return "temp";
+  return "fixed";
+}
+
+/* 隧道类型：只有 argo 节点才有值，fixed=固定隧道（自己的域名）/ temp=临时隧道（*.trycloudflare.com）。
+ * 细分类型不按它拆（还是 vless-argo / vmess-argo / trojan-argo），它只用来出两个合计胶囊。 */
+function tunnelKind(node) {
+  const cls = nodeClassOf(node);
+  if (!/-argo$/.test(cls)) return "";
+  const parsed = node && node.link ? parseLinkCached(node.link) : null;
+  return argoKind(parsed);
+}
+
+function nodeClassOf(node) {
+  const kind = nodeKind(node);
+  if (kind !== "vless" && kind !== "vmess" && kind !== "trojan") return kind;
+  const parsed = node && node.link ? parseLinkCached(node.link) : null;
+  if (!parsed) return kind;
+  if (parsed.reality) return kind + "-reality";
+  const path = String(parsed.path || "").toLowerCase();
+  const host = String(parsed.host || "").toLowerCase();
+  const server = String(parsed.server || "").toLowerCase();
+  const name = String((node && node.name) || parsed.name || "").toLowerCase();
+  const network = String(parsed.network || "").toLowerCase();
+  const ws = network === "ws" || network === "websocket" || path !== "" || host !== "";
+  if (!ws) return kind;
+  if (path.indexOf("-cdn") !== -1) return kind + "-cdn";
+  if (path.indexOf("argo") !== -1 || name.indexOf("argo") !== -1) return kind + "-argo";
+  if (path.indexOf("cdn") !== -1 || name.indexOf("cdn") !== -1) return kind + "-cdn";
+  if (/\.trycloudflare\.com$/.test(server) || /cfargotunnel/.test(server)) return kind + "-argo";
+  return kind;
+}
+
 function protocolStats(nodes) {
   const counts = new Map();
   for (const node of nodes || []) {
@@ -2216,12 +3078,17 @@ async function nodeEntries(record, disabled) {
     if (seen.has(id)) return;
     seen.add(id);
     const kind = nodeKind(node);
+    const cls = nodeClassOf(node);
+    const tunnel = /-argo$/.test(cls) ? argoKind(node && node.link ? parseLinkCached(node.link) : null) : "";
     out.push({
       id,
       link: node.link,
       name: node.name || "",
       kind,
+      cls,
+      tunnel,
       label: protocolLabel(kind),
+      cls_label: nodeClassLabel(cls),
       source,
       enabled: !list.has(id),
     });
@@ -2335,7 +3202,7 @@ async function deleteSource(env, machine, source) {
 
 async function report(request, env, machine) {
   const expected = reportToken(env);
-  if (!expected) return missingConfig("TOKEN");
+  if (!expected) return missingConfig("SUB_TOKEN");
   // 上报只认上报凭证；配了 REPORT_TOKEN 后 TOKEN 不再能上报，避免订阅链接泄露就能写数据
   if (!checkBearer(request, expected)) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
@@ -2412,7 +3279,7 @@ async function report(request, env, machine) {
 }
 
 async function getOne(env, machine, token, request) {
-  if (!authToken(env)) return missingConfig("TOKEN");
+  if (!authToken(env)) return missingConfig("SUB_TOKEN");
   if (!checkToken(token, authToken(env))) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
@@ -2422,30 +3289,330 @@ async function getOne(env, machine, token, request) {
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const allowed = await loadAllowedProtocols(env, machine);
   const disabled = [...(await loadDisabledGlobal(env))];
-  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(",") + "|" + disabled.length, format, [], [record]);
+  const filter = filterOf(request);
+  const key = subCacheKey("one:" + machine + (rules ? ":" + rules.rev : "") + "|" + allowed.join(",") + "|" + disabled.length + filterKey(filter), format, [], [record]);
   const hit = subCacheGet(key);
   if (hit) {
     return cachedSubResponse(hit, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
   }
-  const nodes = await nodesOf(record, allowed, disabled);
+  const nodes = (await nodesOf(record, allowed, disabled)).filter((node) => matchesFilter(node, filter));
   const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
-  return cachedSubResponse(rendered, { "x-machine": encodeURIComponent(machine), "x-updated-at": record.updated_at, "x-nodes": String(nodes.length), "x-sub-cache": "miss" });
+  return cachedSubResponse(rendered, {
+    "x-machine": encodeURIComponent(machine),
+    "x-updated-at": record.updated_at,
+    "x-nodes": String(nodes.length),
+    ...(filter.protos.length ? { "x-proto": filter.protos.join(",") } : {}),
+    ...(filter.tunnel ? { "x-tunnel": filter.tunnel } : {}),
+    "x-sub-cache": "miss",
+  });
 }
 
-async function getAll(env, token, request) {
-  if (!authToken(env)) return missingConfig("TOKEN");
-  if (!checkToken(token, authToken(env))) return unauthorized();
+/* ---- 订阅档案：把「筛哪些协议/隧道/机器、用什么格式」存下来，给一条短链接 ----
+ * /sub/p/<档案名>/<token>：token 默认就是 SUB_TOKEN，也可以给单个档案单独发一个（可单独吊销）。 */
+const PRESET_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const PRESET_CLASH_MODES = ["inherit"];
+const PRESET_MAX = 200;
+
+function presetToken() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function presetFromRow(row) {
+  return {
+    name: row.name,
+    label: row.label || row.name,
+    protos: String(row.protos || "").split(",").filter(Boolean),
+    tunnel: row.tunnel || "",
+    machines: String(row.machines || "").split("").filter(Boolean),
+    skips: String(row.skips || "").split("").filter(Boolean),
+    members: String(row.members || "").split("").filter(Boolean),
+    mode: String(row.mode || ""),
+    clashMode: String(row.clash_mode || "inherit"),
+    format: row.format || "",
+    token: row.token || "",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function listPresets(env) {
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets ORDER BY created_at DESC, name ASC").all();
+  return (res.results || []).map(presetFromRow);
+}
+
+async function findPreset(env, name) {
+  if (!PRESET_NAME_RE.test(String(name || ""))) return null;
+  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets WHERE name = ?1").bind(name).first();
+  return row ? presetFromRow(row) : null;
+}
+
+/* body: { label, protos:[], tunnel, machines:[], format, rotate_token } */
+async function putPreset(request, env, name) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!PRESET_NAME_RE.test(String(name || ""))) return json({ ok: false, error: "name must match ^[A-Za-z0-9_-]{1,32}$" }, 400);
+  const text = await request.text();
+  let data;
+  try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+  const protos = (Array.isArray(data.protos) ? data.protos : String(data.protos || "").split(","))
+    .map((x) => String(x).trim().toLowerCase()).filter((x) => /^[a-z0-9-]{1,32}$/.test(x)).slice(0, 40);
+  const tunnelRaw = String(data.tunnel || "").toLowerCase();
+  const tunnel = ["fixed", "temp"].includes(tunnelRaw) ? tunnelRaw : "";
+  const machines = (Array.isArray(data.machines) ? data.machines : String(data.machines || "").split(","))
+    .map((x) => String(x).trim()).filter(Boolean).slice(0, 50);
+  const formatRaw = String(data.format || "").toLowerCase();
+  const format = ["clash", "proxies", "singbox", "base64"].includes(formatRaw) ? formatRaw : "";
+  const label = String(data.label || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 40) || name;
+
+  const existing = await findPreset(env, name);
+  /* 新建时撞上已有标识：直接 409，别把别人的档案悄悄覆盖掉 */
+  if (existing && data.create === true) return json({ ok: false, error: "preset already exists: " + name }, 409);
+  if (!existing) {
+    const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM presets").first());
+    if (count && Number(count.n) >= PRESET_MAX) return json({ ok: false, error: `at most ${PRESET_MAX} presets` }, 400);
+  }
+  const now = new Date().toISOString();
+  const token = data.rotate_token === true || (!existing && data.own_token === true) ? presetToken() : (existing ? existing.token : "");
+  const machinesKey = machines.join("");
+  const skips = (Array.isArray(data.skips) ? data.skips : String(data.skips || "").split(""))
+    .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 600);
+  const skipsKey = [...new Set(skips)].join("");
+  const members = (Array.isArray(data.members) ? data.members : String(data.members || "").split(""))
+    .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 1000);
+  const membersKey = [...new Set(members)].join("");
+  const modeKey = String(data.mode || "").trim() === "members" ? "members" : (membersKey ? "members" : (existing ? existing.mode : ""));
+  /* 分流规则来源：目前只有 inherit（跟随全局「分流规则」卡片那一份） */
+  const clashModeRaw = data.clashMode !== undefined ? data.clashMode : data.clash_mode;
+  const clashMode = String(clashModeRaw === undefined || clashModeRaw === null ? "" : clashModeRaw).trim().toLowerCase()
+    || (existing ? existing.clashMode : "inherit");
+  if (!PRESET_CLASH_MODES.includes(clashMode)) {
+    return json({ ok: false, error: "clashMode must be one of: " + PRESET_CLASH_MODES.join(", ") }, 400);
+  }
+  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9, skips = ?10, members = ?11, mode = ?12, clash_mode = ?13`)
+    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now, skipsKey, membersKey, modeKey, clashMode)
+    .run();
+  const saved = await findPreset(env, name);
+  return json({ ok: true, preset: saved, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
+}
+
+async function deletePreset(env, name) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!PRESET_NAME_RE.test(String(name || ""))) return json({ ok: false, error: "invalid preset name" }, 400);
+  await env.DB.prepare("DELETE FROM presets WHERE name = ?1").bind(name).run();
+  await env.DB.prepare("DELETE FROM links WHERE preset = ?1").bind(name).run();
+  return json({ ok: true, deleted: name });
+}
+
+async function getPresets(env, request) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const list = await listPresets(env);
+  const base = baseUrl(request);
+  return json({
+    ok: true,
+    presets: list.map((item) => ({ ...item, token: item.token ? "own" : "", url: `${base}/sub/p/${encodeURIComponent(item.name)}/${item.token || authToken(env)}` })),
+  });
+}
+
+/* 公开：/sub/p/<档案名>/<token>，按档案里存的条件实时筛 */
+/* 只把这一个节点从这个档案里摘掉/放回：不动总订阅，也不动别的档案。 */
+async function togglePresetNode(request, env, name) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  let data;
+  try { data = JSON.parse((await request.text()) || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+  const id = String(data.id || "").trim();
+  if (!id || id.length > 2000) return json({ ok: false, error: "id is required" }, 400);
+  const preset = await findPreset(env, name);
+  if (!preset) return json({ ok: false, error: "preset not found" }, 404);
+  const on = data.on === true || data.on === "true" || data.on === 1;
+  const skips = preset.skips.filter((x) => x !== id);
+  if (!on) skips.push(id);
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE presets SET skips = ?2, updated_at = ?3 WHERE name = ?1")
+    .bind(name, skips.slice(0, 600).join(""), now)
+    .run();
+  const saved = await findPreset(env, name);
+  return json({ ok: true, preset: saved, skipped: saved.skips.length, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
+}
+
+const LINK_CODE_RE = /^[a-z0-9][a-z0-9_-]{3,31}$/;
+const LINK_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
+const LINK_FORMATS = ["", "clash", "proxies", "singbox", "base64"];
+
+function linkCode(len = 10) {
+  const bytes = new Uint8Array(len || 10);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 1) out += LINK_CODE_ALPHABET[bytes[i] % LINK_CODE_ALPHABET.length];
+  return out;
+}
+
+function linkFromRow(row, request) {
+  return {
+    code: row.code,
+    preset: row.preset,
+    format: row.format || "",
+    note: row.note || "",
+    createdAt: row.created_at,
+    hits: Number(row.hits || 0),
+    lastAt: row.last_at || null,
+    path: "/s/" + row.code,
+    url: request ? baseUrl(request) + "/s/" + row.code : "",
+  };
+}
+
+async function getLink(env, code, request) {
+  const row = await env.DB.prepare("SELECT code, preset, format, note, created_at, hits, last_at FROM links WHERE code = ?1").bind(code).first();
+  return row ? linkFromRow(row, request) : null;
+}
+
+async function getLinks(env, request) {
+  if (!authToken(env)) return missingConfig("SUB_TOKEN");
+  if (!dbEnv(env)) return missingConfig("DB");
+  const { results } = await env.DB.prepare("SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC").all();
+  return json({ ok: true, links: (results || []).map((row) => linkFromRow(row, request)) });
+}
+
+async function putLink(request, env) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const text = await request.text();
+  let data;
+  try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+  const presetName = String(data.preset == null ? "" : data.preset).trim();
+  const wholeSub = presetName === "";
+  if (!wholeSub) {
+    const preset = await findPreset(env, presetName);
+    if (!preset) return json({ ok: false, error: "unknown preset: " + presetName }, 400);
+  }
+  const formatRaw = String(data.format || "").trim().toLowerCase();
+  if (!LINK_FORMATS.includes(formatRaw)) return json({ ok: false, error: "format must be one of: clash, proxies, singbox, base64" }, 400);
+  if (wholeSub && !formatRaw) return json({ ok: false, error: "format is required when preset is empty" }, 400);
+  const note = String(data.note || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 80);
+  let code = String(data.code || "").trim().toLowerCase();
+  if (code) {
+    if (!LINK_CODE_RE.test(code)) return json({ ok: false, error: "code must match ^[a-z0-9][a-z0-9_-]{3,31}$" }, 400);
+  } else {
+    const existing = await env.DB.prepare("SELECT code, format FROM links WHERE preset = ?1 ORDER BY created_at ASC").bind(presetName).all();
+    const reuse = (wholeSub ? (existing.results || []).filter((r) => (r.format || "") === formatRaw)[0] : (existing.results || [])[0]);
+    if (reuse) {
+      await env.DB.prepare("UPDATE links SET note = ?3, format = ?2 WHERE code = ?1").bind(reuse.code, formatRaw, note).run();
+      const link = await getLink(env, reuse.code, request);
+      return json({ ok: true, reused: true, link, url: baseUrl(request) + "/s/" + reuse.code });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      code = linkCode();
+      const taken = await getLink(env, code, request);
+      if (!taken) break;
+    }
+  }
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO links (code, preset, format, note, created_at, hits, last_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL)
+    ON CONFLICT(code) DO UPDATE SET preset = ?2, format = ?3, note = ?4`)
+    .bind(code, presetName, formatRaw, note, now).run();
+  const link = await getLink(env, code, request);
+  return json({ ok: true, link, url: baseUrl(request) + "/s/" + code });
+}
+
+async function deleteLink(env, code) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "invalid code" }, 400);
+  const res = await env.DB.prepare("DELETE FROM links WHERE code = ?1").bind(code).run();
+  if (!res || !res.meta || res.meta.changes === 0) return json({ ok: false, error: "link not found" }, 404);
+  return json({ ok: true, deleted: code });
+}
+
+async function serveShortLink(env, code, request) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "link not found" }, 404);
+  const link = await getLink(env, code);
+  if (!link) return json({ ok: false, error: "link not found" }, 404);
+  /* 短链里存的格式是默认值；URL 上的 ?format= 优先，方便同一个码临时换客户端格式 */
+  const override = String(new URL(request.url).searchParams.get("format") || "").trim().toLowerCase();
+  const fmt = LINK_FORMATS.includes(override) && override ? override : link.format;
+  const res = link.preset
+    ? await servePreset(env, link.preset, null, request, { skipToken: true, format: fmt })
+    : await getAll(env, null, request, { skipToken: true, format: fmt });
+  try {
+    await env.DB.prepare("UPDATE links SET hits = hits + 1, last_at = ?2 WHERE code = ?1").bind(code, new Date().toISOString()).run();
+  } catch {}
+  const headers = new Headers(res.headers);
+  headers.set("x-link", code);
+  headers.set("x-preset", link.preset ? encodeURIComponent(link.preset) : "all");
+  return new Response(res.body, { status: res.status, headers });
+}
+
+async function servePreset(env, name, token, request, opts) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const preset = await findPreset(env, name);
+  if (!preset) return json({ ok: false, error: "preset not found" }, 404);
+  const open = !!(opts && opts.skipToken);
+  if (!open) {
+    const expected = preset.token || authToken(env);
+    if (!expected) return missingConfig("SUB_TOKEN");
+    if (!checkToken(token, expected)) return unauthorized();
+  }
+
+  const records0 = await loadAllRecords(env);
+  const byMember = preset.mode === "members";
+  const records = !byMember && preset.machines.length ? records0.filter((r) => preset.machines.includes(r.machine)) : records0;
+  const order = await getMachineOrder(env);
+  const format = (opts && opts.format) || preset.format || formatOf(request);
+  const rules = format === "clash" && preset.clashMode === "inherit" ? await loadClashRules(env) : null;
+  const protocolMap = await loadProtocolMap(env);
+  const disabled = await loadDisabledGlobal(env);
+  const filter = { protos: preset.protos, tunnel: preset.tunnel };
+  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + preset.machines.length + "|" + preset.skips.length + "|" + preset.members.length + "|" + preset.mode + "|" + preset.clashMode;
+  const liveKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";") + "#" + disabled.size;
+  const key = subCacheKey("preset:" + preset.name + ":" + rev + liveKey + (rules ? ":" + rules.rev : ""), format, order, records);
+  const baseHeaders = { "x-preset": encodeURIComponent(preset.name), "x-machines": String(records.length), "x-storage": "d1" };
+  const hit = subCacheGet(key);
+  if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
+
+  const rank = new Map(order.map((m, i) => [m, i]));
+  const items = [];
+  for (const record of records) {
+    const rk = rank.has(record.machine) ? rank.get(record.machine) : defaultMachineRank(record.machine);
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabled);
+    for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
+  }
+  items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
+  const skipSet = new Set(preset.skips);
+  const memberSet = new Set(preset.members);
+  const nodes = items.map((item) => item.node)
+    .filter((node) => (byMember ? memberSet.has(linkIdentity(node.link)) : matchesFilter(node, filter)))
+    .filter((node) => !skipSet.has(linkIdentity(node.link)));
+  const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
+  return cachedSubResponse(rendered, {
+    ...baseHeaders,
+    "x-nodes": String(nodes.length),
+    ...(byMember ? { "x-mode": "members" } : {}),
+    ...(byMember || !filter.protos.length ? {} : { "x-proto": filter.protos.join(",") }),
+    ...(byMember || !filter.tunnel ? {} : { "x-tunnel": filter.tunnel }),
+    "x-sub-cache": "miss",
+  });
+}
+
+async function getAll(env, token, request, opts) {
+  const open = !!(opts && opts.skipToken);
+  if (!open) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (!checkToken(token, authToken(env))) return unauthorized();
+  }
   if (!dbEnv(env)) return missingConfig("DB");
   const records = await loadAllRecords(env);
   const order = await getMachineOrder(env);
-  const format = formatOf(request);
+  const format = (opts && opts.format) || formatOf(request);
   const manualCount = records.filter((r) => r.manual).length;
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
   const rules = format === "clash" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
   const disabledGlobal = await loadDisabledGlobal(env);
+  const filter = filterOf(request);
   const protocolKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";") + "#" + disabledGlobal.size;
-  const key = subCacheKey("all" + (rules ? ":" + rules.rev : "") + "|" + protocolKey, format, order, records);
+  const key = subCacheKey("all" + (rules ? ":" + rules.rev : "") + "|" + protocolKey + filterKey(filter), format, order, records);
   const hit = subCacheGet(key);
   if (hit) return cachedSubResponse(hit, { ...baseHeaders, "x-nodes": String(hit.nodes), "x-sub-cache": "hit" });
 
@@ -2457,9 +3624,15 @@ async function getAll(env, token, request) {
     for (let i = 0; i < nodes.length; i += 1) items.push({ node: nodes[i], rk, i, m: record.machine });
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
-  const all = items.map((item) => item.node);
+  const all = items.map((item) => item.node).filter((node) => matchesFilter(node, filter));
   const rendered = subCachePut(key, { ...subBody(all, format, rules), nodes: all.length });
-  return cachedSubResponse(rendered, { ...baseHeaders, "x-nodes": String(all.length), "x-sub-cache": "miss" });
+  return cachedSubResponse(rendered, {
+    ...baseHeaders,
+    "x-nodes": String(all.length),
+    ...(filter.protos.length ? { "x-proto": filter.protos.join(",") } : {}),
+    ...(filter.tunnel ? { "x-tunnel": filter.tunnel } : {}),
+    "x-sub-cache": "miss",
+  });
 }
 
 async function getClashRules(env) {
@@ -2517,6 +3690,8 @@ async function subNodesView(env) {
   const rank = new Map(order.map((item, i) => [item, i]));
   const machines = [];
   const counts = new Map();
+  const classCounts = new Map();
+  const tunnelCounts = new Map();
   let total = 0;
   let enabled = 0;
   for (const record of records) {
@@ -2532,13 +3707,23 @@ async function subNodesView(env) {
       enabled: entries.filter((item) => liveIds.has(item.id)).length,
       nodes: entries.map((item) => ({ ...item, in_sub: liveIds.has(item.id) })),
     });
-    for (const item of entries) counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+    for (const item of entries) {
+      counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+      classCounts.set(item.cls, (classCounts.get(item.cls) || 0) + 1);
+      if (item.tunnel) tunnelCounts.set(item.tunnel, (tunnelCounts.get(item.tunnel) || 0) + 1);
+    }
     total += entries.length;
     enabled += machines[machines.length - 1].enabled;
   }
   machines.sort((a, b) => a.order - b.order || (a.machine < b.machine ? -1 : a.machine > b.machine ? 1 : 0));
   const protocols = [...counts.entries()].map(([kind, count]) => ({ kind, label: protocolLabel(kind), count })).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
-  const stats = { total, enabled, disabled: total - enabled, protocols };
+  const classes = [...classCounts.entries()]
+    .map(([cls, count]) => ({ cls, label: nodeClassLabel(cls), count }))
+    .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
+  const tunnels = ["fixed", "temp"]
+    .map((kind) => ({ kind, label: kind === "fixed" ? "固定隧道" : "临时隧道", count: tunnelCounts.get(kind) || 0 }))
+    .filter((item) => item.count > 0);
+  const stats = { total, enabled, disabled: total - enabled, protocols, classes, tunnels };
   return { machines, disabled: [...disabled], stats };
 }
 
@@ -2998,7 +4183,7 @@ function parseLink(link) {
     if (kind === "anytls") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "" };
     if (kind === "hysteria2" || kind === "hy2") return { ...base, kind: "hy2", password: safeDecode(u.username), tls: true, sni: q.get("sni") || "", obfs: q.get("obfs") || "", obfsPassword: q.get("obfs-password") || "" };
     if (kind === "tuic") return { ...base, uuid: safeDecode(u.username), password: safeDecode(u.password), tls: true, sni: q.get("sni") || "", congestion: q.get("congestion_control") || "bbr", relay: q.get("udp_relay_mode") || "native" };
-    if (kind === "trojan") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "" };
+    if (kind === "trojan") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "", network: q.get("type") || "tcp", path: q.get("path") || "", host: q.get("host") || "" };
     if (kind === "socks5" || kind === "socks") return { ...base, kind: "socks5", username: safeDecode(u.username), password: safeDecode(u.password), tls: false, sni: "" };
     return null;
   } catch { return null; }
@@ -3032,6 +4217,37 @@ function parseLinkCached(link) {
   if (LINK_CACHE.size >= LINK_CACHE_MAX) LINK_CACHE.clear();
   LINK_CACHE.set(link, parsed);
   return parsed;
+}
+
+/* 动态筛选：?proto=hy2,vless-reality&tunnel=fixed
+ * proto 既认细分类型（vless-reality / trojan-argo / vless-cdn），也认基础协议（vless 会命中它全部细分）。
+ * tunnel 只对 argo 节点有意义：fixed=固定隧道，temp=临时隧道。
+ * 这些是「实时」筛选：每次拉取都按当前节点算，跟着节点变化。 */
+function filterOf(request) {
+  const u = new URL(request.url);
+  const raw = (u.searchParams.get("proto") || u.searchParams.get("protocol") || u.searchParams.get("types") || "").trim();
+  const protos = raw
+    ? [...new Set(raw.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean))].slice(0, 40)
+    : [];
+  const tunnelRaw = (u.searchParams.get("tunnel") || "").trim().toLowerCase();
+  const tunnel = tunnelRaw === "fixed" || tunnelRaw === "temp" || tunnelRaw === "固定" || tunnelRaw === "临时"
+    ? (tunnelRaw === "fixed" || tunnelRaw === "固定" ? "fixed" : "temp")
+    : "";
+  return { protos, tunnel };
+}
+
+function filterKey(filter) {
+  if (!filter || (!filter.protos.length && !filter.tunnel)) return "";
+  return "|p=" + filter.protos.join("+") + "|t=" + filter.tunnel;
+}
+
+function matchesFilter(node, filter) {
+  if (!filter) return true;
+  if (filter.tunnel && tunnelKind(node) !== filter.tunnel) return false;
+  if (!filter.protos.length) return true;
+  const cls = nodeClassOf(node);
+  const kind = nodeKind(node);
+  return filter.protos.some((want) => want === cls || want === kind);
 }
 
 function formatOf(request) {
@@ -3539,7 +4755,7 @@ function resolveClashGroups(names, specs) {
 
 function clashHeaderLines() {
   const lines = [
-    "# sub-worker · Clash / mihomo 完整配置",
+    "# sub-merge · Clash / mihomo 完整配置",
     "# 分组与规则取自 ACL4SSR（与 clash-sub-converter 默认规则一致）；规则以 rule-providers 下发，客户端自行拉取",
     "mixed-port: 7890",
     "allow-lan: false",

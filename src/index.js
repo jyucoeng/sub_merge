@@ -1463,7 +1463,9 @@ body.locked .wrap{display:none}
         api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
           .then(function (data) {
             copyToClipboard(data.url);
-            flashButton(shortBtn, "已生成");
+            // 同主订阅链接：生成后直接把这一条切到短链视图，
+            // 否则视图停在 long 时还得再点一次「换短链」。
+            setLinkView("p:" + item.name, "short");
             loadPresets(true);
           })
           .catch(function (err) { presetStatus(err.message, false); });
@@ -1653,7 +1655,14 @@ body.locked .wrap{display:none}
         btn.title = "给这个格式生成一条不带 token 的短链";
         btn.onclick = function () {
           api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
-            .then(function (data) { copyToClipboard(data.url); return loadPresets(true); })
+            .then(function (data) {
+              copyToClipboard(data.url);
+              // 生成短链就意味着「这一行要看短链」。视图可能还停在 long
+              // （之前点过「换长链」），不清掉的话生成完仍显示长链接，
+              // 还得再点一次「换短链」才看到结果。
+              setLinkView("all:" + fmt, "short");
+              return loadPresets(true);
+            })
             .then(function () { flashButton(btn, "已生成"); })
             .catch(function () { flashButton(btn, "失败"); });
         };
