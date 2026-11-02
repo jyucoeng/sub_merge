@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.5";
+const VERSION = "1.37.6";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -153,8 +153,9 @@ textarea:focus{border-color:var(--acc)}
 .status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
 #clash-body.hidden,#sub-body.hidden{display:none}
 .theme{padding:4px 9px;font-size:14px;line-height:1.1;background:var(--card);border:1px solid var(--line);border-radius:9px;margin-right:4px}
-.fold{margin-left:8px;padding:3px 10px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--sub);cursor:pointer;vertical-align:1px}
-.fold:hover{border-color:#9db7e0;color:var(--ink)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
+.fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
+.fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink)}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
