@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.33.1";
+const VERSION = "1.34.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -70,7 +70,10 @@ export const SCHEMA_STATEMENTS = [
   token      TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  skips      TEXT NOT NULL DEFAULT ''
+  skips      TEXT NOT NULL DEFAULT '',
+  members    TEXT NOT NULL DEFAULT '',
+  mode       TEXT NOT NULL DEFAULT '',
+  clash_mode TEXT NOT NULL DEFAULT 'inherit'
 )`,
   `CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
@@ -85,7 +88,9 @@ export const MIGRATION_STATEMENTS = [
   "ALTER TABLE machines ADD COLUMN auto_content TEXT",
   "ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE machines ADD COLUMN manual_updated_at TEXT",
-  "ALTER TABLE presets ADD COLUMN skips TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE presets ADD COLUMN skips TEXT NOT NULL DEFAULT ''",  "ALTER TABLE presets ADD COLUMN members TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE presets ADD COLUMN mode TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE presets ADD COLUMN clash_mode TEXT NOT NULL DEFAULT 'inherit'",
 ];
 
 const UI_HTML = `<!doctype html>
@@ -119,6 +124,8 @@ textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);bor
 textarea:focus{border-color:var(--acc)}
 .bulk{margin-top:12px}.bulk .tip{margin-left:6px}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
+.tag.dirty{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.45);color:#dc2626;font-weight:500}
+[data-theme="dark"] .tag.dirty{background:rgba(248,113,113,.16);border-color:rgba(248,113,113,.45);color:#fca5a5}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
@@ -163,9 +170,27 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .proto .n{font-size:11px;opacity:.8}
 .node-list{display:grid;gap:6px;margin-top:8px}
 .presets{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.peditor{margin-top:10px;padding:10px;border:1px solid var(--accline);border-radius:10px;background:var(--soft)}
+.peditor.hidden{display:none}
+.peditor .row label{min-width:48px}
+.pe-node{grid-template-columns:20px 112px minmax(0,1fr) auto;align-items:center;gap:8px;padding:6px 8px}
+.pe-node .nlmeta{min-width:0;display:grid;gap:1px;font-size:12.5px}
+.pe-node .nlname{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pe-node .nllink{font:10.5px ui-monospace,Consolas,monospace;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pe-node .nlsrc{font-size:11.5px;color:var(--sub);white-space:nowrap}
+input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
+.lockwrap{display:inline-block}
+.lockwrap.locked{cursor:not-allowed}
+.lockwrap.locked input{cursor:not-allowed}
+#pe-badge{font-weight:600}
+#pe-badge.warn{color:var(--warnink)}
+.sub-list-narrow{max-height:320px;overflow:auto}
 .preset{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
 .preset .pname{min-width:0;display:flex;flex-direction:column;gap:2px}
 .preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
+.preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
+.preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
 .preset code{font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
 .presetwrap{display:flex;flex-direction:column}
 .preset .ptoggle{display:flex;align-items:center;gap:6px;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
@@ -269,7 +294,6 @@ body.locked .wrap{display:none}
   <button id="sub-none" class="danger" type="button">全不选</button>
   <button id="sub-save" class="primary" type="button" disabled>保存勾选</button>
   <button id="sub-discard" type="button" disabled>撤销修改</button>
-  <span class="tag manual" id="sub-dirty" style="display:none">未保存</span>
   <button id="sub-clear" type="button">清除筛选</button>
   <button id="sub-reload" type="button">刷新</button>
 </div>
@@ -279,23 +303,48 @@ body.locked .wrap{display:none}
 <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；胶囊上的数字 = 在订阅 / 全部。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div class="hint" style="margin-top:4px">胶囊样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
 <div id="sub-list" class="sub-list"></div>
-<div id="sub-status" class="status"></div>
+<div class="row" style="margin-top:8px">
+  <span class="tag dirty" id="sub-dirty" style="display:none">未保存</span>
+  <span id="sub-status" class="status" style="margin:0"></span>
+</div>
 </div>
 </section>
 
 <section class="card" id="card-presets">
-<h2>订阅档案 <span class="tag auto" id="preset-badge">0 个</span> <span class="tip">把「哪些协议 / 隧道 / 哪几台机器 / 什么格式」存成一条短链接，内容是实时筛的，节点变了自动跟着变</span></h2>
-<div class="hint" style="margin-top:8px">给自己用：一个协议一条链接，加进客户端就不用管了。筛选条件和上面「订阅中的节点」完全一样：点协议胶囊挑细分类型、点机器胶囊挑机器、点隧道胶囊只看固定/临时；都不点就是全部。格式留空 = 跟着客户端 User-Agent 自动选。</div>
+<h2>订阅档案 <span class="tag auto" id="preset-badge">0 个</span> <span class="tip">挑一批节点存成一条固定链接，格式可固定，随时编辑</span></h2>
+<div class="hint" style="margin-top:8px">一个档案 = 一条固定链接。点「新建档案 / 编辑」后，下面会把<b>主订阅的全部节点</b>列出来，已经在这个档案里的会提前勾好；你可以先用协议 / 机器 / 隧道 / 搜索把列表筛一遍，勾完点「保存档案」，选中的节点才绑到这个档案上。主订阅里没启用的节点不会进档案，节点被删掉时档案也跟着少。</div>
 <div class="row" style="margin-top:8px">
-  <input id="preset-name" placeholder="档案名，比如 hy2" spellcheck="false" style="width:150px">
-  <input id="preset-label" placeholder="显示名（可空）" spellcheck="false" style="width:150px">
-  <select id="preset-format"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
-  <button id="preset-save" class="primary" type="button">保存档案</button>
-  <button id="preset-clear" type="button">清空</button>
+  <input id="preset-search" placeholder="搜档案：名字 / 显示名 / 链接" spellcheck="false" style="min-width:300px">
+  <button id="preset-new" class="primary" type="button">新建档案</button>
   <span class="tip" id="preset-status"></span>
 </div>
-<div class="row" style="margin-top:8px"><label>按协议</label><span id="preset-proto-chips" class="protocols"></span><span class="tip">点胶囊挑协议；都不点 = 全部协议</span></div>
-<div class="row" style="margin-top:6px"><label>按机器</label><span id="preset-machine-chips" class="protocols"></span><span class="tip">点胶囊挑机器；都不点 = 全部机器</span></div>
+<div id="preset-editor" class="peditor hidden">
+  <div class="row" style="margin-top:4px">
+    <b id="pe-title">新建档案</b>
+    <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="档案名，比如 hy2" spellcheck="false" style="width:150px" title="档案名就是链接路径里的那段：/sub/p/档案名/token。只能用字母、数字、下划线、横线，1–32 位；保存后不能改（要换名字就新建一个再把旧的删掉）"></span>
+    <input id="pe-label" placeholder="显示名 / 备注（可空）" spellcheck="false" style="width:190px" title="给你自己看的名字或备注，比如「给手机用」「只留 Hy2」；只显示在界面里、也只用于搜索，不影响链接和内容，随时能改">
+    <select id="pe-format" title="这个档案以后固定输出什么格式。留「格式自动」= 按客户端的 User-Agent 猜，跟普通订阅链接一样"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
+    <span id="pe-clash" class="tag auto" title="这个档案的 clash 输出用的分流规则来源。inherit = 跟随「分流规则」卡片里那一份全局规则，改一次全部档案一起变">分流规则：跟随全局</span>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <input id="pe-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px" title="在下面这个列表里按节点名、协议、机器名搜；只是筛列表，不影响已勾选的内容">
+    <button id="pe-all" type="button">全选</button>
+    <button id="pe-only" type="button">只选筛出来的</button>
+    <button id="pe-none" class="danger" type="button">全不选</button>
+    <button id="pe-save" class="primary" type="button">保存档案</button>
+    <button id="pe-cancel" type="button">取消</button>
+    <button id="pe-clear-filter" type="button">清除筛选</button>
+  </div>
+  <div class="row" style="margin-top:8px"><label>按协议</label><span id="pe-proto-chips" class="protocols"></span></div>
+  <div class="row" style="margin-top:6px"><label>按机器</label><span id="pe-machine-chips" class="protocols"></span></div>
+  <div class="row" style="margin-top:8px"><label>当前显示</label><span id="pe-shown" class="tip">全部节点</span></div>
+  <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都勾进这个档案了，◐ = 只勾了一部分，没有标记 = 一个都没勾；胶囊上的数字 = 已勾进档案 / 共几个（跟着其它筛选条件变）。行尾划掉 + 「没在订阅里」的那些是主订阅里没启用的，勾不上。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
+  <div id="pe-list" class="sub-list sub-list-narrow"></div>
+  <div class="row" style="margin-top:8px">
+    <span class="tag dirty" id="pe-badge" style="display:none">未保存</span>
+    <span id="pe-status" class="status" style="margin:0"></span>
+  </div>
+</div>
 <div id="presets" class="presets"></div>
 </section>
 
@@ -320,16 +369,7 @@ body.locked .wrap{display:none}
 <div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
 <div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button></div>
 <div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button></div>
-<div class="row" style="margin-top:12px"><label>按协议细分生成</label><span id="ff-chips" class="protocols"></span><span class="tip">点胶囊挑协议；不选 = 全部</span></div>
-<div class="row" style="margin-top:6px">
-  <label for="ff-tunnel">隧道</label>
-  <select id="ff-tunnel"><option value="">不限</option><option value="fixed">只要固定隧道</option><option value="temp">只要临时隧道</option></select>
-  <label for="ff-format">格式</label>
-  <select id="ff-format"><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 节点片段</option><option value="singbox">sing-box</option></select>
-  <button id="ff-clear" type="button">清空筛选</button>
-</div>
-<div class="subrow"><span class="tip">筛选后的订阅</span><code id="ff-url"></code><button data-copy="ff-url" type="button">复制</button></div>
-<div class="hint" style="margin-top:4px">这类链接是<b>实时</b>的：每次拉取都按当前节点重新筛一遍，节点新增/删除/改名都会跟着变。<code>?proto=hy2,vless-reality</code> 可多选，<code>vless</code> 会命中它全部细分；<code>?tunnel=fixed|temp</code> 只留固定/临时隧道。</div>
+<div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
 </div>
@@ -338,7 +378,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, ff: { protos: [], tunnel: "", format: "clash" }, presets: [], presetOpen: "", presetForm: { name: "", label: "", protos: [], tunnel: "", machines: [], format: "" } };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], presetSearch: "", presetEdit: null };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -805,7 +845,7 @@ body.locked .wrap{display:none}
         }, "只看这个细分类型"));
       });
       // 固定/临时隧道：不分协议，只出两个合计值（vless-argo / vmess-argo / trojan-argo 全都算进来）
-      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }).filter(function (x) { return x.key; });
+      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }, null, peRows({ ignoreTunnel: true })).filter(function (x) { return x.key; });
       byTunnel.sort(function (a, b) { return a.key === "fixed" ? -1 : b.key === "fixed" ? 1 : 0; });
       if (byTunnel.length) {
         var gap = document.createElement("span"); gap.className = "chipgap"; gap.textContent = ""; protoBox.appendChild(gap);
@@ -919,7 +959,7 @@ body.locked .wrap{display:none}
       }(subKey(node));
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
-      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
+      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link; raw.title = node.link;
       meta.appendChild(label); meta.appendChild(raw);
       var src = document.createElement("span");
       src.className = "nlsrc srctag " + (node.source === "manual" ? "manual" : "auto");
@@ -987,252 +1027,352 @@ body.locked .wrap{display:none}
       state.sub.disabled = data.disabled || [];
       if (!wasDirty) state.sub.draft = (data.disabled || []).slice();
       renderSub();
-      renderFf();
       renderPresets();
-      renderPresetForm();
+      renderPresetEditor();
       if (!quiet) subStatusText("已加载 " + state.sub.stats.total + " 个节点，其中 " + state.sub.stats.enabled + " 个在订阅里", true);
     }).catch(function (err) { subStatusText(err.message, false); });
   }
-  /* ---------------- 按协议细分生成订阅链接（实时筛选） ---------------- */
-  function ffUrl() {
-    var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
-    var params = [];
-    if (state.ff.protos.length) params.push("proto=" + encodeURIComponent(state.ff.protos.join(",")));
-    if (state.ff.tunnel) params.push("tunnel=" + encodeURIComponent(state.ff.tunnel));
-    if (state.ff.format !== "base64") params.push("format=" + encodeURIComponent(state.ff.format));
-    return base + (params.length ? "?" + params.join("&") : "");
-  }
-  function renderFf() {
-    var box = $("ff-chips");
-    if (box) {
-      box.innerHTML = "";
-      var classes = (state.sub.stats && state.sub.stats.classes) || [];
-      if (!classes.length) {
-        var none = document.createElement("span"); none.className = "tip"; none.textContent = "还没有节点"; box.appendChild(none);
-      }
-      classes.forEach(function (item) {
-        var on = state.ff.protos.indexOf(item.cls) !== -1;
-        var btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "proto" + (on ? " picked" : "");
-        btn.textContent = (item.label || item.cls) + " · " + item.count;
-        btn.title = "把这个协议细分放进筛选（再点取消）";
-        btn.onclick = function () {
-          var at = state.ff.protos.indexOf(item.cls);
-          if (at === -1) state.ff.protos.push(item.cls); else state.ff.protos.splice(at, 1);
-          renderFf();
-        };
-        box.appendChild(btn);
-      });
-    }
-    var url = $("ff-url"); if (url) url.textContent = ffUrl();
-  }
-
   /* ---------------- 订阅档案 ---------------- */
   function presetStatus(text, ok) {
-    var el = $("preset-status"); if (!el) return;
+    var el = (state.presetEdit && $("pe-status")) || $("preset-status"); if (!el) return;
     el.textContent = text || "";
-    el.className = "tip" + (text && ok === false ? " err" : "");
+    el.className = "status" + (text && ok === true ? " ok" : (text && ok === false ? " err" : ""));
   }
-  function presetProtoText(item) {
-    if (!(item.protos || []).length) return "全部协议";
-    return item.protos.join("、");
-  }
-  function presetChip(label, count, picked, onClick, hint) {
+  /* 跟「订阅中的节点」同一套胶囊外观，但这里数的「在不在」指的是在不在这个档案里：
+   * ✓ 这组全在档案里 / ◐ 部分在 / 无标记 = 都不在；数字 = 在档案 / 共。蓝框 = 正在按它筛 */
+  function presetChip(label, shown, total, inSub, picked, filtering, onClick, hint) {
     var btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "proto" + (picked ? " picked" : "");
-    btn.textContent = label + " · " + count;
-    btn.title = hint + (picked ? "（现在只按它筛，再点取消）" : "");
+    var cls = "proto";
+    if (total && inSub === total) cls += " on";
+    else if (inSub > 0) cls += " part";
+    if (picked) cls += " picked";
+    if (filtering && shown === 0) cls += " dim";
+    btn.className = cls;
+    var mark = (total && inSub === total) ? "✓ " : (inSub > 0 ? "◐ " : "");
+    btn.textContent = mark + label + " · " + inSub + "/" + total;
+    btn.title = (picked ? "取消只看它" : hint) + "（在档案里 " + inSub + " 个 / 共 " + total + " 个；当前列出 " + shown + " 个）";
     btn.onclick = onClick;
     return btn;
   }
-  function renderPresetForm() {
-    var form = state.presetForm;
-    var protoBox = $("preset-proto-chips"), machineBox = $("preset-machine-chips");
+  function presetProtoText(item) {
+    if ((item.members || []).length) return "绑定 " + item.members.length + " 条节点";
+    if (!(item.protos || []).length) return "全部协议";
+    return "条件：" + item.protos.join("、");
+  }
+  /* 编辑面板：列出主订阅的全部节点，档案里已有的提前勾上 */
+  function openPresetEditor(item) {
+    /* 换档案 / 新建时把上一条「已保存 …」清掉，免得挂在别人面板上 */
+    if (state.presetEdit && state.presetEdit.closeTimer) clearTimeout(state.presetEdit.closeTimer);
+    [ "pe-status", "preset-status" ].forEach(function (id) {
+      var el = $(id); if (el) { el.textContent = ""; el.className = id === "pe-status" ? "status" : "tip"; }
+    });
+    state.presetEdit = {
+      mode: item ? "edit" : "new",
+      name: item ? item.name : "",
+      label: item ? (item.label === item.name ? "" : item.label) : "",
+      format: item ? (item.format || "") : "",
+      protos: [],
+      tunnel: "",
+      machines: [],
+      search: "",
+      picked: item ? (item.members || []).slice() : [],
+      orig: item ? (item.members || []).slice() : [],
+      origLabel: item ? (item.label === item.name ? "" : item.label) : "",
+      origFormat: item ? (item.format || "") : "",
+    };
+    var box = $("preset-editor"); if (box) box.className = "peditor";
+    if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案";
+    var name = $("pe-name");
+    if (name) {
+      name.value = state.presetEdit.name;
+      name.readOnly = !!item;
+      name.className = item ? "locked" : "";
+      name.style.pointerEvents = item ? "none" : "";
+    }
+    var wrap = $("pe-name-wrap");
+    if (wrap) {
+      wrap.className = item ? "lockwrap locked" : "lockwrap";
+      wrap.title = item
+        ? "档案名建好就固定了，不能改（它就是链接里的那一段）；要换名字：新建一个档案，再把旧的删掉"
+        : "档案名就是链接路径里的那段：/sub/p/档案名/token。只能用字母、数字、下划线、横线，1–32 位；建好之后不能改";
+    }
+    if ($("pe-label")) $("pe-label").value = state.presetEdit.label;
+    if ($("pe-format")) $("pe-format").value = state.presetEdit.format;
+    if ($("pe-search")) $("pe-search").value = "";
+    renderPresetEditor();
+    try { if (box) box.scrollIntoView({ block: "center" }); } catch (e) {}
+  }
+  /* 保存成功 3 秒后自动收起编辑面板；期间用户再动一下就取消收起 */
+  function schedulePresetClose() {
+    var st = state.presetEdit; if (!st) return;
+    if (st.closeTimer) clearTimeout(st.closeTimer);
+    st.closeTimer = setTimeout(function () {
+      if (state.presetEdit !== st) return;
+      st.closeTimer = null;
+      closePresetEditor();
+      loadPresets(true);
+    }, 5000);
+  }
+  function cancelPresetClose() {
+    var st = state.presetEdit; if (!st || !st.closeTimer) return;
+    clearTimeout(st.closeTimer);
+    st.closeTimer = null;
+    st.saved = false;
+  }
+  function closePresetEditor() {
+    if (state.presetEdit && state.presetEdit.closeTimer) clearTimeout(state.presetEdit.closeTimer);
+    state.presetEdit = null;
+    var box = $("preset-editor"); if (box) box.className = "peditor hidden";
+    var name = $("pe-name"); if (name) { name.readOnly = false; name.className = ""; name.style.pointerEvents = ""; }
+    var wrap = $("pe-name-wrap"); if (wrap) { wrap.className = "lockwrap"; wrap.title = ""; }
+  }
+  function peHas(id) { return (state.presetEdit && state.presetEdit.picked.indexOf(id) >= 0); }
+  function peToggle(id, on) {
+    var st = state.presetEdit; if (!st) return;
+    cancelPresetClose();
+    var at = st.picked.indexOf(id);
+    if (on && at < 0) st.picked.push(id);
+    if (!on && at >= 0) st.picked.splice(at, 1);
+    renderPresetEditor();
+  }
+  function peDirty() {
+    var st = state.presetEdit; if (!st) return 0;
+    var before = {};
+    (st.orig || []).forEach(function (id) { before[id] = 1; });
+    var after = {};
+    st.picked.forEach(function (id) { after[id] = 1; });
+    var n = 0;
+    Object.keys(after).forEach(function (id) { if (!before[id]) n += 1; });
+    Object.keys(before).forEach(function (id) { if (!after[id]) n += 1; });
+    var lbl = String(($("pe-label") && $("pe-label").value) || "").trim();
+    var fmt = ($("pe-format") && $("pe-format").value) || "";
+    if (lbl !== (st.origLabel || "")) n += 1;
+    if (fmt !== (st.origFormat || "")) n += 1;
+    return n;
+  }
+  function peBadge() {
+    var el = $("pe-badge"); if (!el) return;
+    var dirty = peDirty();
+    el.textContent = dirty ? "未保存 " + dirty + " 处" : "未保存";
+    el.style.display = dirty ? "" : "none";
+    el.title = dirty
+      ? "勾选或设置改过了，点「保存档案」才写进这个档案；点「取消」丢弃"
+      : "跟已保存的档案一致";
+  }
+  /* opt 里可以忽略某一维，用来算「分面计数」：协议胶囊的数字跟着机器/隧道/搜索走，机器胶囊的跟着协议/隧道/搜索走 */
+  function peRows(opt) {
+    var st = state.presetEdit; if (!st) return [];
+    var o = opt || {};
+    var q = String(st.search || "").trim().toLowerCase();
+    var out = [];
+    (state.sub.machines || []).forEach(function (m) {
+      if (!o.ignoreMachine && st.machines.length && st.machines.indexOf(m.machine) < 0) return;
+      (m.nodes || []).forEach(function (n) {
+        if (!o.ignoreTunnel && st.tunnel && n.tunnel !== st.tunnel) return;
+        if (!o.ignoreProto && st.protos.length) {
+          var cls = n.cls || n.kind;
+          if (st.protos.indexOf(cls) < 0 && st.protos.indexOf(n.kind) < 0) return;
+        }
+        if (q) {
+          var hay = ((n.name || "") + " " + m.machine + " " + (n.cls_label || n.label || "")).toLowerCase();
+          if (hay.indexOf(q) < 0) return;
+        }
+        out.push({ machine: m.machine, node: n });
+      });
+    });
+    return out;
+  }
+  function renderPresetEditor() {
+    var st = state.presetEdit;
+    var list = $("pe-list");
+    var box = $("preset-editor");
+    if (!st || !list) { if (box) box.className = "peditor hidden"; return; }
     var all = [];
     (state.sub.machines || []).forEach(function (m) {
       (m.nodes || []).forEach(function (n) { all.push({ machine: m.machine, node: n }); });
     });
-    var tally = function (keyOf) {
+    var visible = peRows();
+    var shownSet = {};
+    var rowKey = function (item) { return item.machine + "|" + item.node.id; };
+    visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
+    var filtering = Boolean((st.protos || []).length || (st.machines || []).length || st.tunnel || String(st.search || "").trim());
+    function tally(keyOf, labelOf, rowsOf) {
       var map = [];
-      all.forEach(function (item) {
+      (rowsOf || all).forEach(function (item) {
         var key = keyOf(item);
         if (!key) return;
         var hit = map.filter(function (x) { return x.key === key; })[0];
-        if (!hit) { hit = { key: key, label: item.node.cls_label || item.node.label || key, count: 0, on: 0 }; map.push(hit); }
-        hit.count += 1;
-        if (item.node.in_sub !== false) hit.on += 1;
+        if (!hit) { hit = { key: key, total: 0, inSub: 0, shown: 0, label: labelOf ? labelOf(item) : key }; map.push(hit); }
+        hit.total += 1;
+        if (peHas(item.node.id)) hit.inSub += 1;
+        if (shownSet[rowKey(item)]) hit.shown += 1;
       });
       return map;
-    };
+    }
+    var protoBox = $("pe-proto-chips");
     if (protoBox) {
       protoBox.innerHTML = "";
-      var byProto = tally(function (item) { return subKey(item.node); });
+      var byProto = tally(function (item) { return subKey(item.node); }, function (item) { return item.node.cls_label || item.node.label || ""; }, peRows({ ignoreProto: true }));
       if (!byProto.length) {
         var none = document.createElement("span"); none.className = "tip"; none.textContent = "还没有节点"; protoBox.appendChild(none);
       }
       byProto.forEach(function (item) {
-        var picked = (form.protos || []).indexOf(item.key) !== -1;
-        protoBox.appendChild(presetChip(item.label, item.count, picked, function () {
-          var at = form.protos.indexOf(item.key);
-          if (at === -1) form.protos.push(item.key); else form.protos.splice(at, 1);
-          renderPresetForm();
-        }, "挑这个协议细分"));
+        var on = st.protos.indexOf(item.key) !== -1;
+        protoBox.appendChild(presetChip(item.label || item.key, item.shown, item.total, item.inSub, on, filtering, function () {
+          var at = st.protos.indexOf(item.key);
+          if (at === -1) st.protos.push(item.key); else st.protos.splice(at, 1);
+          renderPresetEditor();
+        }, "只在列表里显示这个细分类型"));
       });
-      var byTunnel = tally(function (item) { return item.node.tunnel || ""; });
+      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }).filter(function (x) { return x.key; });
       byTunnel.sort(function (a, b) { return a.key === "fixed" ? -1 : b.key === "fixed" ? 1 : 0; });
       if (byTunnel.length) {
         var gap = document.createElement("span"); gap.className = "chipgap"; protoBox.appendChild(gap);
         byTunnel.forEach(function (item) {
           var lbl = item.key === "fixed" ? "固定隧道" : "临时隧道";
-          protoBox.appendChild(presetChip(lbl, item.count, form.tunnel === item.key, function () {
-            form.tunnel = form.tunnel === item.key ? "" : item.key;
-            renderPresetForm();
-          }, "只看" + lbl));
+          protoBox.appendChild(presetChip(lbl, item.shown, item.total, item.inSub, st.tunnel === item.key, filtering, function () {
+            st.tunnel = st.tunnel === item.key ? "" : item.key;
+            renderPresetEditor();
+          }, "只在列表里显示" + lbl));
         });
       }
     }
+    var machineBox = $("pe-machine-chips");
     if (machineBox) {
       machineBox.innerHTML = "";
+      var byMachine = tally(function (item) { return item.machine; }, function (item) { return item.machine; }, peRows({ ignoreMachine: true }));
       (state.sub.machines || []).forEach(function (m) {
-        var picked = (form.machines || []).indexOf(m.machine) !== -1;
-        machineBox.appendChild(presetChip(m.machine, m.total || 0, picked, function () {
-          var at = form.machines.indexOf(m.machine);
-          if (at === -1) form.machines.push(m.machine); else form.machines.splice(at, 1);
-          renderPresetForm();
-        }, "只看这台机器"));
+        var hit = byMachine.filter(function (x) { return x.key === m.machine; })[0] || { shown: 0, total: 0, inSub: 0 };
+        machineBox.appendChild(presetChip(m.machine, hit.shown, hit.total, hit.inSub, st.machines.indexOf(m.machine) >= 0, filtering, function () {
+          var at = st.machines.indexOf(m.machine);
+          if (at === -1) st.machines.push(m.machine); else st.machines.splice(at, 1);
+          renderPresetEditor();
+        }, "只在列表里显示这台机器"));
       });
     }
-    var fmt = $("preset-format");
-    if (fmt) fmt.value = form.format || "";
-  }
-  function presetMatchList(item) {
-    var protos = item.protos || [];
-    var machines = item.machines || [];
-    var out = [];
-    (state.sub.machines || []).forEach(function (m) {
-      if (machines.length && machines.indexOf(m.machine) < 0) return;
-      (m.nodes || []).forEach(function (node) {
-        if (item.tunnel && node.tunnel !== item.tunnel) return;
-        if (protos.length) {
-          var cls = node.cls || node.kind;
-          var hit = protos.some(function (want) { return want === cls || want === node.kind; });
-          if (!hit) return;
-        }
-        out.push({ machine: m.machine, node: node });
-      });
-    });
-    return out;
-  }
-  function presetNodesPanel(item) {
-    var box = document.createElement("div"); box.className = "pnodebox";
-    var list = presetMatchList(item);
-    if (!list.length) {
-      var none = document.createElement("div"); none.className = "empty";
-      none.textContent = "这个档案现在一条都没有：协议写宽一点（比如 vless 命中它全部细分）、机器留空，或者把本组关掉的节点勾回来。";
-      box.appendChild(none);
-      return box;
+    var rows = peRows();
+    peBadge();
+    var shownEl = $("pe-shown");
+    if (shownEl) {
+      var bits = [];
+      if (st.protos.length) bits.push("协议 " + st.protos.join("、"));
+      if (st.machines.length) bits.push("机器 " + st.machines.join("、"));
+      if (st.tunnel) bits.push("隧道 " + (st.tunnel === "fixed" ? "固定" : "临时"));
+      if (String(st.search || "").trim()) bits.push("搜「" + String(st.search).trim() + "」");
+      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选") + "）；已勾选 " + st.picked.length + " 条";
     }
-    var skips = item.skips || [];
-    list.forEach(function (hit) {
-      var row = document.createElement("div"); row.className = "pnode";
-      var box2 = document.createElement("input"); box2.type = "checkbox";
+    list.innerHTML = "";
+    if (!rows.length) {
+      var empty = document.createElement("div"); empty.className = "empty";
+      empty.textContent = "这个筛选条件下没有节点；把胶囊取消或者清掉搜索再看看。";
+      list.appendChild(empty);
+      return;
+    }
+    rows.forEach(function (hit) {
       var inMaster = hit.node.in_sub !== false;
-      box2.checked = inMaster && skips.indexOf(hit.node.id) < 0;
-      box2.disabled = !inMaster;
-      box2.title = inMaster
-        ? "只影响这个档案：取消勾选后这条不再出现在本档案的订阅里，总订阅和其它档案不变"
-        : "这条在总订阅里也没启用，先去「订阅中的节点」勾上它";
-      box2.onchange = function () {
-        box2.disabled = true;
-        api("/presets/" + encodeURIComponent(item.name) + "/toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: hit.node.id, on: box2.checked }),
-        }).then(function (data) {
-          presetStatus((box2.checked ? "已加回本档案：" : "已从本档案移除：") + (hit.node.name || hit.node.id), true);
-          state.presets = state.presets.map(function (x) { return x.name === item.name ? Object.assign({}, x, { skips: data.preset.skips, updated_at: data.preset.updated_at }) : x; });
-          renderPresets();
-          loadSubNodes(true);
-        }).catch(function (err) { box2.disabled = false; box2.checked = !box2.checked; presetStatus(err.message, false); });
-      };
+      var row = document.createElement("div"); row.className = "subnode pe-node" + (inMaster ? "" : " off");
+      var box = document.createElement("input"); box.type = "checkbox";
+      box.checked = inMaster && peHas(hit.node.id);
+      box.disabled = !inMaster;
+      box.title = inMaster ? "勾上 = 这条进档案" : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
+      box.onchange = function () { peToggle(hit.node.id, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
-      var nm = document.createElement("span"); nm.className = "pnm";
+      var meta = document.createElement("div"); meta.className = "nlmeta";
+      var nm = document.createElement("div"); nm.className = "nlname";
       nm.textContent = hit.node.name || "（无名）";
-      nm.title = hit.node.link || "";
-      var mac = document.createElement("span"); mac.className = "pmac"; mac.textContent = hit.machine;
-      row.appendChild(box2); row.appendChild(tag); row.appendChild(nm); row.appendChild(mac);
+      var raw = document.createElement("div"); raw.className = "nllink";
+      raw.textContent = hit.node.link || "";
+      raw.title = hit.node.link || "";
+      meta.appendChild(nm); meta.appendChild(raw);
+      row.appendChild(box); row.appendChild(tag); row.appendChild(meta);
       if (!inMaster) {
-        var off = document.createElement("span"); off.className = "pin"; off.textContent = "总订阅里也没启用";
+        var off = document.createElement("span"); off.className = "nlsrc"; off.textContent = "没在订阅里"; off.title = "这条在主订阅里被关掉了，所以不会进这个档案；想让它进来先去「订阅中的节点」勾上";
         row.appendChild(off);
       }
-      box.appendChild(row);
+      list.appendChild(row);
     });
-    return box;
+  }
+  function savePresetEdit() {
+    var st = state.presetEdit; if (!st) return;
+    var name = String($("pe-name").value || "").trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("档案名只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    var body = {
+      label: String($("pe-label").value || "").trim(),
+      format: $("pe-format").value || "",
+      members: st.picked.slice(),
+      mode: "members",
+      protos: [],
+      tunnel: "",
+      machines: [],
+      skips: [],
+    };
+    presetStatus("正在保存…", null);
+    api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (data) {
+        var msg = "已保存 " + data.preset.name + "：绑定 " + (data.preset.members || []).length + " 条节点";
+        presetStatus(msg, true);
+        /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
+        st.orig = st.picked.slice();
+        st.origLabel = String($("pe-label").value || "").trim();
+        st.origFormat = $("pe-format").value || "";
+        st.saved = true;
+        renderPresetEditor();
+        if ($("pe-status")) $("pe-status").textContent = msg;
+        loadPresets(true);
+        loadSubNodes(true);
+        schedulePresetClose();
+      })
+      .catch(function (err) { presetStatus(err.message, false); });
+  }
+  function presetMatchesSearch(item, q) {
+    if (!q) return true;
+    var hay = ((item.name || "") + " " + (item.label || "") + " " + (item.url || "")).toLowerCase();
+    return hay.indexOf(q) >= 0;
   }
   function renderPresets() {
     var box = $("presets"); if (!box) return;
     box.innerHTML = "";
     var badge = $("preset-badge");
-    if (badge) badge.textContent = state.presets.length + " 个";
+    var q = String(state.presetSearch || "").trim().toLowerCase();
+    var shown = state.presets.filter(function (item) { return presetMatchesSearch(item, q); });
+    if (badge) badge.textContent = q ? shown.length + " / " + state.presets.length + " 个" : state.presets.length + " 个";
     if (!state.presets.length) {
       var empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = "还没有档案。上面填个名字（比如 hy2）、协议写 hy2，点「保存档案」就会得到 /sub/p/hy2/<token> 这样的链接。";
+      empty.textContent = "还没有档案。点「新建档案」，勾几台机器上的节点，保存就得到一条 /sub/p/<名字>/<token> 链接。";
       box.appendChild(empty);
       return;
     }
-    state.presets.forEach(function (item) {
-      var open = state.presetOpen === item.name;
-      var wrap = document.createElement("div"); wrap.className = "presetwrap";
-      var row = document.createElement("div"); row.className = open ? "preset open" : "preset";
-
-      var toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "ptoggle";
-      toggle.title = "点开看这个档案现在匹配哪些节点（改协议/机器后再点保存就会跟着变）";
-      var caret = document.createElement("span"); caret.className = "caret"; caret.textContent = open ? "▾" : "▸";
-      var inner = document.createElement("span"); inner.className = "pname";
+    if (!shown.length) {
+      var nohit = document.createElement("div"); nohit.className = "empty";
+      nohit.textContent = "没有匹配「" + state.presetSearch + "」的档案。";
+      box.appendChild(nohit);
+      return;
+    }
+    shown.forEach(function (item) {
+      var row = document.createElement("div"); row.className = "preset";
+      var name = document.createElement("div"); name.className = "pname";
       var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
       var desc = document.createElement("span"); desc.className = "pdesc";
-      desc.textContent = presetProtoText(item)
-        + " · 现在 " + presetMatchList(item).length + " 条"
-        + (item.tunnel ? " · " + (item.tunnel === "fixed" ? "固定隧道" : "临时隧道") : "")
-        + (item.machines.length ? " · 机器 " + item.machines.join("、") : " · 全部机器")
-        + (item.format ? " · " + item.format : " · 格式自动")
-        + (item.token ? " · 独立 token" : " · 共用主 token")
-        + ((item.skips || []).length ? " · 本组已关 " + item.skips.length + " 个" : "");
-      inner.appendChild(title); inner.appendChild(desc);
-      toggle.appendChild(caret); toggle.appendChild(inner);
-      toggle.onclick = function () {
-        state.presetOpen = open ? "" : item.name;
-        renderPresets();
-      };
+      desc.appendChild(document.createTextNode(presetProtoText(item) + (item.format ? " · " + item.format : " · 格式自动") + " · "));
+      var tk = document.createElement("span");
+      tk.className = "tk " + (item.token ? "own" : "shared");
+      tk.textContent = item.token ? "独立 token" : "共用主 token";
+      tk.title = item.token ? "这条档案有自己的 token，主 SUB_TOKEN 进不来" : "这条档案用主 SUB_TOKEN，换主 token 时它跟着变";
+      desc.appendChild(tk);
+      desc.appendChild(document.createTextNode(" · 规则跟随全局"));
+      name.appendChild(title); name.appendChild(desc);
 
-      var link = document.createElement("code"); link.textContent = item.url;
+      var link = document.createElement("code"); link.textContent = item.url; link.title = item.url;
 
       var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
       copy.onclick = function () { copyToClipboard(item.url); presetStatus("已复制：" + item.name, true); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
       var edit = document.createElement("button"); edit.type = "button"; edit.textContent = "编辑";
-      edit.title = "把这个档案的条件载入上面的表单，改完点「保存档案」覆盖";
-      edit.onclick = function () {
-        $("preset-name").value = item.name;
-        $("preset-label").value = item.label === item.name ? "" : item.label;
-        state.presetForm = {
-          name: item.name,
-          label: item.label === item.name ? "" : item.label,
-          protos: (item.protos || []).slice(),
-          tunnel: item.tunnel || "",
-          machines: (item.machines || []).slice(),
-          format: item.format || "",
-        };
-        state.presetOpen = item.name;
-        renderPresets();
-        renderPresetForm();
-        presetStatus("已把「" + item.name + "」载入上面的表单，改完点「保存档案」", true);
-        try { $("preset-name").scrollIntoView({ block: "center" }); } catch (e) {}
-      };
+      edit.title = "列出主订阅的全部节点，把已经在这个档案里的勾好，改完点保存";
+      edit.onclick = function () { openPresetEditor(item); };
       var rotate = document.createElement("button"); rotate.type = "button"; rotate.textContent = item.token ? "换 token" : "发独立 token";
       rotate.title = "给这个档案单独发一个 token，之后主 token 就不再能访问它；再点一次会换新的";
       rotate.onclick = function () {
@@ -1244,41 +1384,25 @@ body.locked .wrap{display:none}
       del.onclick = function () {
         if (typeof confirm === "function" && !confirm("删除档案「" + item.name + "」？链接会立刻失效。")) return;
         api("/presets/" + encodeURIComponent(item.name), { method: "DELETE" })
-          .then(function () { presetStatus("已删除 " + item.name, true); if (state.presetOpen === item.name) state.presetOpen = ""; loadPresets(true); })
+          .then(function () {
+            presetStatus("已删除 " + item.name, true);
+            if (state.presetEdit && state.presetEdit.name === item.name) closePresetEditor();
+            loadPresets(true);
+          })
           .catch(function (err) { presetStatus(err.message, false); });
       };
       right.appendChild(edit); right.appendChild(rotate); right.appendChild(del);
-      row.appendChild(toggle); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
-      wrap.appendChild(row);
-      if (open) wrap.appendChild(presetNodesPanel(item));
-      box.appendChild(wrap);
+      row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
+      box.appendChild(row);
     });
   }
   function loadPresets(quiet) {
     return api("/presets").then(function (data) {
       state.presets = data.presets || [];
       renderPresets();
+      renderPresetEditor();
       if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案", true);
     }).catch(function (err) { presetStatus(err.message, false); });
-  }
-  function savePreset() {
-    var name = String($("preset-name").value || "").trim();
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("档案名只能用字母、数字、下划线、横线（1–32 位）", false); return; }
-    var body = {
-      label: String($("preset-label").value || "").trim(),
-      protos: state.presetForm.protos.slice(),
-      tunnel: state.presetForm.tunnel || "",
-      machines: state.presetForm.machines.slice(),
-      format: $("preset-format").value || "",
-    };
-    presetStatus("正在保存…", true);
-    api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then(function (data) {
-        presetStatus("已保存：" + data.preset.name + "（" + (data.preset.protos || []).join("、") + "）", true);
-        state.presets = null;
-        loadPresets(true);
-      })
-      .catch(function (err) { presetStatus(err.message, false); });
   }
   function copyToClipboard(text) {
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
@@ -1393,10 +1517,12 @@ body.locked .wrap{display:none}
   function renderUrls() {
     if (!SUB_TOKEN) return;
     var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
-    $("url-base").textContent = base;
-    $("url-clash").textContent = base + "?format=clash";
-    $("url-proxies").textContent = base + "?format=proxies";
-    $("url-singbox").textContent = base + "?format=singbox";
+    var pairs = { "url-base": base, "url-clash": base + "?format=clash", "url-proxies": base + "?format=proxies", "url-singbox": base + "?format=singbox" };
+    Object.keys(pairs).forEach(function (id) {
+      var el = $(id); if (!el) return;
+      el.textContent = pairs[id];
+      el.title = pairs[id];
+    });
   }
   function loadNodes(quiet) {
     if (!state.current) { state.nodes = []; state.autoNodes = []; render(); renderAutoNodes(); markClean(); return Promise.resolve(); }
@@ -1474,17 +1600,38 @@ body.locked .wrap{display:none}
   $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
   $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
-  $("preset-save").onclick = function () { savePreset(); };
-  $("preset-clear").onclick = function () {
-    ["preset-name", "preset-label"].forEach(function (id) { var el = $(id); if (el) el.value = ""; });
-    state.presetForm = { name: "", label: "", protos: [], tunnel: "", machines: [], format: "" };
-    $("preset-format").value = "";
-    renderPresetForm();
-    presetStatus("已清空输入", true);
+  $("preset-new").onclick = function () { openPresetEditor(null); };
+  $("preset-search").oninput = function () { state.presetSearch = this.value || ""; renderPresets(); };
+  $("pe-save").onclick = function () { savePresetEdit(); };
+  $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("已取消", true); };
+  $("pe-search").oninput = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.search = this.value || ""; renderPresetEditor(); } };
+  $("pe-all").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    peRows().forEach(function (hit) { if (hit.node.in_sub !== false && !peHas(hit.node.id)) state.presetEdit.picked.push(hit.node.id); });
+    renderPresetEditor();
   };
-  $("ff-tunnel").onchange = function () { state.ff.tunnel = this.value; renderFf(); };
-  $("ff-format").onchange = function () { state.ff.format = this.value; renderFf(); };
-  $("ff-clear").onclick = function () { state.ff.protos = []; state.ff.tunnel = ""; $("ff-tunnel").value = ""; renderFf(); };
+  $("pe-only").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.picked = peRows().filter(function (hit) { return hit.node.in_sub !== false; }).map(function (hit) { return hit.node.id; });
+    renderPresetEditor();
+  };
+  $("pe-none").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.picked = [];
+    renderPresetEditor();
+  };
+  $("pe-clear-filter").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.search = "";
+    if ($("pe-search")) $("pe-search").value = "";
+    renderPresetEditor();
+  };
+  $("pe-format").onchange = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.format = this.value || ""; renderPresetEditor(); } };
+  $("pe-label").oninput = function () { if (state.presetEdit) { cancelPresetClose(); renderPresetEditor(); } };
 
   $("sub-save").onclick = function () { saveSubDraft(); };
   $("sub-discard").onclick = function () { discardSubDraft(); };
@@ -2979,6 +3126,7 @@ async function getOne(env, machine, token, request) {
 /* ---- 订阅档案：把「筛哪些协议/隧道/机器、用什么格式」存下来，给一条短链接 ----
  * /sub/p/<档案名>/<token>：token 默认就是 SUB_TOKEN，也可以给单个档案单独发一个（可单独吊销）。 */
 const PRESET_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const PRESET_CLASH_MODES = ["inherit"];
 const PRESET_MAX = 200;
 
 function presetToken() {
@@ -2995,6 +3143,9 @@ function presetFromRow(row) {
     tunnel: row.tunnel || "",
     machines: String(row.machines || "").split("").filter(Boolean),
     skips: String(row.skips || "").split("").filter(Boolean),
+    members: String(row.members || "").split("").filter(Boolean),
+    mode: String(row.mode || ""),
+    clashMode: String(row.clash_mode || "inherit"),
     format: row.format || "",
     token: row.token || "",
     created_at: row.created_at,
@@ -3003,13 +3154,13 @@ function presetFromRow(row) {
 }
 
 async function listPresets(env) {
-  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips FROM presets ORDER BY created_at ASC").all();
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets ORDER BY created_at ASC").all();
   return (res.results || []).map(presetFromRow);
 }
 
 async function findPreset(env, name) {
   if (!PRESET_NAME_RE.test(String(name || ""))) return null;
-  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips FROM presets WHERE name = ?1").bind(name).first();
+  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets WHERE name = ?1").bind(name).first();
   return row ? presetFromRow(row) : null;
 }
 
@@ -3038,13 +3189,24 @@ async function putPreset(request, env, name) {
   const now = new Date().toISOString();
   const token = data.rotate_token === true || (!existing && data.own_token === true) ? presetToken() : (existing ? existing.token : "");
   const machinesKey = machines.join("");
-  const skips = (Array.isArray(data.skips) ? data.skips : String(data.skips || "").split("'+S+'"))
+  const skips = (Array.isArray(data.skips) ? data.skips : String(data.skips || "").split(""))
     .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 600);
-  const skipsKey = [...new Set(skips)].join("'+S+'");
-  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9, skips = ?10`)
-    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now, skipsKey)
+  const skipsKey = [...new Set(skips)].join("");
+  const members = (Array.isArray(data.members) ? data.members : String(data.members || "").split(""))
+    .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 1000);
+  const membersKey = [...new Set(members)].join("");
+  const modeKey = String(data.mode || "").trim() === "members" ? "members" : (membersKey ? "members" : (existing ? existing.mode : ""));
+  /* 分流规则来源：目前只有 inherit（跟随全局「分流规则」卡片那一份） */
+  const clashModeRaw = data.clashMode !== undefined ? data.clashMode : data.clash_mode;
+  const clashMode = String(clashModeRaw === undefined || clashModeRaw === null ? "" : clashModeRaw).trim().toLowerCase()
+    || (existing ? existing.clashMode : "inherit");
+  if (!PRESET_CLASH_MODES.includes(clashMode)) {
+    return json({ ok: false, error: "clashMode must be one of: " + PRESET_CLASH_MODES.join(", ") }, 400);
+  }
+  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9, skips = ?10, members = ?11, mode = ?12, clash_mode = ?13`)
+    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now, skipsKey, membersKey, modeKey, clashMode)
     .run();
   const saved = await findPreset(env, name);
   return json({ ok: true, preset: saved, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
@@ -3097,14 +3259,15 @@ async function servePreset(env, name, token, request) {
   if (!checkToken(token, expected)) return unauthorized();
 
   const records0 = await loadAllRecords(env);
-  const records = preset.machines.length ? records0.filter((r) => preset.machines.includes(r.machine)) : records0;
+  const byMember = preset.mode === "members";
+  const records = !byMember && preset.machines.length ? records0.filter((r) => preset.machines.includes(r.machine)) : records0;
   const order = await getMachineOrder(env);
   const format = preset.format || formatOf(request);
-  const rules = format === "clash" ? await loadClashRules(env) : null;
+  const rules = format === "clash" && preset.clashMode === "inherit" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
   const disabled = await loadDisabledGlobal(env);
   const filter = { protos: preset.protos, tunnel: preset.tunnel };
-  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + preset.machines.length + "|" + preset.skips.length;
+  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + preset.machines.length + "|" + preset.skips.length + "|" + preset.members.length + "|" + preset.mode + "|" + preset.clashMode;
   const liveKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";") + "#" + disabled.size;
   const key = subCacheKey("preset:" + preset.name + ":" + rev + liveKey + (rules ? ":" + rules.rev : ""), format, order, records);
   const baseHeaders = { "x-preset": encodeURIComponent(preset.name), "x-machines": String(records.length), "x-storage": "d1" };
@@ -3120,15 +3283,17 @@ async function servePreset(env, name, token, request) {
   }
   items.sort((a, b) => a.rk - b.rk || a.i - b.i || (a.m < b.m ? -1 : a.m > b.m ? 1 : 0));
   const skipSet = new Set(preset.skips);
+  const memberSet = new Set(preset.members);
   const nodes = items.map((item) => item.node)
-    .filter((node) => matchesFilter(node, filter))
+    .filter((node) => (byMember ? memberSet.has(linkIdentity(node.link)) : matchesFilter(node, filter)))
     .filter((node) => !skipSet.has(linkIdentity(node.link)));
   const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
   return cachedSubResponse(rendered, {
     ...baseHeaders,
     "x-nodes": String(nodes.length),
-    ...(filter.protos.length ? { "x-proto": filter.protos.join(",") } : {}),
-    ...(filter.tunnel ? { "x-tunnel": filter.tunnel } : {}),
+    ...(byMember ? { "x-mode": "members" } : {}),
+    ...(byMember || !filter.protos.length ? {} : { "x-proto": filter.protos.join(",") }),
+    ...(byMember || !filter.tunnel ? {} : { "x-tunnel": filter.tunnel }),
     "x-sub-cache": "miss",
   });
 }

@@ -414,6 +414,7 @@ check("保存排序：提示", text("order-status").includes("机器顺序已保
 el("new-machine").value = "bad/name";
 click("create-machine");
 await idle();
+check("订阅链接：被截断的链接都有 title", ["url-base", "url-clash", "url-proxies", "url-singbox"].every((id) => el(id).title && el(id).title === el(id).textContent), "");
 check("按钮说明：写清两个「清空」的区别", html.includes("立刻生效、不用再保存") && html.includes("点 ① 的「保存配置」才写进库"), "块内说明");
 check("按钮说明：不再有「两个清空不一样」前缀", !html.includes("两个「清空」不一样"), "");
 check("按钮说明：清空手动节点用红字", html.includes('<b class="err">清空手动节点</b>'), "");
@@ -1074,53 +1075,6 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
 }
 
-/* ---------------- 按协议细分生成订阅链接 ---------------- */
-{
-  const ffHy2 = "hysteria2://pw@203.0.113.50:443?sni=addons.mozilla.org#筛选-hy2";
-  const ffReality = "vless://11111111-1111-4111-8111-111111111111@203.0.113.51:31003?encryption=none&security=reality&sni=www.microsoft.com#筛选-reality";
-  await api("/nodes/ui-ff", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nodes: [{ link: ffHy2 }, { link: ffReality }] }),
-  });
-  click("sub-reload");
-  await idle();
-  const chips = el("ff-chips").children;
-  check("筛选订阅：胶囊列出现有协议细分",
-    chips.some((c) => c.textContent.indexOf("Hysteria2") !== -1) && chips.some((c) => c.textContent.indexOf("VLESS·Reality") !== -1),
-    chips.map((c) => c.textContent).join(" , "));
-  const base = el("ff-url").textContent;
-  check("筛选订阅：默认是不带参数的链接", /\/sub\/all\/[^?]+\?format=clash$/.test(base), base);
-
-  const hy2 = chips.filter((c) => c.textContent.indexOf("Hysteria2") !== -1)[0];
-  hy2.onclick.call(hy2);
-  await idle();
-  check("筛选订阅：点胶囊后链接带上 proto", el("ff-url").textContent.indexOf("proto=hy2") !== -1, el("ff-url").textContent);
-  check("筛选订阅：胶囊变成选中态", el("ff-chips").children.filter((c) => String(c.className).indexOf("picked") !== -1).length === 1, el("ff-chips").children.map((c) => c.className).join(","));
-
-  const liveUrl = el("ff-url").textContent.replace(/^https?:\/\/[^/]+/, BASE).replace("format=clash", "format=base64");
-  const live = await netFetch(liveUrl);
-  const liveBody = Buffer.from(await live.text(), "base64").toString("utf8");
-  check("筛选订阅：这个链接真的能用（且只有 hy2）", live.status === 200 && liveBody.includes("筛选-hy2") && !liveBody.includes("筛选-reality"), `${live.status} ${liveBody.slice(0, 60)}`);
-
-  const tun = el("ff-tunnel"); tun.value = "fixed"; tun.onchange.call(tun);
-  await idle();
-  check("筛选订阅：隧道下拉进链接", el("ff-url").textContent.indexOf("tunnel=fixed") !== -1, el("ff-url").textContent);
-
-  const fmt = el("ff-format"); fmt.value = "base64"; fmt.onchange.call(fmt);
-  await idle();
-  check("筛选订阅：base64 时不带 format 参数", el("ff-url").textContent.indexOf("format=") === -1, el("ff-url").textContent);
-
-  click("ff-clear");
-  await idle();
-  check("筛选订阅：清空后回到全部", el("ff-url").textContent.indexOf("proto=") === -1 && el("ff-url").textContent.indexOf("tunnel=") === -1, el("ff-url").textContent);
-  const fmt2 = el("ff-format"); fmt2.value = "clash"; fmt2.onchange.call(fmt2);
-  await idle();
-  await netFetch(`${BASE}/api/v1/machines/ui-ff`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
-  click("sub-reload");
-  await idle();
-}
-
 /* ---------------- 订阅档案 ---------------- */
 {
   await api("/nodes/ui-preset", {
@@ -1136,99 +1090,112 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
 
   const clickChip = (boxId, prefix) => {
-    const chip = el(boxId).children.filter((c) => typeof c.className === "string" && c.className.indexOf("proto") === 0 && String(c.textContent).indexOf(prefix) === 0)[0];
+    const chip = el(boxId).children.filter((c) => typeof c.className === "string" && c.className.indexOf("proto") === 0 && String(c.textContent).indexOf(prefix) > -1)[0];
     if (!chip) throw new Error("找不到胶囊 " + prefix + " in " + boxId + ": " + el(boxId).children.map((c) => c.textContent).join(" / "));
     chip.onclick.call(chip);
   };
-  check("订阅档案：协议是胶囊不是输入框", !!el("preset-proto-chips") && el("preset-proto-chips").children.length > 0, el("preset-proto-chips").children.map((c) => c.className + "|" + c.textContent).join(" / "));
-  check("订阅档案：胶囊和订阅卡片的协议一致", el("preset-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2 · 1") === 0), el("preset-proto-chips").children.map((c) => c.textContent).join(" / "));
-  el("preset-name").value = "hy2";
-  el("preset-label").value = "只要 Hy2";
-  clickChip("preset-proto-chips", "Hysteria2");
-  const hy2Chip = el("preset-proto-chips").children.filter((c) => String(c.textContent).indexOf("Hysteria2") === 0)[0];
-  check("订阅档案：点了胶囊会高亮", hy2Chip && String(hy2Chip.className).indexOf("picked") !== -1, hy2Chip && hy2Chip.className);
-  click("preset-save");
-  await idle();
+  const presets = () => el("presets").children.filter((c) => c.className === "preset");
+  const peRows = () => el("pe-list").children.filter((c) => String(c.className).indexOf("pe-node") >= 0);
+  const setInput = (id, value) => { el(id).value = value; if (typeof el(id).oninput === "function") el(id).oninput.call(el(id)); };
 
-  const wraps = () => el("presets").children.filter((c) => c.className === "presetwrap");
-  const rowOf = () => wraps()[0].children[0];
-  const rows = wraps();
-  check("订阅档案：保存后列表里有一条", rows.length === 1, String(rows.length));
-  const url = rowOf().children[1].textContent;
+  // 新建：面板里列出主订阅的全部节点，筛完再勾
+  check("订阅档案：默认不显示编辑面板", String(el("preset-editor").className).indexOf("hidden") >= 0, String(el("preset-editor").className));
+  click("preset-new");
+  await idle();
+  check("订阅档案：点新建打开编辑面板", String(el("preset-editor").className).indexOf("hidden") < 0, String(el("preset-editor").className));
+  check("订阅档案：面板标题是新建", el("pe-title").textContent === "新建档案", el("pe-title").textContent);
+  check("订阅档案：面板写明分流规则来源", html.includes('id="pe-clash"') && html.includes("分流规则：跟随全局"), "pe-clash 标签");
+  check("订阅档案：面板列出主订阅的全部节点", peRows().length >= 2, String(peRows().length));
+  check("订阅档案：条件胶囊就在面板里", el("pe-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2") > -1), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
+  check("订阅档案：胶囊带 ✓/◐ 和「在订阅/共」计数", el("pe-proto-chips").children.every((c) => /^(✓ |◐ )?.+ · \d+\/\d+$/.test(c.textContent)), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
+
+  el("pe-name").value = "hy2";
+  el("pe-label").value = "只要 Hy2";
+  clickChip("pe-proto-chips", "Hysteria2");
+  check("订阅档案：按协议筛完只剩 hy2", peRows().length === 1 && peRows()[0].children[1].textContent === "Hysteria2", String(peRows().length));
+  click("pe-all");
+  check("订阅档案：全选筛出来的 = 已勾选 1 条", /已勾选 1 条/.test(el("pe-shown").textContent), el("pe-shown").textContent);
+  check("订阅档案：勾选的是这一行", peRows()[0].children[0].checked === true, String(peRows()[0].children[0].checked));
+  click("pe-save");
+  await idle();
+  check("订阅档案：保存后先留着面板并显示已保存", String(el("preset-editor").className).indexOf("hidden") < 0 && /已保存 hy2/.test(el("pe-status").textContent), String(el("preset-editor").className) + " | " + el("pe-status").textContent);
+  await new Promise((r) => setTimeout(r, 5300));
+  check("订阅档案：5 秒后面板自动收起", String(el("preset-editor").className).indexOf("hidden") >= 0, String(el("preset-editor").className));
+  check("订阅档案：列表里出现这个档案", presets().length === 1, String(presets().length));
+  const url = presets()[0].children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
-  check("订阅档案：描述里带当前匹配条数", /现在 1 条/.test(rowOf().children[0].children[1].children[1].textContent), rowOf().children[0].children[1].children[1].textContent);
+  check("订阅档案：链接被截断时悬停能看到全串", presets()[0].children[1].title === url, String(presets()[0].children[1].title));
+  check("订阅档案：描述写绑定几条", /绑定 1 条节点/.test(presets()[0].children[0].children[1].textContent), presets()[0].children[0].children[1].textContent);
 
-  // 点标题展开：能看到这个档案现在匹配哪些节点
-  const toggle = rowOf().children[0];
-  check("订阅档案：标题是展开按钮", toggle.className === "ptoggle" && toggle.children[0].textContent === "▸", toggle.children[0].textContent);
-  toggle.onclick.call(toggle);
+  const pubNames = async (u) => {
+    const res = await netFetch(u.replace(/^https?:\/\/[^/]+/, BASE));
+    const text = Buffer.from(await res.text(), "base64").toString("utf8");
+    return { status: res.status, names: text.split("\n").filter(Boolean).map((l) => decodeURIComponent(l.split("#")[1] || "")) };
+  };
+  const first = await pubNames(url);
+  check("订阅档案：链接只给勾上的那条", first.status === 200 && first.names.join(",") === "档案-hy2", `${first.status} ${first.names.join(",")}`);
+
+  // 搜档案：名字 / 备注 / 链接
+  setInput("preset-search", "hy2");
+  check("订阅档案：搜名字能搜到", presets().length === 1, String(presets().length));
+  setInput("preset-search", "只要");
+  check("订阅档案：搜备注能搜到", presets().length === 1, String(presets().length));
+  setInput("preset-search", "nope");
+  check("订阅档案：搜不到显示空态", presets().length === 0 && el("presets").children[0].className === "empty", String(presets().length));
+  setInput("preset-search", "");
+
+  // 编辑：把档案里已有的节点提前勾好；取消不保存
+  presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
-  const panel = wraps()[0].children[1];
-  check("订阅档案：点开后出现节点面板", !!panel && panel.className === "pnodebox", panel && panel.className);
-  const line = panel.children[0];
-  check("订阅档案：面板里是这条 hy2 节点", line.children[2].textContent === "档案-hy2", line.children[2].textContent);
-  check("订阅档案：面板标了协议和机器", line.children[1].textContent === "Hysteria2" && line.children[3].textContent === "ui-preset", line.children[1].textContent + "/" + line.children[3].textContent);
-  check("订阅档案：每行有本组勾选框，默认勾上", line.children[0].type === "checkbox" && line.children[0].checked === true, String(line.children[0].checked));
+  check("订阅档案：编辑打开面板并锁住档案名", String(el("preset-editor").className).indexOf("hidden") < 0 && el("pe-name").value === "hy2" && el("pe-name").readOnly === true && String(el("pe-name").className).indexOf("locked") >= 0, el("pe-name").value + "/" + el("pe-name").readOnly);
+  check("订阅档案：编辑时把已有节点提前勾好", peRows().filter((r) => r.children[0].checked).length === 1, String(peRows().filter((r) => r.children[0].checked).length));
+  const checkedRow = peRows().filter((r) => r.children[0].checked)[0];
+  check("订阅档案：提前勾好的就是档案里那条", checkedRow.children[2].children[0].textContent === "档案-hy2", checkedRow.children[2].children[0].textContent);
+  check("订阅档案：没改动时未保存标签隐藏", el("pe-badge").style.display === "none", el("pe-badge").style.display + "/" + el("pe-badge").textContent);
+  const firstBox = peRows().filter((r) => r.children[0].checked)[0].children[0];
+  firstBox.checked = false;
+  firstBox.onchange.call(firstBox);
+  check("订阅档案：取消勾选后出现「未保存 1 处」", el("pe-badge").textContent === "未保存 1 处" && el("pe-badge").style.display === "", el("pe-badge").textContent);
+  firstBox.checked = true;
+  firstBox.onchange.call(firstBox);
+  check("订阅档案：勾回来就隐藏未保存标签", el("pe-badge").style.display === "none", el("pe-badge").textContent);
+  click("pe-cancel");
+  await idle();
+  check("订阅档案：取消后不保存", (await pubNames(url)).names.join(",") === "档案-hy2", "档案内容被改了");
 
-  // 只把这个节点从本组摘掉：本档案少一条，总订阅不变
+  // 编辑：取消勾选后保存，只影响这个档案
   const masterBefore = await netFetch(`${BASE}/sub/all/${TOKEN}`);
   const masterNames = Buffer.from(await masterBefore.text(), "base64").toString("utf8");
-  const cb = line.children[0];
-  cb.checked = false;
-  cb.onchange.call(cb);
+  presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
-  const afterPanel = wraps()[0].children[1];
-  check("订阅档案：取消勾选后这行不再勾着", afterPanel.children[0].children[0].checked === false, String(afterPanel.children[0].children[0].checked));
-  check("订阅档案：描述里出现「本组已关 1 个」", /本组已关 1 个/.test(rowOf().children[0].children[1].children[1].textContent), rowOf().children[0].children[1].children[1].textContent);
-  const narrowed = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
-  const narrowedBody = Buffer.from(await narrowed.text(), "base64").toString("utf8");
-  check("订阅档案：链接里没有这条节点了", narrowed.status === 200 && !narrowedBody.includes("档案-hy2") && !narrowedBody.includes("://"), `${narrowed.status} ${narrowedBody.trim().slice(0, 30)}`);
+  const box = peRows().filter((r) => r.children[0].checked)[0].children[0];
+  box.checked = false;
+  box.onchange.call(box);
+  check("订阅档案：取消勾选后已勾选变 0", /已勾选 0 条/.test(el("pe-shown").textContent), el("pe-shown").textContent);
+  click("pe-save");
+  await idle();
+  const emptied = await pubNames(url);
+  check("订阅档案：保存后档案里没有节点了", emptied.status === 200 && emptied.names.length === 0, `${emptied.status} ${emptied.names.join(",")}`);
   const masterAfter = await netFetch(`${BASE}/sub/all/${TOKEN}`);
   const masterAfterBody = Buffer.from(await masterAfter.text(), "base64").toString("utf8");
   check("订阅档案：总订阅完全没变", masterAfterBody.trim() === masterNames.trim(), "总订阅被影响了");
 
-  // 勾回来
-  const cb2 = wraps()[0].children[1].children[0].children[0];
-  cb2.checked = true;
-  cb2.onchange.call(cb2);
-  await idle();
-  const back = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
-  const backBody = Buffer.from(await back.text(), "base64").toString("utf8");
-  check("订阅档案：勾回来后节点又回到本档案", back.status === 200 && backBody.includes("档案-hy2"), `${back.status}`);
-  check("订阅档案：展开后箭头朝下", rowOf().children[0].children[0].textContent === "▾", rowOf().children[0].children[0].textContent);
-  rowOf().children[0].onclick.call(rowOf().children[0]);
-  await idle();
-  check("订阅档案：再点收起面板", wraps()[0].children.length === 1, String(wraps()[0].children.length));
-
-  // 编辑：把条件载入表单
-  rowOf().children[3].children[0].onclick.call(rowOf().children[3].children[0]);
-  await idle();
-  const pickedChips = el("preset-proto-chips").children.filter((c) => String(c.className).indexOf("picked") !== -1).map((c) => c.textContent);
-  check("订阅档案：编辑把协议/机器胶囊也载回表单", el("preset-name").value === "hy2" && pickedChips.length === 1 && pickedChips[0].indexOf("Hysteria2") === 0, el("preset-name").value + " " + pickedChips.join(","));
-  click("preset-clear");
-  await idle();
-  check("订阅档案：清空后胶囊全部取消", el("preset-proto-chips").children.every((c) => String(c.className).indexOf("picked") === -1), "");
-
-  const pub = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
-  const body = Buffer.from(await pub.text(), "base64").toString("utf8");
-  check("订阅档案：链接只给这个协议的节点", pub.status === 200 && body.includes("档案-hy2") && !body.includes("档案-reality"), `${pub.status} ${body.slice(0, 50)}`);
-
   // 换独立 token：链接变了，旧链接立刻失效
-  const rotate = rowOf().children[3].children[1];
+  const rotate = presets()[0].children[3].children[1];
   check("订阅档案：有换 token 按钮", rotate && rotate.textContent === "发独立 token", rotate && rotate.textContent);
   rotate.onclick.call(rotate);
   await idle();
-  const rotatedUrl = rowOf().children[1].textContent;
+  const rotatedUrl = presets()[0].children[1].textContent;
   check("订阅档案：换 token 后链接变了", rotatedUrl !== url, rotatedUrl);
   const old = await netFetch(url.replace(/^https?:\/\/[^/]+/, BASE));
   const fresh = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：旧链接 401、新链接 200", old.status === 401 && fresh.status === 200, `${old.status}/${fresh.status}`);
 
   // 删除
-  const del = rowOf().children[3].children[2];
+  const del = presets()[0].children[3].children[2];
   del.onclick.call(del);
   await idle();
-  check("订阅档案：删除后列表空", wraps().length === 0, String(wraps().length));
+  check("订阅档案：删除后列表空", presets().length === 0, String(presets().length));
   const gone = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：删除后链接 404", gone.status === 404, String(gone.status));
 

@@ -55,7 +55,10 @@ CREATE TABLE IF NOT EXISTS presets (
   token      TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  skips      TEXT NOT NULL DEFAULT ''
+  skips      TEXT NOT NULL DEFAULT '',
+  members    TEXT NOT NULL DEFAULT '',
+  mode       TEXT NOT NULL DEFAULT '',
+  clash_mode TEXT NOT NULL DEFAULT 'inherit'
 );
 
 CREATE TABLE IF NOT EXISTS settings (

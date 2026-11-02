@@ -59,7 +59,7 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
       return this.db.presets.get(this.args[0]) || null;
     }
     if (/^SELECT COUNT\(\*\) AS n FROM presets$/i.test(this.sql)) {
@@ -72,7 +72,7 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)? FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
       const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
@@ -143,8 +143,8 @@ class MockStatement {
       return { success: true, meta: { changes: 1 } };
     }
     if (/^INSERT INTO presets/i.test(this.sql)) {
-      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips] = args;
-      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "" });
+      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clashMode] = args;
+      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "", members: members || "", mode: mode || "", clash_mode: clashMode || "inherit" });
       return { success: true, meta: { changes: 1 } };
     }
     if (/^UPDATE presets SET skips = \?2, updated_at = \?3 WHERE name = \?1$/i.test(this.sql)) {
@@ -157,7 +157,7 @@ class MockStatement {
       return { success: true, meta: { changes: this.db.presets.delete(args[0]) ? 1 : 0 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
-    if (/^ALTER TABLE presets ADD COLUMN skips/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
+    if (/^ALTER TABLE presets ADD COLUMN (skips|members|mode|clash_mode)/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
       const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
       if (this.db[column]) throw new Error("duplicate column name");
@@ -1790,6 +1790,43 @@ test("a preset can drop single nodes without touching the master subscription", 
   assert.equal((await call(env, "POST", "/api/v1/presets/none/toggle", JSON.stringify({ id: "x" }), auth)).status, 404);
   assert.equal((await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: "x" }), { "content-type": "application/json" })).status, 401);
   assert.equal((await call(env, "GET", "/api/v1/presets/hy2/toggle", null, auth)).status, 405);
+});
+
+test("a preset records that its clash rules follow the global set", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  await call(env, "PUT", "/api/v1/nodes/mach-a", JSON.stringify({ nodes: [{ link }] }), auth);
+
+  const made = await (await call(env, "PUT", "/api/v1/presets/hy2", JSON.stringify({ protos: ["hy2"] }), auth)).json();
+  assert.equal(made.preset.clashMode, "inherit", "默认就是跟随全局");
+
+  const listed = await (await call(env, "GET", "/api/v1/presets", null, auth)).json();
+  assert.equal(listed.presets[0].clashMode, "inherit");
+
+  const bad = await call(env, "PUT", "/api/v1/presets/hy2", JSON.stringify({ protos: ["hy2"], clashMode: "off" }), auth);
+  assert.equal(bad.status, 400, "还没做的模式要挡住");
+  assert.match(await bad.text(), /clashMode must be one of: inherit/);
+
+  // 跟随全局：全局规则改一次，档案链接立刻跟着变
+  const rules = await (await call(env, "GET", "/api/v1/clash/rules", null, auth)).json();
+  assert.ok(rules.groups.some((g) => g.name === "📹 油管视频"), "默认规则里本来有油管组");
+  const slim = {
+    groups: [
+      { name: "🚀 节点选择", type: "select", filter: "" , members: ["DIRECT"] },
+      { name: "🎯 全球直连", type: "select", members: ["DIRECT"] },
+      { name: "🐟 漏网之鱼", type: "select", members: ["🚀 节点选择", "DIRECT"] },
+    ],
+    rulesets: [],
+  };
+  const putRules = await call(env, "PUT", "/api/v1/clash/rules", JSON.stringify(slim), auth);
+  assert.equal(putRules.status, 200);
+  const clash = await call(env, "GET", `/sub/p/hy2/${TOKEN}?format=clash`, null, {});
+  assert.equal(clash.status, 200);
+  const yaml = await clash.text();
+  assert.ok(!yaml.includes("📹 油管视频"), "档案要用最新的全局规则");
+  assert.ok(yaml.includes("MATCH,🐟 漏网之鱼"), "兜底规则跟着全局分组走");
+  await call(env, "POST", "/api/v1/clash/rules/reset", null, auth);
 });
 
 test("presets give short live links that can carry their own token", async () => {
