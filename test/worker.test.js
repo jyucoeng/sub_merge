@@ -647,20 +647,23 @@ test("link fragments become node names, duplicates and blanks are dropped", asyn
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.nodes.length, 3);
-  assert.deepEqual(data.nodes.map((n) => n.protocol), ["hy2", "tuic", "vless"]);
+  /* 顺序由协议 rank 决定（vless-reality → anytls → argo/ws vless → vmess → hy2 → tuic），
+     不再跟随粘贴顺序：同一台机器里协议混着排，订阅拉下来比客户端自己排的还乱。 */
+  assert.deepEqual(data.nodes.map((n) => n.protocol), ["vless", "hy2", "tuic"]);
   assert.deepEqual(data.nodes.map((n) => n.name), [
+    "小叮当-洛杉矶-cloudnium-vless-reality-localhost",
     "小叮当-洛杉矶-cloudnium-hy2-localhost",
     "小叮当-洛杉矶-cloudnium-tuic-localhost",
-    "小叮当-洛杉矶-cloudnium-vless-reality-localhost",
   ]);
-  assert.deepEqual(data.nodes.map((n) => n.order), [0, 1, 2]);
+  /* order 记的是「粘贴时的原始序号」，排序变了它不动：reality 原本是第 3 条（下标 2） */
+  assert.deepEqual(data.nodes.map((n) => n.order), [2, 0, 1]);
 
-  // 订阅内容按粘贴顺序输出，且去重后只有 3 条
+  // 去重后只有 3 条，且按协议 rank 输出（reality vless → hy2 → tuic），不再按粘贴顺序
   res = await call(env, "GET", `/sub/paste/${TOKEN}`);
   const merged = unb64(await res.text());
   assert.equal(merged.split("\n").length, 3);
+  assert.ok(merged.indexOf(reality) < merged.indexOf(hy2), "vless-reality 排最前");
   assert.ok(merged.indexOf(hy2) < merged.indexOf(tuic));
-  assert.ok(merged.indexOf(tuic) < merged.indexOf(reality));
 });
 
 test("webui can create an empty machine and rejects invalid machine names", async () => {
@@ -1655,6 +1658,27 @@ test("subscription node list spans every machine in machine order and toggles gl
   const restore = await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: [] }), auth);
   assert.equal((await restore.json()).stats.enabled, 3);
   assert.equal((await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: "x" }), auth)).status, 400);
+});
+
+test("nodes inside one machine come out in protocol order, not paste order", async () => {
+  /* 同一台机器里五种协议故意倒着粘贴，输出的顺序要是协议 rank：
+     vless-reality → anytls → vmess → hy2 → tuic。 */
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const s = (id) => `00000000-0000-4000-8000-${String(id).padStart(12, "0")}`;
+  const tuic = `tuic://${s(5)}:pw@203.0.113.5:2053?congestion_control=bbr&alpn=h3&sni=www.bing.com#tuic-5`;
+  const hy2 = `hysteria2://${s(4)}@203.0.113.4:8443?sni=www.bing.com&insecure=1#hy2-4`;
+  const vmess = `vmess://${Buffer.from(JSON.stringify({ v: "2", ps: "vmess-3", add: "203.0.113.3", port: "443", id: s(3), aid: "0", scy: "auto", net: "ws", type: "none", host: "x", path: "/", tls: "tls" })).toString("base64")}`;
+  const anytls = `anytls://${s(2)}@203.0.113.2:23677?security=tls&sni=www.bing.com#anytls-2`;
+  const reality = `vless://${s(1)}@203.0.113.1:443?encryption=none&security=reality&sni=www.bing.com&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=1111&type=tcp#reality-1`;
+
+  await call(env, "PUT", "/api/v1/nodes/order-mix", JSON.stringify({ nodes: [{ link: tuic }, { link: hy2 }, { link: vmess }, { link: anytls }, { link: reality }] }), auth);
+  const view = await (await call(env, "GET", "/api/v1/nodes/order-mix", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(view.nodes.map((n) => n.protocol), ["vless", "anytls", "vmess", "hy2", "tuic"]);
+
+  /* 订阅走的是同一个 nodesOf，顺序跟着节点视图走；这里再确认一次条数没丢 */
+  const sub = await call(env, "GET", `/sub/order-mix/${TOKEN}`);
+  assert.equal(sub.headers.get("x-nodes"), "5");
 });
 
 test("machines sharing a rank stay grouped instead of interleaving their nodes", async () => {

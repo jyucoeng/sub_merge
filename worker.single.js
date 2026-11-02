@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.12";
+const VERSION = "1.37.13";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4208,7 +4208,10 @@ async function nodesOf(record, allowed, disabled) {
     const renamed = alias[linkIdentity(node.link)];
     return typeof renamed === "string" && renamed ? { ...node, name: renamed, _renamed: true } : node;
   });
-  const merged = [...sortNodes(manualPart, false), ...sortNodes(autoRenamed, true)]
+  /* 机器内一律按协议排（reality vless → anytls → argo vless → ws vless → hy2 → tuic
+     → socks → trojan → 其它），手动节点也参与。以前手动那部分靠数组顺序，
+     结果同一台机器里协议是混着来的，看着比客户端自己排还乱。 */
+  const merged = [...sortNodes(manualPart, true), ...sortNodes(autoRenamed, true)]
     .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
@@ -4222,7 +4225,8 @@ function protocolRank(node) {
     const text = `${node.name || ""} ${node.link || ""}`.toLowerCase();
     return text.includes("argo") || text.includes("trycloudflare") ? 30 : 40;
   }
-  if (p.kind === "hy2") return 50;
+  if (p.kind === "vmess") return 45;
+  if (p.kind === "hy2" || p.kind === "hysteria2") return 50;
   if (p.kind === "tuic") return 60;
   if (p.kind === "socks5" || p.kind === "socks") return 70;
   if (p.kind === "trojan") return 75;
