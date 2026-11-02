@@ -619,6 +619,21 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 // N. 复制按钮（data-copy）
 {
   check("订阅链接展示", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
+
+  // 订阅链接也能发短链：点「短链」后这一行换成 /s/xxx
+  const shortBaseBtn = el("short-url-base");
+  check("订阅链接：每行都有短链按钮", !!shortBaseBtn && shortBaseBtn.textContent === "短链", shortBaseBtn && shortBaseBtn.textContent);
+  await shortBaseBtn.onclick.call(shortBaseBtn);
+  await idle();
+  check("订阅链接：发短链后这一行显示 /s/", /^https?:\/\/[^/]+\/s\/[a-z0-9]+$/.test(text("url-base")), text("url-base"));
+  check("订阅链接：发短链后按钮变成复制短链", el("short-url-base").textContent === "复制短链", el("short-url-base").textContent);
+  const shortedPath = text("url-base").replace(/^https?:\/\/[^/]+/, "");
+  const shortedRes = await netFetch(BASE + shortedPath);
+  check("订阅链接：短链能拉到全部订阅", shortedRes.status === 200 && shortedRes.headers.get("x-preset") === "all", `${shortedRes.status} ${shortedRes.headers.get("x-preset")}`);
+  el("unshort-url-base").onclick.call(el("unshort-url-base"));
+  await idle();
+  check("订阅链接：删掉短链后恢复长链接", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
+  clipboard.length = 0;
   const btn = { textContent: "复制", getAttribute: (k) => (k === "data-copy" ? "url-base" : null) };
   docListeners.click[0]({ target: btn });
   await idle(500);

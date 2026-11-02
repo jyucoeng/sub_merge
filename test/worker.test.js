@@ -80,7 +80,7 @@ class MockStatement {
       const rows = [...this.db.links.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
-    if (/^SELECT code FROM links WHERE preset = \?1 ORDER BY created_at ASC$/i.test(this.sql)) {
+    if (/^SELECT code, format FROM links WHERE preset = \?1 ORDER BY created_at ASC$/i.test(this.sql)) {
       const rows = [...this.db.links.values()].filter((row) => row.preset === this.args[0]);
       return { results: rows, success: true, meta: { changes: 0 } };
     }
@@ -1823,6 +1823,36 @@ test("a preset can drop single nodes without touching the master subscription", 
   assert.equal((await call(env, "POST", "/api/v1/presets/none/toggle", JSON.stringify({ id: "x" }), auth)).status, 404);
   assert.equal((await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: "x" }), { "content-type": "application/json" })).status, 401);
   assert.equal((await call(env, "GET", "/api/v1/presets/hy2/toggle", null, auth)).status, 405);
+});
+
+test("a short link can serve the whole subscription in one format", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  await call(env, "PUT", "/api/v1/nodes/mach-all", JSON.stringify({ nodes: [{ link: hy2 }] }), auth);
+
+  const made = await (await call(env, "POST", "/api/v1/links", JSON.stringify({ format: "clash" }), auth)).json();
+  assert.equal(made.link.preset, "");
+  assert.equal(made.link.format, "clash");
+
+  const got = await call(env, "GET", "/s/" + made.link.code, null, {});
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get("x-preset"), "all");
+  const body = await got.text();
+  assert.ok(body.includes("proxies:"), body.slice(0, 60));
+
+  // 同格式再要一次是复用，换格式是新的一条
+  const again = await (await call(env, "POST", "/api/v1/links", JSON.stringify({ format: "clash" }), auth)).json();
+  assert.equal(again.reused, true);
+  assert.equal(again.link.code, made.link.code);
+  const sing = await (await call(env, "POST", "/api/v1/links", JSON.stringify({ format: "singbox" }), auth)).json();
+  assert.notEqual(sing.link.code, made.link.code);
+  const singBody = await (await call(env, "GET", "/s/" + sing.link.code, null, {})).text();
+  assert.ok(singBody.includes("outbounds"), singBody.slice(0, 60));
+
+  // 全部订阅的短链必须指定格式
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({}), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "", format: "" }), auth)).status, 400);
 });
 
 test("a short link serves a preset without the token in the url", async () => {

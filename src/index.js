@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.35.2";
+const VERSION = "1.36.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -374,10 +374,10 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button></div>
+<div class="subrow"><span class="tip">通用 base64</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-unshort="base64" id="unshort-url-base" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-unshort="clash" id="unshort-url-clash" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-unshort="proxies" id="unshort-url-proxies" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-unshort="singbox" id="unshort-url-singbox" class="danger" type="button" style="display:none" title="删掉这条短链，立刻 404">✕</button></div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
@@ -1442,6 +1442,7 @@ body.locked .wrap{display:none}
       state.links = out[1].links || [];
       renderPresets();
       renderPresetEditor();
+      renderUrls();
       if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案、" + state.links.length + " 条短链", true);
     }).catch(function (err) { presetStatus(err.message, false); });
   }
@@ -1560,14 +1561,46 @@ body.locked .wrap{display:none}
     });
   }
   var SUB_TOKEN = "";
+  function subAllLink(fmt) {
+    var hit = null;
+    (state.links || []).forEach(function (l) { if (!l.preset && (l.format || "") === fmt) hit = l; });
+    return hit;
+  }
   function renderUrls() {
     if (!SUB_TOKEN) return;
     var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
-    var pairs = { "url-base": base, "url-clash": base + "?format=clash", "url-proxies": base + "?format=proxies", "url-singbox": base + "?format=singbox" };
-    Object.keys(pairs).forEach(function (id) {
+    var rows = { "url-base": "base64", "url-clash": "clash", "url-proxies": "proxies", "url-singbox": "singbox" };
+    Object.keys(rows).forEach(function (id) {
       var el = $(id); if (!el) return;
-      el.textContent = pairs[id];
-      el.title = pairs[id];
+      var fmt = rows[id];
+      var full = fmt === "base64" ? base : base + "?format=" + fmt;
+      var sl = subAllLink(fmt);
+      var text = sl ? location.origin + sl.path : full;
+      el.textContent = text;
+      el.title = sl ? text + "（短链，指向全部订阅；完整链接是 " + full + "）" : full;
+      var btn = $("short-" + id);
+      if (btn) {
+        btn.textContent = sl ? "复制短链" : "短链";
+        btn.title = sl ? "复制这条短链 /s/" + sl.code : "给这个格式生成一条不带 token 的短链";
+        btn.onclick = function () {
+          if (sl) { copyToClipboard(location.origin + sl.path); setStatus("已复制短链：" + sl.path, true); return; }
+          api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
+            .then(function (data) { copyToClipboard(data.url); setStatus("已生成短链并复制：" + data.link.path, true); return loadPresets(true); })
+            .catch(function (err) { setStatus(err.message, false); });
+        };
+      }
+      var kill = $("unshort-" + id);
+      if (kill) {
+        kill.style.display = sl ? "" : "none";
+        kill.title = sl ? "删除短链 /s/" + sl.code : "";
+        kill.onclick = function () {
+          if (!sl) return;
+          if (typeof confirm === "function" && !confirm("删除短链 /s/" + sl.code + "？用它的客户端会立刻拉不到东西。")) return;
+          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+            .then(function () { setStatus("已删除短链 /s/" + sl.code, true); return loadPresets(true); })
+            .catch(function (err) { setStatus(err.message, false); });
+        };
+      }
     });
   }
   function loadNodes(quiet) {
@@ -3360,19 +3393,22 @@ async function putLink(request, env) {
   const text = await request.text();
   let data;
   try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
-  const presetName = String(data.preset || "").trim();
-  if (!presetName) return json({ ok: false, error: "preset is required" }, 400);
-  const preset = await findPreset(env, presetName);
-  if (!preset) return json({ ok: false, error: "unknown preset: " + presetName }, 400);
+  const presetName = String(data.preset == null ? "" : data.preset).trim();
+  const wholeSub = presetName === "";
+  if (!wholeSub) {
+    const preset = await findPreset(env, presetName);
+    if (!preset) return json({ ok: false, error: "unknown preset: " + presetName }, 400);
+  }
   const formatRaw = String(data.format || "").trim().toLowerCase();
   if (!LINK_FORMATS.includes(formatRaw)) return json({ ok: false, error: "format must be one of: clash, proxies, singbox, base64" }, 400);
+  if (wholeSub && !formatRaw) return json({ ok: false, error: "format is required when preset is empty" }, 400);
   const note = String(data.note || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 80);
   let code = String(data.code || "").trim().toLowerCase();
   if (code) {
     if (!LINK_CODE_RE.test(code)) return json({ ok: false, error: "code must match ^[a-z0-9][a-z0-9_-]{3,31}$" }, 400);
   } else {
-    const existing = await env.DB.prepare("SELECT code FROM links WHERE preset = ?1 ORDER BY created_at ASC").bind(presetName).all();
-    const reuse = (existing.results || [])[0];
+    const existing = await env.DB.prepare("SELECT code, format FROM links WHERE preset = ?1 ORDER BY created_at ASC").bind(presetName).all();
+    const reuse = (wholeSub ? (existing.results || []).filter((r) => (r.format || "") === formatRaw)[0] : (existing.results || [])[0]);
     if (reuse) {
       await env.DB.prepare("UPDATE links SET note = ?3, format = ?2 WHERE code = ?1").bind(reuse.code, formatRaw, note).run();
       const link = await getLink(env, reuse.code, request);
@@ -3406,13 +3442,15 @@ async function serveShortLink(env, code, request) {
   if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "link not found" }, 404);
   const link = await getLink(env, code);
   if (!link) return json({ ok: false, error: "link not found" }, 404);
-  const res = await servePreset(env, link.preset, null, request, { skipToken: true, format: link.format });
+  const res = link.preset
+    ? await servePreset(env, link.preset, null, request, { skipToken: true, format: link.format })
+    : await getAll(env, null, request, { skipToken: true, format: link.format });
   try {
     await env.DB.prepare("UPDATE links SET hits = hits + 1, last_at = ?2 WHERE code = ?1").bind(code, new Date().toISOString()).run();
   } catch {}
   const headers = new Headers(res.headers);
   headers.set("x-link", code);
-  headers.set("x-preset", encodeURIComponent(link.preset));
+  headers.set("x-preset", link.preset ? encodeURIComponent(link.preset) : "all");
   return new Response(res.body, { status: res.status, headers });
 }
 
@@ -3467,13 +3505,16 @@ async function servePreset(env, name, token, request, opts) {
   });
 }
 
-async function getAll(env, token, request) {
-  if (!authToken(env)) return missingConfig("SUB_TOKEN");
-  if (!checkToken(token, authToken(env))) return unauthorized();
+async function getAll(env, token, request, opts) {
+  const open = !!(opts && opts.skipToken);
+  if (!open) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (!checkToken(token, authToken(env))) return unauthorized();
+  }
   if (!dbEnv(env)) return missingConfig("DB");
   const records = await loadAllRecords(env);
   const order = await getMachineOrder(env);
-  const format = formatOf(request);
+  const format = (opts && opts.format) || formatOf(request);
   const manualCount = records.filter((r) => r.manual).length;
   const baseHeaders = { "x-machines": String(records.length), "x-manual-machines": String(manualCount), "x-storage": "d1", "x-machine-order": order.map(encodeURIComponent).join(",") };
   const rules = format === "clash" ? await loadClashRules(env) : null;
