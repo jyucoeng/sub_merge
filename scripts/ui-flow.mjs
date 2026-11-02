@@ -1155,6 +1155,17 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：保存后先留着面板并显示已保存", String(el("preset-editor").className).indexOf("hidden") < 0 && /已保存 hy2/.test(el("pe-status").textContent), String(el("preset-editor").className) + " | " + el("pe-status").textContent);
   await new Promise((r) => setTimeout(r, 5300));
   check("订阅档案：5 秒后面板自动收起", String(el("preset-editor").className).indexOf("hidden") >= 0, String(el("preset-editor").className));
+  // 新建时撞上已有标识：报错，不覆盖别人的档案
+  click("preset-new");
+  await idle();
+  el("pe-name").value = "hy2";
+  el("pe-label").value = "想覆盖它";
+  click("pe-save");
+  await idle();
+  check("订阅档案：新建撞已有标识会报错", /已经被别的档案用了/.test(el("pe-status").textContent), el("pe-status").textContent);
+  check("订阅档案：撞名时没多出档案、也没改掉原来的", presets().length === 1 && presets()[0].children[0].children[0].textContent.indexOf("只要 Hy2") === 0, String(presets().length) + " | " + presets()[0].children[0].children[0].textContent);
+  click("pe-cancel");
+  await idle();
   check("订阅档案：列表里出现这个档案", presets().length === 1, String(presets().length));
   const url = presets()[0].children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);

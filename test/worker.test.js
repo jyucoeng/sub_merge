@@ -1940,6 +1940,23 @@ test("a short link serves a preset without the token in the url", async () => {
   assert.equal((await call(env, "GET", "/s/nosuchcode", null, {})).status, 404);
 });
 
+test("creating a preset with an existing name is rejected instead of overwriting it", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const put = (name, body) =>
+    call(env, "PUT", "/api/v1/presets/" + name, JSON.stringify(body), { ...auth, "content-type": "application/json" });
+  assert.equal((await put("same", { label: "第一份", members: ["link-a"] })).status, 200);
+  const clash = await put("same", { label: "想新建的另一份", members: ["link-b"], create: true });
+  assert.equal(clash.status, 409);
+  assert.match((await clash.json()).error, /preset already exists/);
+  const list = await (await call(env, "GET", "/api/v1/presets", undefined, auth)).json();
+  assert.equal(list.presets.length, 1);
+  assert.equal(list.presets[0].label, "第一份");
+  const fresh = await put("other", { label: "新的一份", members: ["link-b"], create: true });
+  assert.equal(fresh.status, 200);
+  assert.equal((await fresh.json()).preset.name, "other");
+});
+
 test("a preset records that its clash rules follow the global set", async () => {
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };

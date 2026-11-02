@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.3";
+const VERSION = "1.37.4";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1334,6 +1334,11 @@ body.locked .wrap{display:none}
     }
     if (!name) { presetStatus("先给它起个显示名，或者手填一个标识", false); return; }
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("标识只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    var isNew = st.mode === "new";
+    if (isNew && (state.presets || []).some(function (p) { return p.name === name; })) {
+      presetStatus("标识「" + name + "」已经被别的档案用了，换一个（留空就自动生成）", false);
+      return;
+    }
     var body = {
       label: String($("pe-label").value || "").trim(),
       format: $("pe-format").value || "",
@@ -1343,6 +1348,7 @@ body.locked .wrap{display:none}
       tunnel: "",
       machines: [],
       skips: [],
+      create: st.mode === "new",
     };
     presetStatus("正在保存…", null);
     api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -3330,6 +3336,8 @@ async function putPreset(request, env, name) {
   const label = String(data.label || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 40) || name;
 
   const existing = await findPreset(env, name);
+  /* 新建时撞上已有标识：直接 409，别把别人的档案悄悄覆盖掉 */
+  if (existing && data.create === true) return json({ ok: false, error: "preset already exists: " + name }, 409);
   if (!existing) {
     const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM presets").first());
     if (count && Number(count.n) >= PRESET_MAX) return json({ ok: false, error: `at most ${PRESET_MAX} presets` }, 400);
