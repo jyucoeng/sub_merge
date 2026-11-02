@@ -987,6 +987,61 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("分流规则：再点收起", el("clash-body").className === "hidden" && el("clash-toggle").textContent === "展开 +", `${el("clash-body").className} / ${el("clash-toggle").textContent}`);
 }
 
+/* ---------------- 协议细分（reality / argo / cdn） ---------------- */
+{
+  const reality = "vless://11111111-1111-4111-8111-111111111111@203.0.113.20:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome#reality-%E8%8A%82%E7%82%B9";
+  const argo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=dan-amsterdam.xx66.nyc.mn&path=%2F11111111-tr&sni=dan-amsterdam.xx66.nyc.mn#trojan-ws-tls-argo-%E8%8A%82%E7%82%B9";
+  const cdn = "vless://11111111-1111-4111-8111-111111111111@203.0.113.21:443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2F11111111-vl-cdn&sni=cdn.example.com#vless-ws-cdn-%E8%8A%82%E7%82%B9";
+  const put = await api("/nodes/ui-cls", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: reality }, { link: argo }, { link: cdn }] }),
+  });
+  check("协议细分：准备一台 reality/argo/cdn 机器", put.status === 200, String(put.status));
+
+  click("sub-reload");
+  await idle();
+
+  const chips = el("sub-protos").children.map((c) => c.textContent);
+  check("协议细分：胶囊按 reality/argo/cdn 分开",
+    chips.some((t) => t.indexOf("VLESS·Reality") !== -1) && chips.some((t) => t.indexOf("Trojan·Argo") !== -1) && chips.some((t) => t.indexOf("VLESS·CDN") !== -1),
+    chips.join(" , "));
+
+  // 先把上一条用例留下的筛选清掉，只看干净状态
+  click("sub-clear");
+  await idle();
+
+  const walk = (node, out = []) => {
+    for (const c of node.children || []) {
+      if (String(c.className || "").indexOf("subnode") !== -1) out.push(c);
+      walk(c, out);
+    }
+    return out;
+  };
+  const tags = walk(el("sub-list")).map((row) => row.children[1].textContent);
+  check("协议细分：节点行标签显示细分类型",
+    ["VLESS·Reality", "Trojan·Argo", "VLESS·CDN"].every((t) => tags.includes(t)) && !tags.includes("VLESS") && !tags.includes("Trojan"),
+    tags.join(","));
+
+  // 固定/临时隧道是合计值（不分协议），不带「协议·」前缀
+  const tunnelChips = chips.filter((t) => t.indexOf("固定隧道") !== -1 || t.indexOf("临时隧道") !== -1);
+  check("协议细分：固定隧道是合计值", tunnelChips.some((t) => t.indexOf("固定隧道 · 1/1") !== -1), tunnelChips.join(" , "));
+
+  // 点某个细分胶囊只留这一类
+  const cdnChip = el("sub-protos").children.filter((c) => c.textContent.indexOf("VLESS·CDN") !== -1)[0];
+  cdnChip.onclick.call(cdnChip);
+  await idle();
+  check("协议细分：点胶囊只列这一类的节点",
+    walk(el("sub-list")).length === 1 && el("sub-shown").textContent.indexOf("VLESS·CDN") !== -1,
+    el("sub-shown").textContent);
+  cdnChip.onclick.call(cdnChip);
+  await idle();
+
+  await netFetch(`${BASE}/api/v1/machines/ui-cls`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+  click("sub-reload");
+  await idle();
+}
+
 /* ---------------- 登录与角色 ---------------- */
 {
   const session = await api("/auth/session");

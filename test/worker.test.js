@@ -1642,3 +1642,32 @@ test("machine names may not end with the status words the tags already show", as
   const save = await call(env, "PUT", "/api/v1/nodes/机房-2", JSON.stringify({ nodes: [{ link }] }), auth);
   assert.equal(save.status, 200, await save.text());
 });
+
+test("protocol classes split reality, argo and cdn apart", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const reality = "vless://11111111-1111-4111-8111-111111111111@1.2.3.4:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome#reality-节点";
+  const trojanArgo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=dan-amsterdam.xx66.nyc.mn&path=%2F11111111-tr&sni=dan-amsterdam.xx66.nyc.mn#trojan-ws-tls-argo-节点";
+  const vlessCdn = "vless://11111111-1111-4111-8111-111111111111@1.2.3.5:443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2F11111111-vl-cdn&sni=cdn.example.com#vless-ws-cdn-节点";
+  const vmessArgo = "vmess://" + b64(JSON.stringify({ v: "2", ps: "vmess-ws-tls-argo-节点", add: "1.2.3.6", port: "8443", id: "11111111-1111-4111-8111-111111111111", aid: "0", net: "ws", host: "argo.example.com", path: "/11111111-vm", tls: "tls", sni: "argo.example.com" }));
+  const vmessCdn = "vmess://" + b64(JSON.stringify({ v: "2", ps: "vmess-ws-cdn-节点", add: "1.2.3.7", port: "2053", id: "11111111-1111-4111-8111-111111111111", aid: "0", net: "ws", host: "cdn2.example.com", path: "/11111111-vm-cdn", tls: "tls", sni: "cdn2.example.com" }));
+  const plain = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-直连";
+  // 临时隧道：域名是 *.trycloudflare.com（每次重启都变）
+  const argoTemp = "vless://11111111-1111-4111-8111-111111111111@1.2.3.8:8443?encryption=none&security=tls&type=ws&host=funny-words-1234.trycloudflare.com&path=%2F11111111-vl&sni=funny-words-1234.trycloudflare.com#vless-ws-tls-argo-临时";
+
+  const put = await call(env, "PUT", "/api/v1/nodes/mach-cls", JSON.stringify({
+    nodes: [{ link: reality }, { link: trojanArgo }, { link: vlessCdn }, { link: vmessArgo }, { link: vmessCdn }, { link: plain }, { link: argoTemp }],
+  }), auth);
+  assert.equal(put.status, 200);
+
+  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, { authorization: `Bearer ${TOKEN}` })).json();
+  const classes = view.machines[0].nodes.map((n) => n.cls);
+  assert.deepEqual(classes, ["vless-reality", "trojan-argo", "vless-cdn", "vmess-argo", "vmess-cdn", "hy2", "vless-argo"]);
+  assert.deepEqual(view.machines[0].nodes.map((n) => n.cls_label), ["VLESS·Reality", "Trojan·Argo", "VLESS·CDN", "VMess·Argo", "VMess·CDN", "Hysteria2", "VLESS·Argo"]);
+  assert.deepEqual(view.stats.classes.map((c) => c.cls).sort(), ["hy2", "trojan-argo", "vless-argo", "vless-cdn", "vless-reality", "vmess-argo", "vmess-cdn"]);
+  // 隧道类型不拆协议，只出两个合计值：固定 2（trojan/vmess）+ 临时 1（vless）
+  assert.deepEqual(view.machines[0].nodes.map((n) => n.tunnel), ["", "fixed", "", "fixed", "", "", "temp"]);
+  assert.deepEqual(view.stats.tunnels.map((t) => [t.kind, t.label, t.count]), [["fixed", "固定隧道", 2], ["temp", "临时隧道", 1]]);
+  // 基础协议还是干净的：argo/reality/cdn 都还是 vless / vmess / trojan
+  assert.deepEqual(view.machines[0].nodes.map((n) => n.kind), ["vless", "trojan", "vless", "vmess", "vmess", "hy2", "vless"]);
+});

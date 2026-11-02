@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.24.6";
+const VERSION = "1.26.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -156,7 +156,8 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .subrow .tip{flex:none;width:170px}
 .subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .subrow button{flex:none}
-.subnode{display:grid;grid-template-columns:20px 76px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
+.chipgap{display:inline-block;width:8px}
+.subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
 .subnode:hover{border-color:#c7d5e8}
 .subnode.off{opacity:.45;background:var(--soft)}
 .subnode.off .nlname,.subnode.off .nllink{text-decoration:line-through}
@@ -277,7 +278,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], search: "", protos: [], machinesF: [] } };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], search: "", protos: [], machinesF: [], tunnel: "" } };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -648,14 +649,18 @@ body.locked .wrap{display:none}
     });
     return out;
   }
+  /* 细分类型键：vless-reality / vless-argo / vless-cdn / hy2 …，老数据没有 cls 时退回 kind */
+  function subKey(node) { return (node && node.cls) || (node && node.kind) || "unknown"; }
   /* 分面筛选：ignore 用来算「某个胶囊自己的候选数量」——统计它时不算它自己那一维。 */
   function subVisible(ignore) {
     ignore = ignore || {};
     var q = String(state.sub.search || "").trim().toLowerCase();
     var protos = state.sub.protos || [];
     var machines = state.sub.machinesF || [];
+    var tunnel = state.sub.tunnel || "";
     return subRows().filter(function (item) {
-      if (!ignore.proto && protos.length && protos.indexOf(item.node.kind) === -1) return false;
+      if (!ignore.proto && protos.length && protos.indexOf(subKey(item.node)) === -1) return false;
+      if (!ignore.tunnel && tunnel && (item.node.tunnel || "") !== tunnel) return false;
       if (!ignore.machine && machines.length && machines.indexOf(item.machine) === -1) return false;
       if (!q) return true;
       var hay = (item.node.name || "") + " " + (item.node.link || "") + " " + item.machine;
@@ -679,7 +684,7 @@ body.locked .wrap{display:none}
         hit.total += 1;
         if (item.node.in_sub) hit.inSub += 1;
         if (shownSet[rowKey(item)]) hit.shown += 1;
-        if (!hit.label && item.node.label) hit.label = item.node.label;
+        if (!hit.label) hit.label = (item.node && (item.node.cls_label || item.node.label)) || "";
       });
       return map;
     }
@@ -702,7 +707,7 @@ body.locked .wrap{display:none}
     }
     if (protoBox) {
       protoBox.innerHTML = "";
-      var byProto = tally(function (item) { return item.node.kind; });
+      var byProto = tally(function (item) { return subKey(item.node); });
       var order = [];
       byProto.forEach(function (x) { if (order.indexOf(x.key) === -1) order.push(x.key); });
       byProto.sort(function (a, b) { return order.indexOf(a.key) - order.indexOf(b.key); });
@@ -716,8 +721,20 @@ body.locked .wrap{display:none}
           var at = list.indexOf(item.key);
           if (at === -1) list.push(item.key); else list.splice(at, 1);
           state.sub.protos = list; renderSub();
-        }, "只看这个协议"));
+        }, "只看这个细分类型"));
       });
+      // 固定/临时隧道：不分协议，只出两个合计值（vless-argo / vmess-argo / trojan-argo 全都算进来）
+      var byTunnel = tally(function (item) { return item.node.tunnel || ""; }).filter(function (x) { return x.key; });
+      byTunnel.sort(function (a, b) { return a.key === "fixed" ? -1 : b.key === "fixed" ? 1 : 0; });
+      if (byTunnel.length) {
+        var gap = document.createElement("span"); gap.className = "chipgap"; gap.textContent = ""; protoBox.appendChild(gap);
+        byTunnel.forEach(function (item) {
+          var lbl = item.key === "fixed" ? "固定隧道" : "临时隧道";
+          protoBox.appendChild(chip(lbl, item.shown, item.total, item.inSub, state.sub.tunnel === item.key, function () {
+            state.sub.tunnel = state.sub.tunnel === item.key ? "" : item.key; renderSub();
+          }, "只看" + lbl + "的节点（含 VLESS/VMess/Trojan）"));
+        });
+      }
     }
     if (machineBox) {
       machineBox.innerHTML = "";
@@ -753,12 +770,13 @@ body.locked .wrap{display:none}
       var totalRows = subRows().length;
       var picked = [];
       if ((state.sub.protos || []).length) {
-        var known = (state.sub.stats && state.sub.stats.protocols) || [];
-        picked.push("协议 " + state.sub.protos.map(function (kind) {
-          var hit = known.filter(function (p) { return p.kind === kind; })[0];
-          return hit ? hit.label : kind;
+        var known = (state.sub.stats && state.sub.stats.classes) || (state.sub.stats && state.sub.stats.protocols) || [];
+        picked.push("协议 " + state.sub.protos.map(function (key) {
+          var hit = known.filter(function (p) { return (p.cls || p.kind) === key; })[0];
+          return hit ? hit.label : key;
         }).join("/"));
       }
+      if (state.sub.tunnel) picked.push("隧道 " + (state.sub.tunnel === "fixed" ? "固定隧道" : "临时隧道"));
       if ((state.sub.machinesF || []).length) picked.push("机器 " + state.sub.machinesF.join("、"));
       if (state.sub.search) picked.push("搜索「" + state.sub.search + "」");
       shown.textContent = visible.length + " / " + totalRows + " 个节点" + (picked.length ? "（" + picked.join(" + ") + "）" : "（没有筛选）");
@@ -796,8 +814,9 @@ body.locked .wrap{display:none}
       row.title = node.link;
       var tick = document.createElement("input");
       tick.type = "checkbox"; tick.checked = Boolean(node.in_sub);
-      var tag = document.createElement("span"); tag.className = "ptag"; tag.textContent = node.label;
-      tag.title = "点标签只看这个协议";
+      var tag = document.createElement("span"); tag.className = "ptag";
+      tag.textContent = node.cls_label || node.label;
+      tag.title = "点标签只看这个细分类型";
       tag.onclick = function (kind) {
         return function (ev) {
           if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -806,7 +825,7 @@ body.locked .wrap{display:none}
           if (at === -1) list.push(kind); else list.splice(at, 1);
           state.sub.protos = list; renderSub();
         };
-      }(node.kind);
+      }(subKey(node));
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
       var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link;
@@ -1056,7 +1075,7 @@ body.locked .wrap{display:none}
   }
   setSubOpen(false);
   $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
-  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; $("sub-search").value = ""; renderSub(); };
+  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("sub-all").onclick = function () { applySubBulk("all"); };
   $("sub-only").onclick = function () { applySubBulk("only"); };
@@ -2086,6 +2105,76 @@ function nodeKind(node) {
   return parsed && parsed.kind ? parsed.kind : "unknown";
 }
 
+/* 节点细分类型：基础协议 + 接入方式，用来区分 vless-reality / *-argo / *-cdn。
+ * 判定依据与 sb00.sh 的命名一致：
+ *   reality → 链接里 security=reality
+ *   argo    → ws + 名字或 path 里带 argo（path=/%uuid-vl|vm|tr）
+ *   cdn     → ws + path 里带 -cdn（path=/%uuid-vl-cdn|vm-cdn|tr-cdn） */
+const NODE_CLASS_LABELS = {
+  "vless-reality": "VLESS·Reality",
+  "vless-argo": "VLESS·Argo",
+  "vless-cdn": "VLESS·CDN",
+  "vmess-argo": "VMess·Argo",
+  "vmess-cdn": "VMess·CDN",
+  "trojan-argo": "Trojan·Argo",
+  "trojan-cdn": "Trojan·CDN",
+  "trojan-reality": "Trojan·Reality",
+};
+
+function nodeClassLabel(cls) {
+  const key = String(cls || "");
+  if (NODE_CLASS_LABELS[key]) return NODE_CLASS_LABELS[key];
+  const m = /^(.*)-(reality|argo|cdn)(?:-(fixed|temp))?$/.exec(key);
+  if (m) {
+    const tail = m[2] === "argo" && m[3] ? "Argo" + (m[3] === "fixed" ? "固定" : "临时") : m[2][0].toUpperCase() + m[2].slice(1);
+    return protocolLabel(m[1]) + "·" + tail;
+  }
+  return protocolLabel(key);
+}
+
+/* Argo 隧道分两种，靠「客户端连的域名」区分：
+ *   临时隧道（quick tunnel）→ *.trycloudflare.com，域名每次重启都变
+ *   固定隧道（named tunnel）→ 自己绑的域名（custom hostname），域名不变
+ * 优先看 ws 的 Host / SNI（那是隧道真正的域名），没有再看连接地址。 */
+function argoKind(parsed) {
+  const host = String((parsed && (parsed.host || parsed.sni)) || "").toLowerCase();
+  const server = String((parsed && parsed.server) || "").toLowerCase();
+  const probe = host || server;
+  if (/\.trycloudflare\.com$/.test(probe)) return "temp";
+  if (/\.cfargotunnel\.com$/.test(probe)) return "fixed";
+  if (!host && /trycloudflare\.com$/.test(server)) return "temp";
+  return "fixed";
+}
+
+/* 隧道类型：只有 argo 节点才有值，fixed=固定隧道（自己的域名）/ temp=临时隧道（*.trycloudflare.com）。
+ * 细分类型不按它拆（还是 vless-argo / vmess-argo / trojan-argo），它只用来出两个合计胶囊。 */
+function tunnelKind(node) {
+  const cls = nodeClassOf(node);
+  if (!/-argo$/.test(cls)) return "";
+  const parsed = node && node.link ? parseLinkCached(node.link) : null;
+  return argoKind(parsed);
+}
+
+function nodeClassOf(node) {
+  const kind = nodeKind(node);
+  if (kind !== "vless" && kind !== "vmess" && kind !== "trojan") return kind;
+  const parsed = node && node.link ? parseLinkCached(node.link) : null;
+  if (!parsed) return kind;
+  if (parsed.reality) return kind + "-reality";
+  const path = String(parsed.path || "").toLowerCase();
+  const host = String(parsed.host || "").toLowerCase();
+  const server = String(parsed.server || "").toLowerCase();
+  const name = String((node && node.name) || parsed.name || "").toLowerCase();
+  const network = String(parsed.network || "").toLowerCase();
+  const ws = network === "ws" || network === "websocket" || path !== "" || host !== "";
+  if (!ws) return kind;
+  if (path.indexOf("-cdn") !== -1) return kind + "-cdn";
+  if (path.indexOf("argo") !== -1 || name.indexOf("argo") !== -1) return kind + "-argo";
+  if (path.indexOf("cdn") !== -1 || name.indexOf("cdn") !== -1) return kind + "-cdn";
+  if (/\.trycloudflare\.com$/.test(server) || /cfargotunnel/.test(server)) return kind + "-argo";
+  return kind;
+}
+
 function protocolStats(nodes) {
   const counts = new Map();
   for (const node of nodes || []) {
@@ -2216,12 +2305,17 @@ async function nodeEntries(record, disabled) {
     if (seen.has(id)) return;
     seen.add(id);
     const kind = nodeKind(node);
+    const cls = nodeClassOf(node);
+    const tunnel = /-argo$/.test(cls) ? argoKind(node && node.link ? parseLinkCached(node.link) : null) : "";
     out.push({
       id,
       link: node.link,
       name: node.name || "",
       kind,
+      cls,
+      tunnel,
       label: protocolLabel(kind),
+      cls_label: nodeClassLabel(cls),
       source,
       enabled: !list.has(id),
     });
@@ -2517,6 +2611,8 @@ async function subNodesView(env) {
   const rank = new Map(order.map((item, i) => [item, i]));
   const machines = [];
   const counts = new Map();
+  const classCounts = new Map();
+  const tunnelCounts = new Map();
   let total = 0;
   let enabled = 0;
   for (const record of records) {
@@ -2532,13 +2628,23 @@ async function subNodesView(env) {
       enabled: entries.filter((item) => liveIds.has(item.id)).length,
       nodes: entries.map((item) => ({ ...item, in_sub: liveIds.has(item.id) })),
     });
-    for (const item of entries) counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+    for (const item of entries) {
+      counts.set(item.kind, (counts.get(item.kind) || 0) + 1);
+      classCounts.set(item.cls, (classCounts.get(item.cls) || 0) + 1);
+      if (item.tunnel) tunnelCounts.set(item.tunnel, (tunnelCounts.get(item.tunnel) || 0) + 1);
+    }
     total += entries.length;
     enabled += machines[machines.length - 1].enabled;
   }
   machines.sort((a, b) => a.order - b.order || (a.machine < b.machine ? -1 : a.machine > b.machine ? 1 : 0));
   const protocols = [...counts.entries()].map(([kind, count]) => ({ kind, label: protocolLabel(kind), count })).sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
-  const stats = { total, enabled, disabled: total - enabled, protocols };
+  const classes = [...classCounts.entries()]
+    .map(([cls, count]) => ({ cls, label: nodeClassLabel(cls), count }))
+    .sort((a, b) => b.count - a.count || (a.label < b.label ? -1 : 1));
+  const tunnels = ["fixed", "temp"]
+    .map((kind) => ({ kind, label: kind === "fixed" ? "固定隧道" : "临时隧道", count: tunnelCounts.get(kind) || 0 }))
+    .filter((item) => item.count > 0);
+  const stats = { total, enabled, disabled: total - enabled, protocols, classes, tunnels };
   return { machines, disabled: [...disabled], stats };
 }
 
@@ -2998,7 +3104,7 @@ function parseLink(link) {
     if (kind === "anytls") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "" };
     if (kind === "hysteria2" || kind === "hy2") return { ...base, kind: "hy2", password: safeDecode(u.username), tls: true, sni: q.get("sni") || "", obfs: q.get("obfs") || "", obfsPassword: q.get("obfs-password") || "" };
     if (kind === "tuic") return { ...base, uuid: safeDecode(u.username), password: safeDecode(u.password), tls: true, sni: q.get("sni") || "", congestion: q.get("congestion_control") || "bbr", relay: q.get("udp_relay_mode") || "native" };
-    if (kind === "trojan") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "" };
+    if (kind === "trojan") return { ...base, password: safeDecode(u.username), tls: true, sni: q.get("sni") || "", network: q.get("type") || "tcp", path: q.get("path") || "", host: q.get("host") || "" };
     if (kind === "socks5" || kind === "socks") return { ...base, kind: "socks5", username: safeDecode(u.username), password: safeDecode(u.password), tls: false, sni: "" };
     return null;
   } catch { return null; }

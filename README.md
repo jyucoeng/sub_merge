@@ -50,7 +50,7 @@ Cloudflare（Worker 或 Pages）+ D1
 - **三种订阅格式**：base64（通用）、Clash/Mihomo（完整配置 + ACL4SSR 分组 + rule-providers）、sing-box。
 - **结果缓存**：同一份订阅被反复拉取不再重算（`x-sub-cache: hit`），免费版 10ms CPU 也能扛 290 节点。
 - **口令保护**：WebUI 必须输管理员口令；订阅用 `SUB_TOKEN`；上报可以用单独的 `REPORT_TOKEN`。
-- **深色模式**、机器排序、节点顺序、按协议/机器筛选、搜索、批量勾选。
+- **深色模式**、机器排序、节点顺序、按协议（含 reality/argo/cdn 细分）/机器筛选、搜索、批量勾选。
 
 ---
 
@@ -314,7 +314,95 @@ mihomo -t -f c.yaml -d .                                                        
 合并订阅时：**手动在前，自动在后，按 link 去重**。自动上报永远不会覆盖你自己写的那层；
 想长期保留上报来的某条节点，点它右边的「转 ① 手动」，会复制一份到 ①。
 
-4. 「订阅中的节点」卡片决定谁进订阅：默认全勾，点行取消；支持按协议/按机器筛选、搜索、批量勾选。
+4. 「订阅中的节点」卡片决定谁进订阅：默认全勾，点行取消；支持按协议细分/按机器筛选、搜索、批量勾选。
+
+### 协议细分（reality / argo / cdn）
+
+「按协议」的胶囊不是一份写死的清单，而是**按现有节点自动算出来的**：每个节点解析后归类成
+`基础协议 + 接入方式`，有几种就显示几个胶囊，数字是 `在订阅/全部`。
+
+| 细分类型 | 判定依据（依次命中） |
+|---|---|
+| `VLESS·Reality` | 链接里 `security=reality` |
+| `VLESS·CDN` / `VMess·CDN` / `Trojan·CDN` | ws 节点，且 `path` 里带 `-cdn`（或名字里带 `cdn`） |
+| `VLESS·Argo` / `VMess·Argo` / `Trojan·Argo` | ws 节点，且 `path` 或节点名里带 `argo`，或域名是 `*.trycloudflare.com` / `*.cfargotunnel.com` |
+| `固定隧道` / `临时隧道`（不带协议前缀，**合计值**） | 上面三种 Argo 节点再按隧道域名归类后的合计，见下一节 |
+| 其余（`VLESS` / `VMess` / `Trojan` / `Hysteria2` / `TUIC` / `Shadowsocks` …） | 只有基础协议：TCP/直连等没有额外接入方式的节点 |
+
+判定规则对齐 [singbox-tools](https://github.com/jyucoeng/singbox-tools) 里 `sb00.sh` 生成的链接：
+argo 节点的 `path=/%<uuid>-vl|vm|tr`，CDN 节点的 `path=/%<uuid>-vl-cdn|vm-cdn|tr-cdn`。
+所以同一个 `vless` 会分成 reality / argo / cdn / 普通四个胶囊，点胶囊或点节点行左边的标签都只筛这一类。
+基础协议白名单（`PUT /api/v1/nodes/:machine/protocols`）仍然按 `vless`/`vmess`/… 这套基础名走，不受细分影响。
+
+#### 完整解析规则（想加协议就照这张表改）
+
+节点链接只在**存库和读取时**解析（`parseLink`，结果按链接字符串缓存 2048 条，满了整表清空），不改写链接本身；
+库里有几种解析结果，界面就有几个胶囊。
+
+**第 1 步：按 `scheme://` 分流**
+
+| 链接 | 取法 | 取到的字段 |
+|---|---|---|
+| `vmess://` | 整段 base64 解成 JSON | `add`=地址、`port`、`id`=uuid、`aid`、`ps`=名字、`net`=传输、`path`、`host`、`tls`、`sni`（空则用 `host`）、`scy`=加密 |
+| `ss://` | ① 老格式 `ss://base64(method:password@host:port)`；② SIP002 `ss://base64(method:password)@host:port?plugin=…` | `method`、`password`、`plugin` |
+| `vless://` | 标准 URL + query | `username`=uuid、`security`、`sni`（或 `serverName`）、`type`=传输、`path`、`host`、`flow`、`pbk`、`sid`、`fp` |
+| `trojan://` | 标准 URL + query | `username`=密码、`sni`、`type`、`path`、`host` |
+| `hysteria2://` / `hy2://` | 标准 URL + query | `username`=密码、`sni`、`obfs`、`obfs-password`；两种写法合并成同一个 `hy2` |
+| `tuic://` | 标准 URL + query | `uuid`、`password`、`sni`、`congestion_control`、`udp_relay_mode` |
+| `anytls://` | 标准 URL + query | `username`=密码、`sni` |
+| `socks5://` / `socks://` | 标准 URL | `username`、`password`（合并成 `socks5`） |
+| 其它 scheme | 不认识 | 记成 `unknown`，照样能存、能订阅，胶囊显示 `UNKNOWN` |
+
+其它通用规则：
+
+- **名字**：优先取链接 `#` 后面那段（URL 解码）；vmess 取 JSON 里的 `ps`；都没有就 `协议-地址`。
+- **端口**：`vmess` 缺省 443，其它缺省 443；不是 1–65535 的整数 → 整条链接判为无效（`400 invalid node link`）。
+- **跳过证书校验**：query 里 `allow_insecure` / `allowInsecure` / `insecure` 为 `1|true|yes`，或带 `pinSHA256` → 渲染时 `skip-cert-verify: true`。
+- 解析失败（`URL` 构造不出、缺地址或端口）→ 这条链接存不进去，会直接报错，不会静默丢弃。
+
+**第 2 步：算细分类型（`nodeClassOf`，从上往下命中即停）**
+
+1. 基础协议不是 `vless` / `vmess` / `trojan` → 细分类型 = 基础名（`hy2`、`tuic`、`ss`、`anytls`、`socks5`、`unknown` 不再细分）；
+2. `security=reality` → `<协议>-reality`；
+3. 判断是不是 ws 类：`type`（vmess 是 `net`）是 `ws`/`websocket`，**或** `path`/`host` 有值 → 是；
+   否则（tcp/grpc/h2/quic 之类）→ 只有基础名；
+4. `path` 里含 `-cdn` → `<协议>-cdn`（sb00.sh 的 `path=/%<uuid>-vl-cdn`、`-vm-cdn`、`-tr-cdn`）；
+5. `path` 里含 `argo`，或节点名里含 `argo` → `<协议>-argo`
+   （sb00.sh 的 `path=/%<uuid>-vl`、`-vm`、`-tr`，名字是 `…-ws-tls-argo-…`）；
+   另外这条节点会再打一个 `tunnel` 标记（`fixed` / `temp`），参与「固定隧道 / 临时隧道」两个合计胶囊；
+6. `path` 或节点名里含 `cdn` → `<协议>-cdn`；
+7. 地址是 `*.trycloudflare.com` 或含 `cfargotunnel` → `<协议>-argo`（同样带 `tunnel` 标记）；
+8. 都不命中 → 只有基础名（`VLESS` / `VMess` / `Trojan`）。
+
+显示名 = 基础协议名 + `·` + 接入方式：`vless-reality`→`VLESS·Reality`、`vmess-argo`→`VMess·Argo`、`trojan-cdn`→`Trojan·CDN`；
+这套映射在 `NODE_CLASS_LABELS`，没登记的缀会自动拼成 `VLESS·Xxx`。
+
+#### Argo 固定隧道 / 临时隧道（合计，不拆协议）
+
+Argo 就是 Cloudflare Tunnel，两种形态在客户端看来只差「连的域名」：
+
+| | 临时隧道（quick tunnel） | 固定隧道（named tunnel） |
+|---|---|---|
+| 域名 | `xxxx-yyyy-1234.trycloudflare.com`，**每次重启都变** | 自己的域名，例如 `dan-amsterdam.xx66.nyc.mn`（CNAME 到 `*.cfargotunnel.com`） |
+| 建法 | `cloudflared tunnel --url http://localhost:PORT` | `cloudflared tunnel create` + `route dns` |
+| 判定 | 隧道域名以 `.trycloudflare.com` 结尾 | 其它一律算固定（含 `.cfargotunnel.com`） |
+
+判定时优先看 **ws 的 `host`（其次 `sni`）**，因为那是隧道真正的域名；`host` 没有才退回去看连接地址。
+所以「连的是 CDN 前置地址、`host` 是自己的隧道域名」这种组合也能正确算成固定隧道。
+`sb00.sh` 里对应 `argo_*` 相关变量：`argo_host` 是固定的、临时隧道则直接用 `cloudflared` 分配的名字。
+
+**界面怎么显示**：`按协议` 那一行先是每个协议细分自己的胶囊（`VLESS·Argo` / `VMess·Argo` / `Trojan·Argo`），
+后面跟两个不带协议前缀的**合计胶囊**：`固定隧道 · x/y`、`临时隧道 · x/y`，数字是三个协议加起来的总数
+（接口里是 `stats.tunnels`，节点上的标记是 `tunnel: "fixed" | "temp"`，非 Argo 节点为空）。
+点这两个胶囊同样能筛：只列出所有协议的固定（或临时）隧道节点，和协议胶囊可以叠加。
+
+**想加一种新协议/新细分**，改三处就够：
+
+1. `parseLink` 里加一个 `if (kind === "xxx")` 分支，返回 `{kind, server, port, name, …}`；
+2. `PROTOCOL_LABELS` 里加显示名（不加就显示大写 kind）；
+3. 要参与 reality/argo/cdn 细分的话，分支里记得返回 `network`/`path`/`host`（或 `reality: true`），
+   细分逻辑本身不用改；要新的接入方式，就在 `nodeClassOf` 里加一条判定 + `NODE_CLASS_LABELS` 加一条显示名。
+
 5. 机器顺序在「机器排序」卡片里，左边的序号可以直接改成想要的位置。
 
 ---
