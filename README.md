@@ -407,6 +407,48 @@ Argo 就是 Cloudflare Tunnel，两种形态在客户端看来只差「连的域
 
 ---
 
+### 按协议细分生成（实时筛选）
+
+同一个订阅链接加 `?proto=` 就能只拿到某个细分类型，界面上「订阅链接」卡片底部也有生成器（挑胶囊、选隧道、选格式，链接实时拼好）：
+
+| 链接 | 拿到什么 |
+|---|---|
+| `GET /sub/all/<SUB_TOKEN>?proto=hy2` | 只有 Hysteria2 节点 |
+| `GET /sub/all/<SUB_TOKEN>?proto=vless-reality` | 只有 VLESS Reality |
+| `GET /sub/all/<SUB_TOKEN>?proto=hy2,vless-cdn` | 多选，逗号分隔 |
+| `GET /sub/all/<SUB_TOKEN>?proto=vless` | **基础协议名**：命中 vless 的全部细分（reality + argo + cdn + 普通） |
+| `GET /sub/all/<SUB_TOKEN>?tunnel=fixed` | 只要固定隧道（Argo named tunnel） |
+| `GET /sub/all/<SUB_TOKEN>?tunnel=temp` | 只要临时隧道（Argo quick tunnel） |
+| `...&format=clash` | 和 `format` 随便叠加，clash / proxies / singbox / base64 都支持 |
+
+- 这是**实时**筛选：每次拉取都按当前节点重新算，节点新增、删除、改名、改协议都会立刻反映；跟「分享」的快照不是一回事
+- `proto` 与 `tunnel` 可以和 `format` 任意组合，也能用在单机链接 `/sub/<machine>/<SUB_TOKEN>?proto=hy2` 上
+- 筛完什么都没有时返回空订阅（200 + 空内容），不会报错；响应头会带 `x-proto` / `x-tunnel` / `x-nodes` 方便核对
+- 缓存键里带了筛选条件，所以不同筛选互不串味
+
+## 分享给别人（快照订阅）
+
+「订阅中的节点」里筛出要给的节点 → 点 **「分享筛出来的节点」** → 填备注和有效天数 → **「生成分享链接」**，
+拿到一条 `https://<你的域名>/s/<id>`，只包含那一刻选中的那些节点。
+
+- **快照拷贝**：创建时把链接复制一份进 `shares` 表。之后你改机器、删节点、改分流规则，
+  已经发出去的分享都不受影响；对方的链接也看不到你的其他节点、机器名和上报来源。
+- **到期自动销毁**：`expires_at` 一到，这条快照在下次被访问（或你打开分享列表）时直接 `DELETE`，
+  库里不留任何痕迹，链接变成 404。
+- **随时手动销毁**：分享列表里点「销毁」，链接立刻失效（快照一起删）。
+- **备注**：就是「分享给了谁」，列表里能按备注认人（最长 80 字，换行会被压成空格）。
+
+| 接口 | 说明 |
+|---|---|
+| `POST /api/v1/shares` | `{note, days, nodes:["<节点 id>"]}` → `{id, url, count, expires_at}`；`days` 1–365，默认 7 |
+| `GET /api/v1/shares` | 现有分享：`{id, note, count, created_at, expires_at}`（过期的会顺手删掉） |
+| `DELETE /api/v1/shares/:id` | 手动销毁 |
+| `GET /s/<id>` | **公开**，不需要任何 token；`?format=base64|clash|proxies|singbox` 跟主订阅一样 |
+
+节点 id 就是「订阅中的节点」里每条的身份（`link` 去掉 `#名字` 那段），`GET /api/v1/sub/nodes` 里能看到。
+分享只读快照，**不占用主订阅的 token**，也不影响任何其他分享；不做流量限制（流量不经过 Worker，
+真要限流得去节点服务器的面板里做，比如 3x-ui 的 inbound 统计）。
+
 ## 订阅链接
 
 | 链接 | 拿到什么 |

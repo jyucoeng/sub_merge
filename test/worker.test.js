@@ -16,6 +16,7 @@ class MockD1 {
     this.machines = new Map();
     this.settings = new Map();
     this.reports = new Map();
+    this.shares = new Map();
   }
   prepare(sql) {
     return new MockStatement(this, sql);
@@ -58,6 +59,9 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
+    if (/^SELECT id, note, nodes_json, count, created_at, expires_at FROM shares WHERE id = \?1$/i.test(this.sql)) {
+      return this.db.shares.get(this.args[0]) || null;
+    }
     if (/^SELECT value FROM settings WHERE key = \?1$/i.test(this.sql)) {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
@@ -70,6 +74,12 @@ class MockStatement {
       const rows = [...this.db.settings.entries()]
         .filter(([key]) => key.startsWith(prefix))
         .map(([key, value]) => ({ key, value }));
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
+    if (/^SELECT id, note, count, created_at, expires_at FROM shares ORDER BY created_at DESC$/i.test(this.sql)) {
+      const rows = [...this.db.shares.values()]
+        .map(({ id, note, count, created_at, expires_at }) => ({ id, note, count, created_at, expires_at }))
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
     if (/^SELECT key, value FROM settings WHERE key LIKE 'login-fail:%'$/i.test(this.sql)) {
@@ -119,6 +129,19 @@ class MockStatement {
     if (/^DELETE FROM reports WHERE machine = \?1$/i.test(this.sql)) {
       let changes = 0;
       for (const key of [...this.db.reports.keys()]) if (key.startsWith(`${args[0]}\u0000`)) { this.db.reports.delete(key); changes += 1; }
+      return { success: true, meta: { changes } };
+    }
+    if (/^INSERT INTO shares \(id, note, nodes_json, count, created_at, expires_at\) VALUES/i.test(this.sql)) {
+      const [id, note, nodes_json, count, created_at, expires_at] = args;
+      this.db.shares.set(id, { id, note, nodes_json, count, created_at, expires_at });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^DELETE FROM shares WHERE id = \?1$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.shares.delete(args[0]) ? 1 : 0 } };
+    }
+    if (/^DELETE FROM shares WHERE expires_at <= \?1$/i.test(this.sql)) {
+      let changes = 0;
+      for (const [id, row] of [...this.db.shares.entries()]) if (String(row.expires_at) <= String(args[0])) { this.db.shares.delete(id); changes += 1; }
       return { success: true, meta: { changes } };
     }
     if (/^DELETE FROM settings WHERE key = \?1$/i.test(this.sql)) {
@@ -1014,7 +1037,7 @@ test("scripts/schema.sql matches SCHEMA_STATEMENTS", () => {
   for (const statement of SCHEMA_STATEMENTS) {
     assert.ok(sql.includes(`${norm(statement)};`), `schema.sql 缺少语句: ${statement.split("\n")[0]}`);
   }
-  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 3);
+  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 4);
   assert.ok(sql.includes("manual INTEGER NOT NULL DEFAULT 0"));
 });
 
@@ -1670,4 +1693,107 @@ test("protocol classes split reality, argo and cdn apart", async () => {
   assert.deepEqual(view.stats.tunnels.map((t) => [t.kind, t.label, t.count]), [["fixed", "固定隧道", 2], ["temp", "临时隧道", 1]]);
   // 基础协议还是干净的：argo/reality/cdn 都还是 vless / vmess / trojan
   assert.deepEqual(view.machines[0].nodes.map((n) => n.kind), ["vless", "trojan", "vless", "vmess", "vmess", "hy2", "vless"]);
+});
+
+test("shares snapshot nodes into their own subscription and clean themselves up", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const a = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-A";
+  const b = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-B";
+  await call(env, "PUT", "/api/v1/nodes/mach-share", JSON.stringify({ nodes: [{ link: a }, { link: b }] }), auth);
+  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, auth)).json();
+  const [first, second] = view.machines[0].nodes;
+
+  const made = await call(env, "POST", "/api/v1/shares", JSON.stringify({ note: "给小王", days: 3, nodes: [first.id] }), auth);
+  assert.equal(made.status, 200);
+  const share = await made.json();
+  assert.equal(share.count, 1);
+  assert.equal(share.note, "给小王");
+  assert.match(share.id, /^[a-f0-9]{24}$/);
+  assert.equal(share.url, `https://sub.example.workers.dev/s/${share.id}`);
+
+  // 公开链接：不用 token，只有快照里那一条
+  const pub = await call(env, "GET", `/s/${share.id}`, null, {});
+  assert.equal(pub.status, 200);
+  assert.deepEqual(unb64(await pub.text()).trim().split("\n"), [a]);
+  const clash = await call(env, "GET", `/s/${share.id}?format=clash`, null, {});
+  const yaml = await clash.text();
+  assert.ok(yaml.includes("香港-A"), "clash 里应该有这个节点");
+  assert.ok(!yaml.includes("东京-B"), "没分享的节点不该出现");
+
+  // 隔离：之后改机器、加节点都不影响已发出的分享
+  await call(env, "PUT", "/api/v1/nodes/mach-share", JSON.stringify({ nodes: [{ link: b }] }), auth);
+  assert.equal(unb64(await (await call(env, "GET", `/s/${share.id}`, null, {})).text()).trim(), a);
+
+  // 列表能看到备注和到期时间
+  const list = await (await call(env, "GET", "/api/v1/shares", null, auth)).json();
+  assert.deepEqual(list.shares.map((s) => [s.note, s.count]), [["给小王", 1]]);
+
+  // 到期自动销毁：直接塞一条过期的
+  await env.DB.prepare("INSERT INTO shares (id, note, nodes_json, count, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
+    .bind("a".repeat(24), "过期了", JSON.stringify([{ link: a, name: "香港-A" }]), 1, "2020-01-01T00:00:00.000Z", "2020-01-02T00:00:00.000Z")
+    .run();
+  assert.equal((await call(env, "GET", `/s/${"a".repeat(24)}`, null, {})).status, 404);
+  if (env.DB.shares) assert.equal(env.DB.shares.has("a".repeat(24)), false, "过期的那条被删掉了");
+
+  // 手动销毁
+  const del = await call(env, "DELETE", `/api/v1/shares/${share.id}`, null, auth);
+  assert.equal(del.status, 200);
+  assert.equal((await call(env, "GET", `/s/${share.id}`, null, {})).status, 404);
+  assert.deepEqual((await (await call(env, "GET", "/api/v1/shares", null, auth)).json()).shares, []);
+
+  // 参数校验与鉴权
+  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [] }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id], days: 0 }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id], days: 999 }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: ["nope"] }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/shares", JSON.stringify({ nodes: [first.id] }), {})).status, 401);
+  assert.equal((await call(env, "GET", "/s/" + "f".repeat(24), null, {})).status, 404);
+});
+
+test("subscriptions can be filtered by protocol class and tunnel type, live", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const reality = "vless://11111111-1111-4111-8111-111111111111@1.2.3.4:31003?encryption=none&security=reality&sni=www.microsoft.com#阿姆-reality";
+  const argoFixed = "trojan://pw@saas.sin.fan:8443?security=tls&type=ws&host=tunnel.mydomain.com&path=%2Ftr&sni=tunnel.mydomain.com#argo-固定";
+  const argoTemp = "vless://11111111-1111-4111-8111-111111111111@1.2.3.5:8443?encryption=none&security=tls&type=ws&host=abc-def-123.trycloudflare.com&path=%2Fvl&sni=abc-def-123.trycloudflare.com#argo-临时";
+  const cdn = "vless://11111111-1111-4111-8111-111111111111@1.2.3.6:443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2Fvl-cdn&sni=cdn.example.com#加拿大-cdn";
+  await call(env, "PUT", "/api/v1/nodes/mach-filter", JSON.stringify({
+    nodes: [{ link: hy2 }, { link: reality }, { link: argoFixed }, { link: argoTemp }, { link: cdn }],
+  }), auth);
+
+  const names = async (query) => {
+    const res = await call(env, "GET", `/sub/all/${TOKEN}${query}`, null, {});
+    assert.equal(res.status, 200);
+    return unb64(await res.text()).split("\n").filter(Boolean).map((line) => decodeURIComponent(line.split("#")[1] || ""));
+  };
+
+  assert.deepEqual(await names("?proto=hy2"), ["东京-hy2"]);
+  assert.deepEqual(await names("?proto=vless-reality"), ["阿姆-reality"]);
+  assert.deepEqual((await names("?proto=vless")).sort(), ["加拿大-cdn", "阿姆-reality", "argo-临时"].sort(), "基础名命中它所有细分");
+  assert.deepEqual((await names("?proto=hy2,vless-cdn")).sort(), ["加拿大-cdn", "东京-hy2"].sort());
+  assert.deepEqual(await names("?tunnel=fixed"), ["argo-固定"], "只看固定隧道");
+  assert.deepEqual(await names("?tunnel=temp"), ["argo-临时"], "只看临时隧道");
+  assert.deepEqual(await names("?proto=trojan-argo&tunnel=temp"), [], "协议和隧道可以叠加");
+  assert.equal((await names("")).length, 5, "不带参数就是全部");
+
+  // 表头告诉调用方筛了什么
+  const headed = await call(env, "GET", `/sub/all/${TOKEN}?proto=vless-cdn&tunnel=fixed`, null, {});
+  assert.equal(headed.headers.get("x-proto"), "vless-cdn");
+  assert.equal(headed.headers.get("x-tunnel"), "fixed");
+  assert.equal(headed.headers.get("x-nodes"), "0");
+
+  // 实时：节点变了，同一个筛选链接的内容跟着变（不是快照）
+  await call(env, "POST", "/api/v1/report/mach-filter", b64(hy2 + "\n" + "hysteria2://pw2@sg.example.io:443?sni=addons.mozilla.org#新加坡-hy2b"), { authorization: "Bearer " + TOKEN });
+  assert.deepEqual((await names("?proto=hy2")).sort(), ["东京-hy2", "新加坡-hy2b"].sort());
+
+  // 单机链接也支持
+  const one = await call(env, "GET", `/sub/mach-filter/${TOKEN}?proto=hy2`, null, {});
+  assert.equal(unb64(await one.text()).split("\n").filter(Boolean).length, 2);
+
+  // clash 输出同样只含筛出来的
+  const clash = await call(env, "GET", `/sub/all/${TOKEN}?format=clash&proto=vless-reality`, null, {});
+  const yaml = await clash.text();
+  assert.ok(yaml.includes("阿姆-reality") && !yaml.includes("东京-hy2"), "clash 也只含筛出来的节点");
 });

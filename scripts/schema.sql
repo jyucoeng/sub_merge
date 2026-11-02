@@ -1,4 +1,4 @@
--- sub-worker D1 schema (SQLite)
+-- sub-merge D1 schema (SQLite)
 -- 用法：
 --   pnpm exec wrangler d1 execute sub-worker-db --remote --file=scripts/schema.sql
 --   pnpm exec wrangler d1 execute sub-worker-db --local  --file=scripts/schema.sql
@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- shares.*  分享快照：把选中的节点拍一份拷贝，生成 /s/<id> 独立订阅；
+--           expires_at 到期即删（快照不留在库里），也可以手动 DELETE。
+CREATE TABLE IF NOT EXISTS shares (
+  id         TEXT PRIMARY KEY,
+  note       TEXT NOT NULL DEFAULT '',
+  nodes_json TEXT NOT NULL DEFAULT '[]',
+  count      INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_expires_at ON shares (expires_at);
 
 -- 老库升级（已有 machines 表时执行；重复执行会报 duplicate column，忽略即可）：
 -- ALTER TABLE machines ADD COLUMN auto_content TEXT;

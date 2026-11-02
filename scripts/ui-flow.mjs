@@ -1042,6 +1042,107 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
 }
 
+/* ---------------- 按协议细分生成订阅链接 ---------------- */
+{
+  const ffHy2 = "hysteria2://pw@203.0.113.50:443?sni=addons.mozilla.org#筛选-hy2";
+  const ffReality = "vless://11111111-1111-4111-8111-111111111111@203.0.113.51:31003?encryption=none&security=reality&sni=www.microsoft.com#筛选-reality";
+  await api("/nodes/ui-ff", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: ffHy2 }, { link: ffReality }] }),
+  });
+  click("sub-reload");
+  await idle();
+  const chips = el("ff-chips").children;
+  check("筛选订阅：胶囊列出现有协议细分",
+    chips.some((c) => c.textContent.indexOf("Hysteria2") !== -1) && chips.some((c) => c.textContent.indexOf("VLESS·Reality") !== -1),
+    chips.map((c) => c.textContent).join(" , "));
+  const base = el("ff-url").textContent;
+  check("筛选订阅：默认是不带参数的链接", /\/sub\/all\/[^?]+\?format=clash$/.test(base), base);
+
+  const hy2 = chips.filter((c) => c.textContent.indexOf("Hysteria2") !== -1)[0];
+  hy2.onclick.call(hy2);
+  await idle();
+  check("筛选订阅：点胶囊后链接带上 proto", el("ff-url").textContent.indexOf("proto=hy2") !== -1, el("ff-url").textContent);
+  check("筛选订阅：胶囊变成选中态", el("ff-chips").children.filter((c) => String(c.className).indexOf("picked") !== -1).length === 1, el("ff-chips").children.map((c) => c.className).join(","));
+
+  const liveUrl = el("ff-url").textContent.replace(/^https?:\/\/[^/]+/, BASE).replace("format=clash", "format=base64");
+  const live = await netFetch(liveUrl);
+  const liveBody = Buffer.from(await live.text(), "base64").toString("utf8");
+  check("筛选订阅：这个链接真的能用（且只有 hy2）", live.status === 200 && liveBody.includes("筛选-hy2") && !liveBody.includes("筛选-reality"), `${live.status} ${liveBody.slice(0, 60)}`);
+
+  const tun = el("ff-tunnel"); tun.value = "fixed"; tun.onchange.call(tun);
+  await idle();
+  check("筛选订阅：隧道下拉进链接", el("ff-url").textContent.indexOf("tunnel=fixed") !== -1, el("ff-url").textContent);
+
+  const fmt = el("ff-format"); fmt.value = "base64"; fmt.onchange.call(fmt);
+  await idle();
+  check("筛选订阅：base64 时不带 format 参数", el("ff-url").textContent.indexOf("format=") === -1, el("ff-url").textContent);
+
+  click("ff-clear");
+  await idle();
+  check("筛选订阅：清空后回到全部", el("ff-url").textContent.indexOf("proto=") === -1 && el("ff-url").textContent.indexOf("tunnel=") === -1, el("ff-url").textContent);
+  const fmt2 = el("ff-format"); fmt2.value = "clash"; fmt2.onchange.call(fmt2);
+  await idle();
+  await netFetch(`${BASE}/api/v1/machines/ui-ff`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+  click("sub-reload");
+  await idle();
+}
+
+/* ---------------- 分享：快照订阅 ---------------- */
+{
+  const a = "vless://11111111-1111-4111-8111-111111111111@203.0.113.40:443?security=tls#分享-A";
+  const b = "hysteria2://pw@203.0.113.41:443?sni=addons.mozilla.org#分享-B";
+  const put = await api("/nodes/ui-share", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: a }, { link: b }] }),
+  });
+  check("分享：准备一台机器", put.status === 200, String(put.status));
+  click("sub-reload");
+  await idle();
+
+  const search = el("sub-search");
+  search.value = "分享-A";
+  search.oninput.call(search);
+  await idle();
+
+  click("share-selected");
+  await idle();
+  check("分享：选中当前筛出来的节点", el("share-count").textContent.indexOf("已选 1 个节点") === 0, el("share-count").textContent);
+
+  el("share-note").value = "小王-手机";
+  el("share-days").value = "3";
+  click("share-create");
+  await idle();
+
+  const url = el("share-url").textContent;
+  check("分享：生成了 /s/<id> 链接", /\/s\/[a-f0-9]{24}$/.test(url), url);
+  const shareId = url.split("/s/")[1];
+  check("分享：列表里出现了这条备注", el("shares").children.some((row) => row.textContent.indexOf("小王-手机") !== -1), el("shares").children.map((r) => r.textContent).join(" | "));
+
+  const pub = await netFetch(`${BASE}/s/${shareId}`);
+  const body = Buffer.from(await pub.text(), "base64").toString("utf8").trim();
+  check("分享：公开链接只给这一个节点", pub.status === 200 && body === a, `${pub.status} ${body.slice(0, 40)}`);
+
+  const row = el("shares").children.filter((r) => r.textContent.indexOf("小王-手机") !== -1)[0];
+  const kill = row.children[row.children.length - 1];
+  check("分享：行尾是销毁按钮", kill && kill.textContent === "销毁", kill && kill.textContent);
+  kill.onclick.call(kill);
+  await idle();
+  check("分享：销毁后列表清空", el("shares").children.every((c) => c.className !== "share"), el("shares").children.map((c) => c.className).join(","));
+
+  const gone = await netFetch(`${BASE}/s/${shareId}`);
+  check("分享：销毁后链接 404", gone.status === 404, String(gone.status));
+
+  search.value = "";
+  search.oninput.call(search);
+  await idle();
+  await netFetch(`${BASE}/api/v1/machines/ui-share`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+  click("sub-reload");
+  await idle();
+}
+
 /* ---------------- 登录与角色 ---------------- */
 {
   const session = await api("/auth/session");
