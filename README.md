@@ -8,53 +8,47 @@
 
 ---
 
-## 1. 部署（全程在 Cloudflare 后台点，不用命令行）
+## 1. 部署
 
-准备：一个 Cloudflare 账号；把本仓库 **Fork** 到自己名下（右上角 Fork）。免费额度就够用，不需要绑卡。
+两种方式二选一，都要先做第 0 步。
 
-### ① 建数据库
+### 第 0 步：建数据库（两种方式都要）
 
-Dashboard → **Storage & Databases → D1 SQL Database → Create database**，名字填 `sub-merge-db`，创建。
+1. Dashboard → **Storage & Databases → D1 SQL Database → Create database**，名字填 `sub-merge-db`
+2. 点进这个库 → 顶部 **Console** → 把仓库里 [`scripts/schema.sql`](scripts/schema.sql) 的全文粘进输入框 → **Execute**（`machines` / `reports` / `presets` / `links` / `settings` 五张表一次建好，重复执行也没事）
 
-点进这个库 → 顶部 **Console** → 把仓库里 `scripts/schema.sql` 的全文粘进输入框 → **Execute**。
-（`machines` / `reports` / `presets` / `links` / `settings` 五张表一次建好，重复执行也没问题。）
+### 方式 A：Workers —— 把代码粘进网页编辑器
 
-### ② 建 Pages 项目
+1. 打开 <https://raw.githubusercontent.com/jyucoeng/sub_merge/main/worker.single.js>，**全选复制**。这就是全部代码，一个文件约 260 KB，不用在本地装任何东西。
+   （想自己生成：仓库里跑 `npm run build:single`，产物是根目录的 `worker.single.js`，内容和上面那个一样。）
+2. Dashboard → **Workers & Pages → Create → Workers → Hello World**，起个名字（例如 `sub-merge`）→ **Deploy**
+3. 点 **Edit code**（部分界面叫 **Edit**）→ 编辑器里那段 Hello World 默认代码 **Ctrl/Cmd+A 全选删掉** → 粘贴刚才复制的内容 → 右上角 **Deploy**
+4. 回到 Worker → **Settings → Bindings → Add → D1 database**：Variable name 填 **`DB`**（一字不差），Database 选 `sub-merge-db`
+5. **Settings → Variables and Secrets → Add**：加 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`（Type 选 Text）
+6. 打开 `https://<你的-worker-名>.workers.dev/ui`，用 `ADMIN_PASSWORD` 登录
 
-Dashboard → **Workers & Pages → Create → Pages → Connect to Git** → 选中你 fork 的 `sub_merge` → Begin setup：
+> 一次粘 260 KB 编辑器会卡几秒，等代码高亮完再点 Deploy；中途别刷新页面。
+> 变量和绑定改完，要再点一次 **Deploy** 才生效。
 
-| 填哪项 | 填什么 |
-| --- | --- |
-| Framework preset | `None` |
-| Build command | `npm run build:pages` |
-| Build output directory | `dist-pages` |
+### 方式 B：Pages —— 连 GitHub 仓库，以后 push 自动部署
 
-点 **Save and Deploy**，等一分钟左右。
+1. 先 **Fork** 本仓库到自己名下（页面右上角 Fork）
+2. Dashboard → **Workers & Pages → Create → Pages → Connect to Git** → 授权 GitHub → 选中你 fork 的 `sub_merge` → **Begin setup**
+3. 构建配置照这张表填：
 
-### ③ 绑数据库
+   | 填哪项 | 填什么 |
+   | --- | --- |
+   | Framework preset | `None` |
+   | Build command | `npm run build:pages` |
+   | Build output directory | `dist-pages` |
 
-进入刚建好的 Pages 项目 → **Settings → Bindings → Add → D1 database**：
+4. **Save and Deploy**，等一分钟左右
+5. 进入项目 → **Settings → Bindings → Add → D1 database**：Variable name 填 **`DB`**，Database 选 `sub-merge-db`，Production 和 Preview 两个环境都加
+6. **Settings → Variables and Secrets → Add**：加 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`
+7. **Deployments** → 最新那条 → 右侧 `⋯` → **Retry deployment**（绑定和变量在部署时注入，不重试会报 `env.DB is undefined`）
+8. 打开 `https://<项目名>.pages.dev/ui`，用 `ADMIN_PASSWORD` 登录
 
-- Variable name：**`DB`**（必须一字不差，代码里按这个名字取库）
-- D1 database：选 `sub-merge-db`
-- Production、Preview 两个环境都加一遍
-
-### ④ 填三个口令
-
-同一页往下 **Settings → Variables and Secrets → Add**，逐个添加（Type 选 `Text`；`SUB_TOKEN` 与 `REPORT_TOKEN` 建议点 Encrypt 存成密文）：
-
-`SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN` —— 值自己生成一串够长的随机字符。
-
-### ⑤ 重新部署一次
-
-**Deployments** → 最新那条 → 右侧 `⋯` → **Retry deployment**。
-（绑定和变量是部署时注入的，跳过这一步打开网站会报 `env.DB is undefined`。）
-
-打开 `https://<项目名>.pages.dev/ui`，用 `ADMIN_PASSWORD` 登录就能用了。
-
-> **不想用 GitHub**：本地 `npm install && npm run build:pages`，把生成的 `dist-pages` 目录用 **Create → Pages → Upload assets** 直接拖上去，再照 ③④⑤ 做。
->
-> **想用 Workers 而不是 Pages**：**Create → Workers → Hello World**，把本地 `npm run build:single` 生成的 `worker.single.js` 粘进编辑器 → Deploy，然后在 **Settings → Bindings / Variables and Secrets** 里同样绑 `DB` 和三个口令。功能完全一样。
+以后 push 到这个仓库的 main 分支，Pages 会自动重新部署；只改变量或绑定时要手动 Retry 一次。
 
 ---
 
