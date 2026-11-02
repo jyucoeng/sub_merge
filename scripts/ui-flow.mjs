@@ -1194,6 +1194,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("订阅档案：编辑打开面板并锁住档案名", String(el("preset-editor").className).indexOf("hidden") < 0 && el("pe-name").value === "hy2" && el("pe-name").readOnly === true && String(el("pe-name").className).indexOf("locked") >= 0, el("pe-name").value + "/" + el("pe-name").readOnly);
   check("订阅档案：编辑时把已有节点提前勾好", peRows().filter((r) => r.children[0].checked).length === 1, String(peRows().filter((r) => r.children[0].checked).length));
+  check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[3].children[0].textContent === "编辑中" && String(presets()[0].children[3].children[0].className).indexOf("editing") >= 0, presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
+  check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[3].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[3].children[0].textContent).join(","));
   const checkedRow = peRows().filter((r) => r.children[0].checked)[0];
   check("订阅档案：提前勾好的就是档案里那条", checkedRow.children[2].children[0].textContent === "档案-hy2", checkedRow.children[2].children[0].textContent);
   check("订阅档案：没改动时未保存标签隐藏", el("pe-badge").style.display === "none", el("pe-badge").style.display + "/" + el("pe-badge").textContent);
@@ -1207,6 +1209,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("pe-cancel");
   await idle();
   check("订阅档案：取消后不保存", (await pubNames(url)).names.join(",") === "档案-hy2", "档案内容被改了");
+  check("订阅档案：取消后按钮从「编辑中」恢复", presets()[0].children[3].children[0].textContent === "编辑" && String(presets()[0].children[3].children[0].className) === "", presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
 
   // 编辑：取消勾选后保存，只影响这个档案
   const masterBefore = await netFetch(`${BASE}/sub/all/${TOKEN}`);

@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.7";
+const VERSION = "1.37.8";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -124,6 +124,8 @@ button.shortlink{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:
 button.shortlink:hover{background:#16a34a;border-color:#16a34a;color:#fff}
 [data-theme="dark"] button.shortlink{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
 [data-theme="dark"] button.shortlink:hover{background:#22c55e;border-color:#22c55e;color:#052e14}
+button.editing{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;box-shadow:0 0 0 2px rgba(37,99,235,.18)}
+button.editing:hover{background:var(--acc);color:#fff}
 button.linkview{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:var(--accline);background:var(--accbg);color:var(--acc)}
 button.linkview:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 button.ghost{background:transparent;color:var(--sub);padding:8px 8px}
@@ -1105,6 +1107,7 @@ body.locked .wrap{display:none}
       origLabel: item ? (item.label === item.name ? "" : item.label) : "",
       origFormat: item ? (item.format || "") : "",
     };
+    if (typeof renderPresets === "function" && state.presets) renderPresets();
     var box = $("preset-editor"); if (box) box.className = item ? "peditor" : "peditor pe-new";
     if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案（跟已有档案无关）";
     var hint = $("pe-mode-hint");
@@ -1157,6 +1160,7 @@ body.locked .wrap{display:none}
     var box = $("preset-editor"); if (box) box.className = "peditor hidden";
     var name = $("pe-name"); if (name) { name.readOnly = false; name.className = ""; name.style.pointerEvents = ""; }
     var wrap = $("pe-name-wrap"); if (wrap) { wrap.className = "lockwrap"; wrap.title = ""; }
+    if (typeof renderPresets === "function" && state.presets) renderPresets();
   }
   function peHas(id) { return (state.presetEdit && state.presetEdit.picked.indexOf(id) >= 0); }
   function peToggle(id, on) {
@@ -1428,8 +1432,11 @@ body.locked .wrap{display:none}
       copy.onclick = function () { copyToClipboard(shownUrl); flashButton(copy, "已复制"); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
-      var edit = document.createElement("button"); edit.type = "button"; edit.textContent = "编辑";
-      edit.title = "列出主订阅的全部节点，把已经在这个档案里的勾好，改完点保存";
+      var editing = !!(state.presetEdit && state.presetEdit.mode === "edit" && state.presetEdit.name === item.name);
+      var edit = document.createElement("button"); edit.type = "button";
+      edit.textContent = editing ? "编辑中" : "编辑";
+      edit.className = editing ? "editing" : "";
+      edit.title = editing ? "正在编辑这条，改完点「保存档案」或「取消」" : "列出主订阅的全部节点，把已经在这个档案里的勾好，改完点保存";
       edit.onclick = function () { openPresetEditor(item); };
       var rotate = document.createElement("button"); rotate.type = "button"; rotate.textContent = item.token ? "换 token" : "发独立 token";
       rotate.title = "给这个档案单独发一个 token，之后主 token 就不再能访问它；再点一次会换新的";
