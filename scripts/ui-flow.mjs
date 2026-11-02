@@ -1332,6 +1332,47 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await netFetch(`${BASE}/api/v1/machines/ui-preset`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
 }
 
+/* ---------------- 订阅档案：超长节点 link（vless-reality 带 pqv） ---------------- */
+{
+  /* 真实场景：家宽 4 条 vless-reality 的 pqv 参数一条就 2603 字符，整条 link 2900 上下。
+     旧版 putPreset 用 2000 过滤，会把它们静默丢掉 —— 表现是「勾了保存不上」，
+     界面还提示保存成功。 */
+  const longPqv = "A".repeat(2603);
+  const longLink = `vless://22222222-2222-4222-8222-222222222222@203.0.113.70:10003?encryption=none&security=reality&sni=support-shield.nvidia.es&fp=chrome&pbk=OqCDf123qp_ExMsjF6Pgz3vLFdOnyMXnmGcD4gnirmY&sid=ba85b0be7293&type=tcp&headerType=none&pqv=${longPqv}`;
+  const shortLink = "hysteria2://pw2@203.0.113.71:443?sni=addons.mozilla.org";
+  check("超长 link：构造长度落在 2000 和 8192 之间（旧版必挂）", longLink.length > 2000 && longLink.length < 8192, String(longLink.length));
+
+  await api("/nodes/ui-long", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nodes: [{ link: longLink }, { link: shortLink }] }),
+  });
+
+  const saved = await api("/presets/LONGLINK", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: "超长", members: [longLink, shortLink], mode: "members", protos: [], tunnel: "", machines: [], skips: [], create: true }),
+  });
+  const savedLen = saved.data && saved.data.preset ? saved.data.preset.members.length : -1;
+  check("超长 link：能存进档案（不再被静默丢弃）", saved.status === 200 && savedLen === 2, `${saved.status} 成员 ${savedLen}`);
+
+  const back = await api("/presets");
+  const item = (back.data.presets || []).filter((p) => p.name === "LONGLINK")[0];
+  check("超长 link：读回来的成员里有那条 2.9KB 的", !!item && item.members.indexOf(longLink) >= 0, item ? "成员 " + item.members.length : "无档案");
+
+  /* 超过 8192 要明确报错，不能装傻报成功 */
+  const tooLong = longLink.replace(longPqv, "B".repeat(9000));
+  const bad = await api("/presets/LONGLINK", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label: "超长", members: [tooLong], mode: "members", create: false }),
+  });
+  check("超长 link：超过 8192 返回 400 并说明原因", bad.status === 400 && /node link too long/.test(JSON.stringify(bad.data)), `${bad.status} ${JSON.stringify(bad.data)}`);
+
+  await netFetch(`${BASE}/api/v1/presets/LONGLINK`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+  await netFetch(`${BASE}/api/v1/machines/ui-long`, { method: "DELETE", headers: { Authorization: "Bearer " + TOKEN } });
+}
+
 /* ---------------- 登录与角色 ---------------- */
 {
   const session = await api("/auth/session");

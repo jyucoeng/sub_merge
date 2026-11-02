@@ -26,8 +26,14 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.8";
+const VERSION = "1.37.9";
 const MAX_BODY = 512 * 1024;
+/* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
+   旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
+   会被静默过滤掉，表现就是「勾了保存不上」。 */
+const PRESET_LINK_MAX = 8192;
+/* members / skips 整列存进 D1 一个 TEXT 列，给个体积上限兜底（D1 单行 1MB） */
+const PRESET_SET_MAX = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
 // 机器名里不该带「手动 / 上报 / 自动」：那是标签显示的运行状态，混进名字后没人分得清
@@ -3370,12 +3376,26 @@ async function putPreset(request, env, name) {
   const now = new Date().toISOString();
   const token = data.rotate_token === true || (!existing && data.own_token === true) ? presetToken() : (existing ? existing.token : "");
   const machinesKey = machines.join("");
-  const skips = (Array.isArray(data.skips) ? data.skips : String(data.skips || "").split(""))
-    .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 600);
-  const skipsKey = [...new Set(skips)].join("");
-  const members = (Array.isArray(data.members) ? data.members : String(data.members || "").split(""))
-    .map((x) => String(x).trim()).filter((x) => x.length > 0 && x.length <= 2000).slice(0, 1000);
+  const _skipsRaw = (Array.isArray(data.skips) ? data.skips : String(data.skips || "").split(""))
+    .map((x) => String(x).trim()).filter(Boolean);
+  const _membersRaw = (Array.isArray(data.members) ? data.members : String(data.members || "").split(""))
+    .map((x) => String(x).trim()).filter(Boolean);
+  /* 超长一律报错，不再静默丢弃：静默丢会让「保存成功」和「档案里没有」同时成立，
+     用户完全看不出发生了什么。 */
+  const _tooLong = _membersRaw.concat(_skipsRaw).find((x) => x.length > PRESET_LINK_MAX);
+  if (_tooLong) {
+    return json({ ok: false, error: `node link too long: ${_tooLong.length} > ${PRESET_LINK_MAX} bytes (${_tooLong.slice(0, 48)}...)` }, 400);
+  }
+  const members = _membersRaw.slice(0, 1000);
+  const skips = _skipsRaw.slice(0, 600);
   const membersKey = [...new Set(members)].join("");
+  const skipsKey = [...new Set(skips)].join("");
+  if (membersKey.length > PRESET_SET_MAX) {
+    return json({ ok: false, error: `preset members too large: ${membersKey.length} > ${PRESET_SET_MAX} bytes` }, 400);
+  }
+  if (skipsKey.length > PRESET_SET_MAX) {
+    return json({ ok: false, error: `preset skips too large: ${skipsKey.length} > ${PRESET_SET_MAX} bytes` }, 400);
+  }
   const modeKey = String(data.mode || "").trim() === "members" ? "members" : (membersKey ? "members" : (existing ? existing.mode : ""));
   /* 分流规则来源：目前只有 inherit（跟随全局「分流规则」卡片那一份） */
   const clashModeRaw = data.clashMode !== undefined ? data.clashMode : data.clash_mode;
@@ -3418,7 +3438,8 @@ async function togglePresetNode(request, env, name) {
   let data;
   try { data = JSON.parse((await request.text()) || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
   const id = String(data.id || "").trim();
-  if (!id || id.length > 2000) return json({ ok: false, error: "id is required" }, 400);
+  if (!id) return json({ ok: false, error: "id is required" }, 400);
+  if (id.length > PRESET_LINK_MAX) return json({ ok: false, error: `id too long: ${id.length} > ${PRESET_LINK_MAX} bytes` }, 400);
   const preset = await findPreset(env, name);
   if (!preset) return json({ ok: false, error: "preset not found" }, 404);
   const on = data.on === true || data.on === "true" || data.on === 1;
