@@ -637,6 +637,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const shortedPath = text("url-base").replace(/^https?:\/\/[^/]+/, "");
   const shortedRes = await netFetch(BASE + shortedPath);
   check("订阅链接：短链能拉到全部订阅", shortedRes.status === 200 && shortedRes.headers.get("x-preset") === "all", `${shortedRes.status} ${shortedRes.headers.get("x-preset")}`);
+  // ↩ 还原：删掉短链，这一行回到长链接
+  check("订阅链接：有短链时才显示还原按钮", el("unshort-url-base").style.display !== "none", String(el("unshort-url-base").style.display));
+  await el("unshort-url-base").onclick.call(el("unshort-url-base"));
+  await idle();
+  check("订阅链接：还原后回到长链接", text("url-base") === `${BASE}/sub/all/${encodeURIComponent(TOKEN)}`, text("url-base"));
+  check("订阅链接：还原后按钮又藏起来", el("unshort-url-base").style.display === "none", String(el("unshort-url-base").style.display));
   clipboard.length = 0;
   const btn = { textContent: "复制", getAttribute: (k) => (k === "data-copy" ? "url-base" : null) };
   docListeners.click[0]({ target: btn });

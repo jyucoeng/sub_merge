@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.9";
+const VERSION = "1.37.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -120,6 +120,8 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+button.ghost{background:transparent;color:var(--sub);padding:8px 8px}
+button.ghost:hover{color:var(--ink);border-color:var(--acc)}
 button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);color:#15803d;font-weight:500}
 button.copied::before{content:"✓ ";font-weight:700}
 [data-theme="dark"] button.copied{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
@@ -377,10 +379,10 @@ body.locked .wrap{display:none}
 
 <section class="card admin-only" id="card-sub">
 <h2>订阅链接 <span class="tip">客户端会按 User-Agent 自动选择格式</span></h2>
-<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button></div>
-<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button></div>
-<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button></div>
-<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button></div>
+<div class="subrow"><span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base"></code><button data-copy="url-base" type="button">复制</button><button data-shortfmt="base64" id="short-url-base" type="button">短链</button><button data-unshort="base64" id="unshort-url-base" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
+<div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" type="button">短链</button><button data-unshort="clash" id="unshort-url-clash" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
+<div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" type="button">短链</button><button data-unshort="proxies" id="unshort-url-proxies" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
+<div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" type="button">短链</button><button data-unshort="singbox" id="unshort-url-singbox" class="ghost" type="button" style="display:none" title="删掉这条短链，这一行恢复成长链接">↩</button></div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。手动保存后，机器自动上报不会覆盖你编辑的节点；点“恢复自动上报”才会恢复。</div>
 </section>
@@ -1603,6 +1605,18 @@ body.locked .wrap{display:none}
             .then(function (data) { copyToClipboard(data.url); return loadPresets(true); })
             .then(function () { flashButton(btn, "已生成"); })
             .catch(function () { flashButton(btn, "失败"); });
+        };
+      }
+      var back = $("unshort-" + id);
+      if (back) {
+        back.style.display = sl ? "" : "none";
+        back.onclick = function () {
+          if (!sl) return;
+          if (typeof confirm === "function" && !confirm("删掉短链 /s/" + sl.code + "，这一行恢复成长链接？用这条短链的客户端会立刻拉不到东西。")) return;
+          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+            .then(function () { return loadPresets(true); })
+            .then(function () { flashButton(back, "已还原"); })
+            .catch(function () { flashButton(back, "失败"); });
         };
       }
     });
