@@ -384,7 +384,7 @@ Argo 就是 Cloudflare Tunnel，两种形态在客户端看来只差「连的域
 
 | | 临时隧道（quick tunnel） | 固定隧道（named tunnel） |
 |---|---|---|
-| 域名 | `xxxx-yyyy-1234.trycloudflare.com`，**每次重启都变** | 自己的域名，例如 `dan-amsterdam.xx66.nyc.mn`（CNAME 到 `*.cfargotunnel.com`） |
+| 域名 | `xxxx-yyyy-1234.trycloudflare.com`，**每次重启都变** | 自己的域名，例如 `node.example.com`（CNAME 到 `*.cfargotunnel.com`） |
 | 建法 | `cloudflared tunnel --url http://localhost:PORT` | `cloudflared tunnel create` + `route dns` |
 | 判定 | 隧道域名以 `.trycloudflare.com` 结尾 | 其它一律算固定（含 `.cfargotunnel.com`） |
 

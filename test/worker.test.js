@@ -632,9 +632,9 @@ test("a later report becomes the new restore point for a manual machine", async 
 
 test("link fragments become node names, duplicates and blanks are dropped", async () => {
   const env = makeEnv();
-  const hy2 = "hysteria2://0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31004/?sni=www.apple.com&insecure=1&alpn=h3&obfs=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-hy2-localhost";
-  const tuic = "tuic://0631a7f3-09f8-4144-acf2-a4f5bd9ed281:0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31005?sni=www.apple.com&congestion_control=bbr&security=tls&udp_relay_mode=native&alpn=h3&allow_insecure=1#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-tuic-localhost";
-  const reality = "vless://0631a7f3-09f8-4144-acf2-a4f5bd9ed281@192.255.175.105:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.apple.com&fp=chrome&pbk=EIMEMs9sFeUPYOqNYjZgv9Vx6H8V-s2X-EM_4ycXA3Q&sid=169a2c42&type=tcp&headerType=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-vless-reality-localhost";
+  const hy2 = "hysteria2://11111111-1111-4111-8111-111111111111@203.0.113.10:31004/?sni=www.apple.com&insecure=1&alpn=h3&obfs=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-hy2-localhost";
+  const tuic = "tuic://11111111-1111-4111-8111-111111111111:11111111-1111-4111-8111-111111111111@203.0.113.10:31005?sni=www.apple.com&congestion_control=bbr&security=tls&udp_relay_mode=native&alpn=h3&allow_insecure=1#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-tuic-localhost";
+  const reality = "vless://11111111-1111-4111-8111-111111111111@203.0.113.10:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.apple.com&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=11111111&type=tcp&headerType=none#%E5%B0%8F%E5%8F%AE%E5%BD%93-%E6%B4%9B%E6%9D%89%E7%9F%B6-cloudnium-vless-reality-localhost";
 
   // 名字留空 + 重复链接 + 空行，模拟前端整段粘贴
   const body = JSON.stringify({
@@ -1711,7 +1711,7 @@ test("protocol classes split reality, argo and cdn apart", async () => {
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
   const reality = "vless://11111111-1111-4111-8111-111111111111@1.2.3.4:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome#reality-节点";
-  const trojanArgo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=dan-amsterdam.xx66.nyc.mn&path=%2F11111111-tr&sni=dan-amsterdam.xx66.nyc.mn#trojan-ws-tls-argo-节点";
+  const trojanArgo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=node.example.com&path=%2F11111111-tr&sni=node.example.com#trojan-ws-tls-argo-节点";
   const vlessCdn = "vless://11111111-1111-4111-8111-111111111111@1.2.3.5:443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2F11111111-vl-cdn&sni=cdn.example.com#vless-ws-cdn-节点";
   const vmessArgo = "vmess://" + b64(JSON.stringify({ v: "2", ps: "vmess-ws-tls-argo-节点", add: "1.2.3.6", port: "8443", id: "11111111-1111-4111-8111-111111111111", aid: "0", net: "ws", host: "argo.example.com", path: "/11111111-vm", tls: "tls", sni: "argo.example.com" }));
   const vmessCdn = "vmess://" + b64(JSON.stringify({ v: "2", ps: "vmess-ws-cdn-节点", add: "1.2.3.7", port: "2053", id: "11111111-1111-4111-8111-111111111111", aid: "0", net: "ws", host: "cdn2.example.com", path: "/11111111-vm-cdn", tls: "tls", sni: "cdn2.example.com" }));

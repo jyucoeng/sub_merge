@@ -1076,7 +1076,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 /* ---------------- 协议细分（reality / argo / cdn） ---------------- */
 {
   const reality = "vless://11111111-1111-4111-8111-111111111111@203.0.113.20:31003?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome#reality-%E8%8A%82%E7%82%B9";
-  const argo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=dan-amsterdam.xx66.nyc.mn&path=%2F11111111-tr&sni=dan-amsterdam.xx66.nyc.mn#trojan-ws-tls-argo-%E8%8A%82%E7%82%B9";
+  const argo = "trojan://11111111-1111-4111-8111-111111111111@saas.sin.fan:8443?security=tls&type=ws&host=node.example.com&path=%2F11111111-tr&sni=node.example.com#trojan-ws-tls-argo-%E8%8A%82%E7%82%B9";
   const cdn = "vless://11111111-1111-4111-8111-111111111111@203.0.113.21:443?encryption=none&security=tls&type=ws&host=cdn.example.com&path=%2F11111111-vl-cdn&sni=cdn.example.com#vless-ws-cdn-%E8%8A%82%E7%82%B9";
   const put = await api("/nodes/ui-cls", {
     method: "PUT",
