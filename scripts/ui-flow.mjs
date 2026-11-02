@@ -1250,8 +1250,22 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：自动标识是 url 安全的", /^[a-z0-9][a-z0-9-]*$/.test(autoName), autoName);
   if (autoName) { await api(`/presets/${autoName}`, { method: "DELETE" }); }
 
+  // ↩ 还原：删掉档案的短链，行里恢复成长链接
+  const backBtn = byText("↩");
+  check("订阅档案：有短链时才有 ↩", !!backBtn, backBtn && backBtn.textContent);
+  const shortBefore = presets()[0].children[1].textContent;
+  await backBtn.onclick.call(backBtn);
+  await idle();
+  const longAfter = presets()[0].children[1].textContent;
+  check("订阅档案：↩ 之后回到长链接", longAfter !== shortBefore && longAfter.includes("/sub/p/"), longAfter);
+  check("订阅档案：还原后 ↩ 消失", !byText("↩"), (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
+
   // 搜短链也要能搜到这条档案
-  setInput("preset-search", shortCode);
+  const makeShort = byText("短链");
+  await makeShort.onclick.call(makeShort);
+  await idle();
+  const shortCodeAgain = presets()[0].children[1].textContent.split("/s/")[1];
+  setInput("preset-search", shortCodeAgain);
   check("订阅档案：用短链能搜到档案", presets().length === 1, String(presets().length));
   setInput("preset-search", "");
 

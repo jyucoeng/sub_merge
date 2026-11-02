@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.0";
+const VERSION = "1.37.1";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -1436,7 +1436,20 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn); right.appendChild(del);
+      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
+      if (sl) {
+        var backLink = document.createElement("button"); backLink.type = "button"; backLink.className = "ghost"; backLink.textContent = "↩";
+        backLink.title = "删掉短链 /s/" + sl.code + "，这个档案恢复成 /sub/p/" + item.name + "/<token>";
+        backLink.onclick = function () {
+          if (typeof confirm === "function" && !confirm("删掉短链 /s/" + sl.code + "，这个档案恢复成长链接？用这条短链的客户端会立刻拉不到东西。")) return;
+          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+            .then(function () { return loadPresets(true); })
+            .then(function () { flashButton(backLink, "已还原"); })
+            .catch(function () { flashButton(backLink, "失败"); });
+        };
+        right.appendChild(backLink);
+      }
+      right.appendChild(del);
       row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
     });
