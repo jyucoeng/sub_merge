@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.13";
+const VERSION = "1.37.14";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -157,6 +157,7 @@ textarea:focus{border-color:var(--acc)}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
+.srctag.alias{color:#2b58c4;background:#eef4ff;border-color:#c9dbff}
 .machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px}
 .nsec.auto{background:var(--soft)}
 .sources{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
@@ -1608,6 +1609,29 @@ body.locked .wrap{display:none}
       idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
       var name = document.createElement("div"); name.className = "mname";
       name.appendChild(document.createTextNode(m.machine));
+      /* 机器别名：上报节点的默认名就是这个（没设时等于机器名）。
+         放在机器名后面括号里，一眼看出订阅里会显示成什么。 */
+      if (m.alias && m.alias !== m.machine) {
+        var al = document.createElement("span"); al.className = "srctag alias";
+        al.textContent = "显示为 " + m.alias;
+        al.title = "这台机器上报的节点在订阅里统一叫这个名字；单条改过名的优先";
+        name.appendChild(al);
+      }
+      var rename = document.createElement("button"); rename.type = "button"; rename.className = "edit";
+      rename.textContent = "别名"; rename.title = "改这台机器在订阅里的显示名；清空或写回机器名等于恢复默认";
+      rename.onclick = function () {
+        var want = window.prompt("这台机器上报的节点在订阅里显示成什么？（留空 = 恢复用机器名 " + m.machine + "）", m.alias || m.machine);
+        if (want === null) return;
+        api("/machines/" + encodeURIComponent(m.machine) + "/alias", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: String(want).trim() }),
+        }).then(function (r) {
+          setStatus(r && r.alias !== m.machine ? "这台机器的节点会显示为「" + r.alias + "」" : "已恢复用机器名显示", true);
+          loadMachines(true);
+        }).catch(function (e) { setStatus("改别名没成功：" + e.message, false); });
+      };
+      name.appendChild(rename);
       // 一层一个标签：有多少手动、多少上报一眼看清，不存在「整台机器都变手动」
       if (m.manual_nodes) {
         var mt = document.createElement("span"); mt.className = "srctag manual";
@@ -2398,6 +2422,14 @@ async function handleRequest(request, env) {
     return putSubDisabled(request, env);
   }
 
+  m = path.match(/^\/api\/v1\/machines\/([^/]+)\/alias$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "PUT") return methodNotAllowed("PUT");
+    return putMachineAlias(request, env, decodeURIComponent(m[1]));
+  }
+
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/alias$/);
   if (m) {
     if (!authToken(env)) return missingConfig("SUB_TOKEN");
@@ -2679,6 +2711,23 @@ function recordValues(record) {
  * 存在 settings 的单个 key 里，不另开表；去掉某条 = 从映射里删掉。 */
 const NODE_ALIAS_KEY = "node_alias";
 
+/* 机器级别名：只改「显示成什么」，不改机器的 key。
+ * 上报节点的默认名字就是机器名，所以大多数时候这个映射是空的；
+ * 一旦填了，这台机器的所有自动节点都显示这个名字（单条 node_alias 优先级更高）。
+ * 跟 node_alias 分开放，是因为它们是两级：机器一套默认、个别节点单独覆盖。 */
+const MACHINE_ALIAS_KEY = "machine_alias";
+
+async function loadMachineAliasMap(env) {
+  const raw = await getSetting(env, MACHINE_ALIAS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 async function loadNodeAliasMap(env) {
   const raw = await getSetting(env, NODE_ALIAS_KEY);
   if (!raw) return {};
@@ -2700,7 +2749,10 @@ async function loadRecord(env, machine) {
   if (!db) return null;
   const row = await db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines WHERE machine = ?1`).bind(machine).first();
   const record = row ? rowToRecord(row) : null;
-  if (record) record.alias = aliasOfMachine(await loadNodeAliasMap(env), machine);
+  if (record) {
+    record.alias = aliasOfMachine(await loadNodeAliasMap(env), machine);
+    record.machineAlias = String((await loadMachineAliasMap(env))[machine] || "").trim();
+  }
   return record;
 }
 
@@ -2711,7 +2763,11 @@ async function loadAllRecords(env) {
   const rows = (result && result.results) || [];
   const records = rows.map(rowToRecord);
   const aliasMap = await loadNodeAliasMap(env);
-  for (const record of records) record.alias = aliasOfMachine(aliasMap, record.machine);
+  const machineAliasMap = await loadMachineAliasMap(env);
+  for (const record of records) {
+    record.alias = aliasOfMachine(aliasMap, record.machine);
+    record.machineAlias = String(machineAliasMap[record.machine] || "").trim();
+  }
   return records;
 }
 
@@ -3145,7 +3201,9 @@ async function nodeEntries(record, disabled) {
     out.push({
       id,
       link: node.link,
-      name: (source === "auto" && typeof alias[id] === "string" && alias[id] ? alias[id] : node.name) || "",
+      name: (source === "auto"
+        ? (typeof alias[id] === "string" && alias[id]) || String((record && record.machineAlias) || "").trim() || node.name
+        : node.name) || "",
       kind,
       cls,
       tunnel,
@@ -3911,6 +3969,36 @@ async function putNodeConfig(request, env, machine) {
  *   { link: "vless://...", name: "新名字" }   单条，name 为空串表示撤销
  *   { aliases: { "<identity>": "名字", ... } } 整台机器一次性替换
  * 只接受这台机器确实存在的节点，避免把 alias 表写成垃圾；上报内容一个字都不动。 */
+/* 机器级别名：整台机器的自动节点共用一个显示名。
+ * 空串或写回机器名本身 = 撤销，回到「默认就是机器名」。 */
+async function putMachineAlias(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  const record = await loadRecord(env, machine);
+  if (!record) return json({ ok: false, error: "subscription not found" }, 404);
+
+  const body = await request.text();
+  if (body.length > 4096) return json({ ok: false, error: "body too large" }, 413);
+  let data;
+  try { data = JSON.parse(body); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  if (!data || typeof data !== "object") return json({ ok: false, error: "invalid body" }, 400);
+
+  const name = String(data.name == null ? "" : data.name).trim().slice(0, 64);
+  const map = await loadMachineAliasMap(env);
+  if (!name || name === machine) delete map[machine];
+  else map[machine] = name;
+  await putSetting(env, MACHINE_ALIAS_KEY, JSON.stringify(map));
+
+  const fresh = await loadRecord(env, machine);
+  const allowed = await loadAllowedProtocols(env, machine);
+  const disabled = await loadDisabledGlobal(env);
+  return json({
+    ok: true,
+    machine,
+    alias: (map[machine] || "") || machine,
+    nodes: await nodesOf(fresh, allowed, disabled),
+  });
+}
+
 async function putNodeAlias(request, env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   const record = await loadRecord(env, machine);
@@ -4001,6 +4089,7 @@ async function listMachines(env) {
     const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
     machines.push({
       machine: record.machine,
+      alias: record.machineAlias || "",
       bytes: record.bytes,
       updated_at: record.updated_at,
       hash: record.hash,
@@ -4183,7 +4272,12 @@ async function nodesOf(record, allowed, disabled) {
     const id = linkIdentity(node.link);
     if (seen.has(id)) continue;
     seen.add(id);
-    manualPart.push(node);
+    /* 手动节点的名字和 link 尾巴上的名字对不上时，说明是在 ① 里改过名——
+       这时也让 link 尾巴跟着换，否则客户端里还是老名字。名字没动过的保持原样，
+       免得给本来没有 # 片段的 link 平白加一段。 */
+    const parsedName = String((parseLinkCached(node.link) || {}).name || "").trim();
+    const wantName = String(node.name || "").trim();
+    manualPart.push(wantName && wantName !== parsedName ? { ...node, name: wantName, _renamed: true } : node);
   }
   const autoPart = [];
   for (const node of auto) {
@@ -4197,9 +4291,15 @@ async function nodesOf(record, allowed, disabled) {
   /* 别名只作用于「自动上报」的那些。手动节点是你自己写的，名字以手动为准，
      不能被 alias 盖掉——否则同一条 link 同时存在于两处时，手动的名字就白改了。 */
   const alias = record && record.alias && typeof record.alias === "object" ? record.alias : {};
+  /* 名字分两级：单条 node_alias 最优先，其次是机器级 machine_alias，
+     两个都没设就保持上报时自带的原名（不改写 link 尾巴，避免影响老输出）。
+     设了机器别名就无条件覆盖——"这台机器的节点统一叫某个名字"本身就是它的语义。 */
+  const machineAlias = String((record && record.machineAlias) || "").trim();
   const autoRenamed = autoPart.map((node) => {
     const renamed = alias[linkIdentity(node.link)];
-    return typeof renamed === "string" && renamed ? { ...node, name: renamed, _renamed: true } : node;
+    const name = typeof renamed === "string" && renamed ? renamed : machineAlias;
+    if (!name) return node;
+    return { ...node, name, _renamed: true };
   });
   /* 机器内一律按协议排（reality vless → anytls → argo vless → ws vless → hy2 → tuic
      → socks → trojan → 其它），手动节点也参与。以前手动那部分靠数组顺序，
@@ -4449,7 +4549,7 @@ const SUB_CACHE_MAX_BYTES = 512 * 1024;
 function subCacheKey(tag, format, order, records) {
   /* alias 也要进 key：只改名字不动上报内容，hash / updated_at 都不变，
      否则改完名字订阅还是旧的那份缓存。 */
-  const parts = records.map((r) => [r.machine, r.updated_at, r.hash, r.manual ? 1 : 0, JSON.stringify(r.alias || {})].join("\u0001"));
+  const parts = records.map((r) => [r.machine, r.updated_at, r.hash, r.manual ? 1 : 0, JSON.stringify(r.alias || {}), r.machineAlias || ""].join("\u0001"));
   return [tag, format, order.join("\u0003"), parts.join("\u0002")].join("\u0000");
 }
 

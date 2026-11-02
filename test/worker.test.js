@@ -316,6 +316,69 @@ test("report, dedupe, read and list", async () => {
   assert.equal(data.machines[0].machine, "sgw");
 });
 
+test("a machine can carry one alias for all of its reported nodes", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  await call(env, "POST", "/api/v1/report/sgw", b64("vless://one\nanytls://two"), auth);
+
+  /* 没设机器别名时，订阅里保持上报自带的原名，一个字都不动 */
+  assert.equal(unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()), "anytls://two\nvless://one");
+
+  /* 设了机器别名，这台机器的自动节点就统一显示这个名字 */
+  let res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "家里那台" }), {
+    ...auth, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  let data = await res.json();
+  assert.equal(data.alias, "家里那台");
+  assert.deepEqual(data.nodes.map((n) => n.name), ["家里那台", "家里那台"]);
+  assert.equal(
+    unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()),
+    `anytls://two#${encodeURIComponent("家里那台")}\nvless://one#${encodeURIComponent("家里那台")}`,
+  );
+
+  /* 单条别名优先级更高，能和机器别名同时存在 */
+  res = await call(env, "PUT", "/api/v1/nodes/sgw/alias", JSON.stringify({ link: "vless://one", name: "主力" }), {
+    ...auth, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+  const sub = unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text());
+  assert.ok(sub.includes(`vless://one#${encodeURIComponent("主力")}`), "单条别名盖过机器别名");
+  assert.ok(sub.includes(`anytls://two#${encodeURIComponent("家里那台")}`), "没单独改的仍用机器别名");
+
+  /* 写回机器名本身 = 撤销，回到原名 */
+  res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "sgw" }), {
+    ...auth, "content-type": "application/json",
+  });
+  data = await res.json();
+  assert.equal(data.alias, "sgw");
+  assert.equal(unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()), "anytls://two\nvless://one#%E4%B8%BB%E5%8A%9B");
+
+  res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "" }), {
+    ...auth, "content-type": "application/json",
+  });
+  assert.equal(res.status, 200);
+});
+
+test("renaming a manual node shows up in the subscription too", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@203.0.113.9:443?encryption=none&security=reality&sni=www.apple.com&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=1111&type=tcp#old-name";
+  await call(env, "PUT", "/api/v1/nodes/man", JSON.stringify({ nodes: [{ link }] }), auth);
+
+  /* 名字没动：link 原样出去，不给它平白加个 # 片段 */
+  assert.ok((unb64(await (await call(env, "GET", `/sub/man/${TOKEN}`)).text())).includes("#old-name"));
+
+  await call(env, "PUT", "/api/v1/nodes/man", JSON.stringify({ nodes: [{ link, name: "甜筒" }] }), auth);
+  const sub = unb64(await (await call(env, "GET", `/sub/man/${TOKEN}`)).text());
+  assert.ok(sub.includes(`#${encodeURIComponent("甜筒")}`), "① 里改的名字要进订阅");
+  assert.ok(!sub.includes("#old-name"), "老名字要换掉，不能两个都在");
+
+  /* 清回原名：又变回 link 自带的那个 */
+  await call(env, "PUT", "/api/v1/nodes/man", JSON.stringify({ nodes: [{ link, name: "old-name" }] }), auth);
+  assert.ok((unb64(await (await call(env, "GET", `/sub/man/${TOKEN}`)).text())).includes("#old-name"));
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
