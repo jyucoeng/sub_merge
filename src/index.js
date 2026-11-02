@@ -1564,7 +1564,7 @@ async function handleRequest(request, env) {
     if (request.method !== "GET") return methodNotAllowed("GET");
     const known = {
       DB: "D1 数据库绑定",
-      SUB_TOKEN: "订阅 token（老的 TOKEN 仍兼容）",
+      SUB_TOKEN: "订阅 + 管理 API 的 token",
       ADMIN_PASSWORD: "管理员口令",
       REPORT_TOKEN: "机器上报专用凭证（可选）",
     };
