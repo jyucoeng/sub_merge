@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.36.7";
+const VERSION = "1.36.8";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -120,6 +120,9 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
 button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);color:#15803d;font-weight:500}
+button.copied::before{content:"✓ ";font-weight:700}
+[data-theme="dark"] button.copied{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
@@ -1452,6 +1455,17 @@ body.locked .wrap{display:none}
     return hit;
   }
   var COPY_FLASH_MS = 3000;
+  function flashButton(btn, text) {
+    if (!btn) return;
+    var oldText = btn.textContent;
+    var oldClass = String(btn.className || "");
+    btn.textContent = text;
+    btn.className = (oldClass ? oldClass.trim() + " " : "") + "copied";
+    setTimeout(function () {
+      btn.textContent = oldText;
+      btn.className = oldClass;
+    }, COPY_FLASH_MS);
+  }
   function copyToClipboard(text) {
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
   }
@@ -1584,12 +1598,11 @@ body.locked .wrap{display:none}
         btn.textContent = sl ? "复制短链" : "短链";
         btn.title = sl ? "复制这条短链 /s/" + sl.code + "（想撤销就对接口发 DELETE /api/v1/links/" + sl.code + "）" : "给这个格式生成一条不带 token 的短链";
         btn.onclick = function () {
-          var flash = function (text) { var old = btn.textContent; btn.textContent = text; setTimeout(function () { btn.textContent = old; }, COPY_FLASH_MS); };
-          if (sl) { copyToClipboard(location.origin + sl.path); flash("已复制"); return; }
+          if (sl) { copyToClipboard(location.origin + sl.path); flashButton(btn, "已复制"); return; }
           api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
             .then(function (data) { copyToClipboard(data.url); return loadPresets(true); })
-            .then(function () { flash("已生成"); })
-            .catch(function (err) { flash("失败"); });
+            .then(function () { flashButton(btn, "已生成"); })
+            .catch(function () { flashButton(btn, "失败"); });
         };
       }
     });
@@ -1835,7 +1848,7 @@ body.locked .wrap{display:none}
     var id = ev.target && ev.target.getAttribute("data-copy");
     if (!id) return;
     var text = $(id).textContent;
-    var done = function () { var old = ev.target.textContent; ev.target.textContent = "已复制"; setTimeout(function () { ev.target.textContent = old; }, COPY_FLASH_MS); };
+    var done = function () { flashButton(ev.target, "已复制"); };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
   });
   $("clash-hide-empty").onchange = function () { renderClashGroups(); };

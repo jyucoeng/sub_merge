@@ -627,9 +627,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   await idle();
   check("订阅链接：发短链后这一行显示 /s/", /^https?:\/\/[^/]+\/s\/[a-z0-9]+$/.test(text("url-base")), text("url-base"));
   check("订阅链接：点了按钮就地反馈（不写到别的卡片）", el("short-url-base").textContent === "已生成", el("short-url-base").textContent);
+  check("订阅链接：复制反馈有单独样式", String(el("short-url-base").className).indexOf("copied") >= 0, el("short-url-base").className);
   check("订阅链接：别处状态栏没被动过", text("status").indexOf("短链") < 0, text("status"));
   await new Promise((r) => setTimeout(r, 3100));
   check("订阅链接：发短链后按钮变成复制短链", el("short-url-base").textContent === "复制短链", el("short-url-base").textContent);
+  check("订阅链接：3 秒后样式复原", String(el("short-url-base").className).indexOf("copied") < 0, el("short-url-base").className);
   el("short-url-base").onclick.call(el("short-url-base"));
   check("订阅链接：再点一次是复制并就地提示", el("short-url-base").textContent === "已复制", el("short-url-base").textContent);
   const shortedPath = text("url-base").replace(/^https?:\/\/[^/]+/, "");
