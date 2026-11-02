@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.4";
+const VERSION = "1.37.5";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -3308,7 +3308,7 @@ function presetFromRow(row) {
 }
 
 async function listPresets(env) {
-  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets ORDER BY created_at ASC").all();
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets ORDER BY created_at DESC, name ASC").all();
   return (res.results || []).map(presetFromRow);
 }
 

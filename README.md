@@ -456,6 +456,8 @@ curl "https://<域名>/sub/荷兰-1/$SUB_TOKEN?source=nlefni&format=singbox"
 
 ### 订阅档案
 
+档案列表按创建时间倒序排（最新建的排最上面）。
+
 新建档案时如果手填的标识跟已有档案重名，界面会直接报错、接口返回 `409 preset already exists`，不会把别人的档案悄悄覆盖掉（留空标识就自动生成 `preset-xxxx`）。（定制订阅，给一条短链接）
 
 同一条筛选链接每次都要背 query 太麻烦，可以存成「订阅档案」，得到干净路径：

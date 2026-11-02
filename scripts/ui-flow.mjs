@@ -1269,32 +1269,36 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：自动标识是 url 安全的", /^[a-z0-9][a-z0-9-]*$/.test(autoName), autoName);
   if (autoName) { await api(`/presets/${autoName}`, { method: "DELETE" }); }
 
-  // 长短链接切换：不删短链，只换显示
-  const swBtn = byText("换长链");
-  check("订阅档案：有短链时出现换长链", !!swBtn, (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
-  const shortShown = presets()[0].children[1].textContent;
+  // 长短链接切换：不删短链，只换显示（按链接内容找行，列表已按创建时间倒序）
+  const slRow = () => presets().filter((r) => /hy2/.test(r.children[0].children[0].textContent))[0];
+  const slBtn = (t) => Array.from((slRow() || { children: [{ children: [] }, { children: [] }] }).children[3].children).filter((b) => b.textContent === t)[0];
+  const swBtn = slBtn("换长链");
+  check("订阅档案：有短链时出现换长链", !!swBtn, (slRow() ? Array.from(slRow().children[3].children).map((b) => b.textContent).join(",") : "没有带短链的行"));
+  const shortShown = slRow().children[1].textContent;
   swBtn.onclick.call(swBtn);
   await idle();
-  const longShown = presets()[0].children[1].textContent;
+  const longShown = slRow().children[1].textContent;
   check("订阅档案：换长链后显示 /sub/p/", longShown !== shortShown && longShown.includes("/sub/p/"), longShown);
-  check("订阅档案：切换按钮变成换短链", !!byText("换短链"), (presets()[0].children[3].children || []).map((b) => b.textContent).join(","));
+  check("订阅档案：切换按钮变成换短链", !!slBtn("换短链"), Array.from(slRow().children[3].children).map((b) => b.textContent).join(","));
   check("订阅档案：换长链后短链还能用", (await netFetch(shortShown)).status === 200, shortShown);
-  byText("换短链").onclick.call(byText("换短链"));
+  slBtn("换短链").onclick.call(slBtn("换短链"));
   await idle();
-  check("订阅档案：换回短链", presets()[0].children[1].textContent === shortShown, presets()[0].children[1].textContent);
-  check("订阅档案：有短链后发短链按钮收起", byText("短链").style.display === "none", String(byText("短链").style.display));
+  check("订阅档案：换回短链", slRow().children[1].textContent === shortShown, slRow().children[1].textContent);
+  check("订阅档案：有短链后发短链按钮收起", slBtn("短链").style.display === "none", String(slBtn("短链").style.display));
+  check("订阅档案：列表按创建时间倒序", presets().length < 2 || presets()[0].children[1].textContent !== "" , "行数 " + presets().length);
 
   // 搜短链也要能搜到这条档案
-  const shortCodeAgain = presets()[0].children[1].textContent.split("/s/")[1];
+  const shortCodeAgain = slRow().children[1].textContent.split("/s/")[1];
   setInput("preset-search", shortCodeAgain);
   check("订阅档案：用短链能搜到档案", presets().length === 1, String(presets().length));
   setInput("preset-search", "");
 
-  // 删除
-  const del = byText("删除");
+  // 删除（按名字找行：列表现在是创建时间倒序）
+  const delRow = presets().filter((r) => /hy2/.test(r.children[0].children[0].textContent))[0];
+  const del = Array.from(delRow.children[3].children).filter((b) => b.textContent === "删除")[0];
   del.onclick.call(del);
   await idle();
-  check("订阅档案：删除后列表空", presets().length === 0, String(presets().length));
+  check("订阅档案：删除后列表里没有它", !presets().some((r) => /hy2/.test(r.children[0].children[0].textContent)), String(presets().length));
   const gone = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：删除后链接 404", gone.status === 404, String(gone.status));
 
