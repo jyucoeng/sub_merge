@@ -45,6 +45,16 @@ CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)
 
 -- presets.*  订阅档案：把「哪些协议细分 / 隧道 / 哪几台机器 / 什么格式」存下来，
 --           对外给一条短链接 /sub/p/<name>/<token>，内容是实时筛的，跟着节点变。
+CREATE TABLE IF NOT EXISTS links (
+  code       TEXT PRIMARY KEY,
+  preset     TEXT NOT NULL,
+  format     TEXT NOT NULL DEFAULT '',
+  note       TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  hits       INTEGER NOT NULL DEFAULT 0,
+  last_at    TEXT
+);
+
 CREATE TABLE IF NOT EXISTS presets (
   name       TEXT PRIMARY KEY,
   label      TEXT NOT NULL DEFAULT '',

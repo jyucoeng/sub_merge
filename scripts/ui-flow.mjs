@@ -1181,7 +1181,9 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：总订阅完全没变", masterAfterBody.trim() === masterNames.trim(), "总订阅被影响了");
 
   // 换独立 token：链接变了，旧链接立刻失效
-  const rotate = presets()[0].children[3].children[1];
+  const rowButtons = () => Array.from(presets()[0].children[3].children);
+  const byText = (t) => rowButtons().filter((b) => b.textContent === t)[0];
+  const rotate = byText("发独立 token");
   check("订阅档案：有换 token 按钮", rotate && rotate.textContent === "发独立 token", rotate && rotate.textContent);
   rotate.onclick.call(rotate);
   await idle();
@@ -1191,8 +1193,21 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const fresh = await netFetch(rotatedUrl.replace(/^https?:\/\/[^/]+/, BASE));
   check("订阅档案：旧链接 401、新链接 200", old.status === 401 && fresh.status === 200, `${old.status}/${fresh.status}`);
 
+  // 短链：点了按钮生成 /s/xxx，且不带 token
+  const shortBtn = byText("短链");
+  check("订阅档案：有生成短链按钮", !!shortBtn, shortBtn && shortBtn.textContent);
+  shortBtn.onclick.call(shortBtn);
+  await idle();
+  const shortText = presets()[0].children[1].textContent;
+  check("订阅档案：生成短链后显示 /s/ 短链", /^https?:\/\/[^/]+\/s\/[a-z0-9]+$/.test(shortText), shortText);
+  const shortRes = await netFetch(shortText.replace(/^https?:\/\/[^/]+/, BASE));
+  const shortBody = await shortRes.text();
+  const shortCode = shortText.split("/s/")[1];
+  check("订阅档案：短链不带 token 也能拉到订阅", shortRes.status === 200, `${shortRes.status} ${shortBody.slice(0, 40)}`);
+  check("订阅档案：短链响应能对上是哪条短链", shortRes.headers.get("x-link") === shortCode && !!shortRes.headers.get("x-preset"), `${shortRes.headers.get("x-link")} / ${shortRes.headers.get("x-preset")}`);
+
   // 删除
-  const del = presets()[0].children[3].children[2];
+  const del = byText("删除");
   del.onclick.call(del);
   await idle();
   check("订阅档案：删除后列表空", presets().length === 0, String(presets().length));

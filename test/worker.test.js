@@ -17,6 +17,7 @@ class MockD1 {
     this.settings = new Map();
     this.reports = new Map();
     this.presets = new Map();
+    this.links = new Map();
   }
   prepare(sql) {
     return new MockStatement(this, sql);
@@ -62,6 +63,9 @@ class MockStatement {
     if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
       return this.db.presets.get(this.args[0]) || null;
     }
+    if (/^SELECT code, preset, format, note, created_at, hits, last_at FROM links WHERE code = \?1$/i.test(this.sql)) {
+      return this.db.links.get(this.args[0]) || null;
+    }
     if (/^SELECT COUNT\(\*\) AS n FROM presets$/i.test(this.sql)) {
       return { n: this.db.presets.size };
     }
@@ -72,6 +76,14 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC$/i.test(this.sql)) {
+      const rows = [...this.db.links.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
+    if (/^SELECT code FROM links WHERE preset = \?1 ORDER BY created_at ASC$/i.test(this.sql)) {
+      const rows = [...this.db.links.values()].filter((row) => row.preset === this.args[0]);
+      return { results: rows, success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets ORDER BY created_at ASC$/i.test(this.sql)) {
       const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
@@ -141,6 +153,27 @@ class MockStatement {
     if (/^INSERT INTO settings .+ ON CONFLICT\(key\) DO UPDATE/i.test(this.sql)) {
       this.db.settings.set(args[0], args[1]);
       return { success: true, meta: { changes: 1 } };
+    }
+    if (/^INSERT INTO links .+ ON CONFLICT\(code\) DO UPDATE/i.test(this.sql)) {
+      const [code, preset, format, note, created_at] = args;
+      const old = this.db.links.get(code);
+      this.db.links.set(code, { code, preset, format: format || "", note: note || "", created_at: old ? old.created_at : created_at, hits: old ? old.hits : 0, last_at: old ? old.last_at : null });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE links SET hits = hits \+ 1, last_at = \?2 WHERE code = \?1$/i.test(this.sql)) {
+      const row = this.db.links.get(args[0]);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      this.db.links.set(args[0], { ...row, hits: row.hits + 1, last_at: args[1] });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE links SET note = \?3, format = \?2 WHERE code = \?1$/i.test(this.sql)) {
+      const row = this.db.links.get(args[0]);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      this.db.links.set(args[0], { ...row, note: args[2], format: args[1] });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^DELETE FROM links WHERE code = \?1$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.links.delete(args[0]) ? 1 : 0 } };
     }
     if (/^INSERT INTO presets/i.test(this.sql)) {
       const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clashMode] = args;
@@ -1040,7 +1073,7 @@ test("scripts/schema.sql matches SCHEMA_STATEMENTS", () => {
   for (const statement of SCHEMA_STATEMENTS) {
     assert.ok(sql.includes(`${norm(statement)};`), `schema.sql 缺少语句: ${statement.split("\n")[0]}`);
   }
-  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 4);
+  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 5);
   assert.ok(sql.includes("manual INTEGER NOT NULL DEFAULT 0"));
 });
 
@@ -1790,6 +1823,75 @@ test("a preset can drop single nodes without touching the master subscription", 
   assert.equal((await call(env, "POST", "/api/v1/presets/none/toggle", JSON.stringify({ id: "x" }), auth)).status, 404);
   assert.equal((await call(env, "POST", "/api/v1/presets/hy2/toggle", JSON.stringify({ id: "x" }), { "content-type": "application/json" })).status, 401);
   assert.equal((await call(env, "GET", "/api/v1/presets/hy2/toggle", null, auth)).status, 405);
+});
+
+test("a short link serves a preset without the token in the url", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const hy2 = "hysteria2://pw@jp.example.io:443?sni=addons.mozilla.org#东京-hy2";
+  const reality = "vless://11111111-1111-4111-8111-111111111111@hk.example.io:443?encryption=none&security=reality&sni=www.microsoft.com#香港-reality";
+  await call(env, "PUT", "/api/v1/nodes/mach-s", JSON.stringify({ nodes: [{ link: hy2 }, { link: reality }] }), auth);
+  await call(env, "PUT", "/api/v1/presets/short-hy2", JSON.stringify({ protos: ["hy2"] }), auth);
+
+  // 没登录不能管短链
+  assert.equal((await call(env, "GET", "/api/v1/links", null, {})).status, 401);
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-hy2" }), { "content-type": "application/json" })).status, 401);
+
+  // 生成一条
+  let res = await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-hy2", note: "手机用" }), auth);
+  assert.equal(res.status, 200);
+  const made = await res.json();
+  assert.match(made.link.code, /^[a-z0-9][a-z0-9_-]{3,31}$/);
+  assert.equal(made.link.preset, "short-hy2");
+  assert.equal(made.link.note, "手机用");
+  assert.equal(made.url, `https://sub.example.workers.dev/s/${made.link.code}`);
+
+  // 同一个档案再点一次：复用同一条，不会刷出一堆短链
+  res = await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-hy2" }), auth);
+  const again = await res.json();
+  assert.equal(again.link.code, made.link.code);
+  assert.equal(again.reused, true);
+
+  // 短链本身不需要 token，内容就是这个档案
+  res = await call(env, "GET", `/s/${made.link.code}`, null, {});
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-link"), made.link.code);
+  assert.equal(res.headers.get("x-nodes"), "1");
+  const body = unb64(await res.text());
+  assert.ok(body.includes("东京-hy2"), body);
+  assert.ok(!body.includes("香港-reality"), body);
+
+  // 换个格式：链接上带 format 也照样能用（短链不暴露 token）
+  res = await call(env, "GET", `/s/${made.link.code}?format=clash`, null, {});
+  assert.equal(res.status, 200);
+  assert.ok((await res.text()).includes("proxies:"));
+
+  // 计数
+  const list = await (await call(env, "GET", "/api/v1/links", null, auth)).json();
+  assert.equal(list.links.length, 1);
+  assert.equal(list.links[0].hits, 2);
+  assert.ok(list.links[0].lastAt);
+
+  // 参数错误
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({}), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "nope" }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-hy2", format: "yaml" }), auth)).status, 400);
+  assert.equal((await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-hy2", code: "A B" }), auth)).status, 400);
+
+  // 自定义短码 + 指向另一个档案
+  await call(env, "PUT", "/api/v1/presets/short-reality", JSON.stringify({ protos: ["vless-reality"] }), auth);
+  res = await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "short-reality", code: "hk01" }), auth);
+  assert.equal(res.status, 200);
+  const clash = unb64(await (await call(env, "GET", "/s/hk01", null, {})).text());
+  assert.ok(clash.includes("香港-reality"), clash);
+
+  // 删除后就是 404
+  assert.equal((await call(env, "DELETE", `/api/v1/links/${made.link.code}`, null, auth)).status, 200);
+  assert.equal((await call(env, "GET", `/s/${made.link.code}`, null, {})).status, 404);
+  assert.equal((await call(env, "DELETE", `/api/v1/links/${made.link.code}`, null, auth)).status, 404);
+  assert.equal((await call(env, "DELETE", "/api/v1/links/A%20B", null, auth)).status, 400);
+  assert.equal((await call(env, "GET", "/s/nosuchcode", null, {})).status, 404);
+  assert.equal((await call(env, "GET", "/s/hk01", null, {})).status, 200);
 });
 
 test("a preset records that its clash rules follow the global set", async () => {

@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.34.0";
+const VERSION = "1.35.0";
 const MAX_BODY = 512 * 1024;
 /* 机器名：字母/数字（含中文等 Unicode 字母）+ 空格 _ . -，首字符必须是字母或数字 */
 const MACHINE_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
@@ -60,6 +60,15 @@ export const SCHEMA_STATEMENTS = [
   PRIMARY KEY (machine, source)
 )`,
   "CREATE INDEX IF NOT EXISTS idx_reports_machine ON reports (machine)",
+  `CREATE TABLE IF NOT EXISTS links (
+  code TEXT PRIMARY KEY,
+  preset TEXT NOT NULL,
+  format TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0,
+  last_at TEXT
+)`,
   `CREATE TABLE IF NOT EXISTS presets (
   name       TEXT PRIMARY KEY,
   label      TEXT NOT NULL DEFAULT '',
@@ -378,7 +387,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], presetSearch: "", presetEdit: null };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -1364,10 +1373,14 @@ body.locked .wrap{display:none}
       desc.appendChild(document.createTextNode(" · 规则跟随全局"));
       name.appendChild(title); name.appendChild(desc);
 
-      var link = document.createElement("code"); link.textContent = item.url; link.title = item.url;
+      var sl = presetLink(item.name);
+      var shownUrl = sl ? location.origin + sl.path : item.url;
+      var link = document.createElement("code"); link.textContent = shownUrl;
+      link.title = sl ? shownUrl + "（短链，指向档案 " + item.name + "；完整链接是 " + item.url + "）" : item.url;
 
       var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
-      copy.onclick = function () { copyToClipboard(item.url); presetStatus("已复制：" + item.name, true); };
+      copy.title = sl ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
+      copy.onclick = function () { copyToClipboard(shownUrl); presetStatus("已复制：" + shownUrl, true); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
       var edit = document.createElement("button"); edit.type = "button"; edit.textContent = "编辑";
@@ -1391,18 +1404,48 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      right.appendChild(edit); right.appendChild(rotate); right.appendChild(del);
+      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.textContent = sl ? "复制短链" : "短链";
+      shortBtn.title = sl ? "复制这条短链 /s/" + sl.code + "（可以删掉重发一条）" : "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+      shortBtn.onclick = function () {
+        if (sl) { copyToClipboard(location.origin + sl.path); presetStatus("已复制短链：" + sl.path, true); return; }
+        api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
+          .then(function (data) {
+            copyToClipboard(data.url);
+            presetStatus("已生成短链并复制：" + data.link.path, true);
+            loadPresets(true);
+          })
+          .catch(function (err) { presetStatus(err.message, false); });
+      };
+      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
+      if (sl) {
+        var killLink = document.createElement("button"); killLink.type = "button"; killLink.className = "danger"; killLink.textContent = "✕";
+        killLink.title = "删除这条短链（/s/" + sl.code + "，删除后立刻 404）";
+        killLink.onclick = function () {
+          if (typeof confirm === "function" && !confirm("删除短链 /s/" + sl.code + "？用它的客户端会立刻拉不到东西。")) return;
+          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+            .then(function () { presetStatus("已删除短链 /s/" + sl.code, true); loadPresets(true); })
+            .catch(function (err) { presetStatus(err.message, false); });
+        };
+        right.appendChild(killLink);
+      }
+      right.appendChild(del);
       row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
     });
   }
   function loadPresets(quiet) {
-    return api("/presets").then(function (data) {
-      state.presets = data.presets || [];
+    return Promise.all([api("/presets"), api("/links").catch(function () { return { links: [] }; })]).then(function (out) {
+      state.presets = out[0].presets || [];
+      state.links = out[1].links || [];
       renderPresets();
       renderPresetEditor();
-      if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案", true);
+      if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案、" + state.links.length + " 条短链", true);
     }).catch(function (err) { presetStatus(err.message, false); });
+  }
+  function presetLink(name) {
+    var hit = null;
+    (state.links || []).forEach(function (l) { if (l.preset === name) hit = l; });
+    return hit;
   }
   function copyToClipboard(text) {
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
@@ -2315,6 +2358,27 @@ async function handleRequest(request, env) {
     if (!authToken(env)) return missingConfig("SUB_TOKEN");
     if (request.method !== "POST") return methodNotAllowed("POST");
     return togglePresetNode(request, env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/api\/v1\/links$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method === "GET") return getLinks(env, request);
+    if (request.method === "POST") return putLink(request, env);
+    return methodNotAllowed("GET, POST");
+  }
+
+  m = path.match(/^\/api\/v1\/links\/([^/]+)$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method !== "DELETE") return methodNotAllowed("DELETE");
+    return deleteLink(env, decodeURIComponent(m[1]));
+  }
+
+  m = path.match(/^\/s\/([^/]+)$/);
+  if (m) {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    return serveShortLink(env, decodeURIComponent(m[1]), request);
   }
 
   m = path.match(/^\/sub\/p\/([^/]+)\/([^/]+)$/);
@@ -3250,19 +3314,121 @@ async function togglePresetNode(request, env, name) {
   return json({ ok: true, preset: saved, skipped: saved.skips.length, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
 }
 
-async function servePreset(env, name, token, request) {
+const LINK_CODE_RE = /^[a-z0-9][a-z0-9_-]{3,31}$/;
+const LINK_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
+const LINK_FORMATS = ["", "clash", "proxies", "singbox", "base64"];
+
+function linkCode(len = 10) {
+  const bytes = new Uint8Array(len || 10);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 1) out += LINK_CODE_ALPHABET[bytes[i] % LINK_CODE_ALPHABET.length];
+  return out;
+}
+
+function linkFromRow(row, request) {
+  return {
+    code: row.code,
+    preset: row.preset,
+    format: row.format || "",
+    note: row.note || "",
+    createdAt: row.created_at,
+    hits: Number(row.hits || 0),
+    lastAt: row.last_at || null,
+    path: "/s/" + row.code,
+    url: request ? baseUrl(request) + "/s/" + row.code : "",
+  };
+}
+
+async function getLink(env, code, request) {
+  const row = await env.DB.prepare("SELECT code, preset, format, note, created_at, hits, last_at FROM links WHERE code = ?1").bind(code).first();
+  return row ? linkFromRow(row, request) : null;
+}
+
+async function getLinks(env, request) {
+  if (!authToken(env)) return missingConfig("SUB_TOKEN");
+  if (!dbEnv(env)) return missingConfig("DB");
+  const { results } = await env.DB.prepare("SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC").all();
+  return json({ ok: true, links: (results || []).map((row) => linkFromRow(row, request)) });
+}
+
+async function putLink(request, env) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  const text = await request.text();
+  let data;
+  try { data = JSON.parse(text || "{}"); } catch { return json({ ok: false, error: "invalid json body" }, 400); }
+  const presetName = String(data.preset || "").trim();
+  if (!presetName) return json({ ok: false, error: "preset is required" }, 400);
+  const preset = await findPreset(env, presetName);
+  if (!preset) return json({ ok: false, error: "unknown preset: " + presetName }, 400);
+  const formatRaw = String(data.format || "").trim().toLowerCase();
+  if (!LINK_FORMATS.includes(formatRaw)) return json({ ok: false, error: "format must be one of: clash, proxies, singbox, base64" }, 400);
+  const note = String(data.note || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 80);
+  let code = String(data.code || "").trim().toLowerCase();
+  if (code) {
+    if (!LINK_CODE_RE.test(code)) return json({ ok: false, error: "code must match ^[a-z0-9][a-z0-9_-]{3,31}$" }, 400);
+  } else {
+    const existing = await env.DB.prepare("SELECT code FROM links WHERE preset = ?1 ORDER BY created_at ASC").bind(presetName).all();
+    const reuse = (existing.results || [])[0];
+    if (reuse) {
+      await env.DB.prepare("UPDATE links SET note = ?3, format = ?2 WHERE code = ?1").bind(reuse.code, formatRaw, note).run();
+      const link = await getLink(env, reuse.code, request);
+      return json({ ok: true, reused: true, link, url: baseUrl(request) + "/s/" + reuse.code });
+    }
+    for (let i = 0; i < 6; i += 1) {
+      code = linkCode();
+      const taken = await getLink(env, code, request);
+      if (!taken) break;
+    }
+  }
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO links (code, preset, format, note, created_at, hits, last_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL)
+    ON CONFLICT(code) DO UPDATE SET preset = ?2, format = ?3, note = ?4`)
+    .bind(code, presetName, formatRaw, note, now).run();
+  const link = await getLink(env, code, request);
+  return json({ ok: true, link, url: baseUrl(request) + "/s/" + code });
+}
+
+async function deleteLink(env, code) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "invalid code" }, 400);
+  const res = await env.DB.prepare("DELETE FROM links WHERE code = ?1").bind(code).run();
+  if (!res || !res.meta || res.meta.changes === 0) return json({ ok: false, error: "link not found" }, 404);
+  return json({ ok: true, deleted: code });
+}
+
+async function serveShortLink(env, code, request) {
+  if (!dbEnv(env)) return missingConfig("DB");
+  if (!LINK_CODE_RE.test(String(code || ""))) return json({ ok: false, error: "link not found" }, 404);
+  const link = await getLink(env, code);
+  if (!link) return json({ ok: false, error: "link not found" }, 404);
+  const res = await servePreset(env, link.preset, null, request, { skipToken: true, format: link.format });
+  try {
+    await env.DB.prepare("UPDATE links SET hits = hits + 1, last_at = ?2 WHERE code = ?1").bind(code, new Date().toISOString()).run();
+  } catch {}
+  const headers = new Headers(res.headers);
+  headers.set("x-link", code);
+  headers.set("x-preset", encodeURIComponent(link.preset));
+  return new Response(res.body, { status: res.status, headers });
+}
+
+async function servePreset(env, name, token, request, opts) {
   if (!dbEnv(env)) return missingConfig("DB");
   const preset = await findPreset(env, name);
   if (!preset) return json({ ok: false, error: "preset not found" }, 404);
-  const expected = preset.token || authToken(env);
-  if (!expected) return missingConfig("SUB_TOKEN");
-  if (!checkToken(token, expected)) return unauthorized();
+  const open = !!(opts && opts.skipToken);
+  if (!open) {
+    const expected = preset.token || authToken(env);
+    if (!expected) return missingConfig("SUB_TOKEN");
+    if (!checkToken(token, expected)) return unauthorized();
+  }
 
   const records0 = await loadAllRecords(env);
   const byMember = preset.mode === "members";
   const records = !byMember && preset.machines.length ? records0.filter((r) => preset.machines.includes(r.machine)) : records0;
   const order = await getMachineOrder(env);
-  const format = preset.format || formatOf(request);
+  const format = (opts && opts.format) || preset.format || formatOf(request);
   const rules = format === "clash" && preset.clashMode === "inherit" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
   const disabled = await loadDisabledGlobal(env);

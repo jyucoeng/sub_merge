@@ -498,6 +498,29 @@ curl "https://<域名>/sub/荷兰-1/$SUB_TOKEN?source=nlefni&format=singbox"
 - **机器范围**：填了机器名就只从这几台里取节点，适合「只把荷兰那台给某个设备」
 - 档案数量上限 200 个
 
+### 短链（`/s/xxxx`，链接里不带 token）
+
+`/sub/p/hy2/<SUB_TOKEN>` 这类链接有两个毛病：太长，而且把 `SUB_TOKEN` 明文写进了客户端配置——手机、电视盒子、朋友转发一次就等于把主 token 发出去了。所以每个档案可以再发一条**短链**：
+
+```
+https://sub.dingdang.de5.net/s/7k3m9pq2xa     → 等价于 /sub/p/hy2/<token>
+```
+
+- 在「订阅档案」每行点「短链」，服务器就生成一条 10 位短码（字母表 `23456789abcdefghjkmnpqrstuvwxyz`，去掉了 0/o/1/l/i 这些容易看错的），生成后自动复制到剪贴板
+- 短链**不带 token**：访问 `/s/<code>` 时服务端自己去查这条码指向哪个档案，用档案自己的 token 逻辑取内容。客户端里只出现短码，主 `SUB_TOKEN` 不再泄露
+- 有短链之后，行里显示的链接和「复制」按钮复制的都是短链；完整长链接仍在 `title` 里（鼠标悬停能看到）
+- 同一个档案只会有一条短链（重复点「短链」是复制已有的那条）；要换就把 `✕` 删掉再点一次「短链」，旧码立刻 404
+- 短链 = 凭证：谁拿到 `/s/<code>` 谁就能拉这份订阅。删掉档案或删掉短链，链接立刻失效；短链只在本机 `links` 表里，没有历史版本可以回滚
+- 短链默认跟随档案的格式（档案没写就用 UA 判断），也可以 `?format=clash` / `proxies` / `singbox` / `base64` 临时覆盖；`links.format` 也可以在 `POST /api/v1/links` 里固定下来
+- 访问会累加 `links.hits` / `last_at`，`GET /api/v1/links` 能看到每条短链被拉了多少次
+
+| 接口 | 说明 |
+|---|---|
+| `GET /api/v1/links` | 列出所有短链（`code`、`preset`、`format`、`note`、`hits`、`lastAt`、拼好的 `url`） |
+| `POST /api/v1/links` | `{preset:"hy2", code?:"hk01", format?:"", note?:""}`；不传 `code` 就自动生成，同一个档案已有短链则复用并只更新 note/format |
+| `DELETE /api/v1/links/<code>` | 删掉短链，立刻 404 |
+| `GET /s/<code>` | 公开，返回与档案完全一样的订阅内容（响应头带 `x-link`、`x-preset`） |
+
 ## 上报脚本
 
 `scripts/report.py`（只依赖标准库，Python 3.8+）：
@@ -618,6 +641,7 @@ curl -X POST -H "Authorization: Bearer $SUB_TOKEN" https://<域名>/api/v1/clash
 |---|---|---|
 | `machines` | `machine` | 单机聚合快照：`content/hash/bytes`、`nodes_json`（自动）、`manual_nodes_json`（手动）、`manual`、`updated_at`、`manual_updated_at` |
 | `reports` | `(machine, source)` | 每个上报来源的原始 base64、hash、节点 JSON、`updated_at`（一台机器多源互不覆盖） |
+| `links` | `code` | 短链：`preset`（指向哪个档案）、`format`（空 = 跟随档案/UA）、`note`、`created_at`、`hits`、`last_at` |
 | `presets` | `name` | 订阅档案：`label`、`protos`、`tunnel`、`machines`、`format`、`token`（独立 token，空 = 共用主 token）、`members`（显式节点集合，`\x01` 分隔）、`mode`（`members` = 按集合，空 = 按条件）、`clash_mode`（`inherit` = 跟随全局分流规则） |
 | `settings` | `key` | `machine_order`、`clash_rules`、`disabled`、`protocols:<machine>`、`login-fail:<ip>` |
 
