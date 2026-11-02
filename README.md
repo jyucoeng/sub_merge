@@ -512,6 +512,7 @@ https://sub.dingdang.de5.net/s/7k3m9pq2xa     → 等价于 /sub/p/hy2/<token>
 - 同一个档案只会有一条短链（重复点「短链」是复制已有的那条）；要换就把 `✕` 删掉再点一次「短链」，旧码立刻 404
 - 短链 = 凭证：谁拿到 `/s/<code>` 谁就能拉这份订阅。删掉档案或删掉短链，链接立刻失效；短链只在本机 `links` 表里，没有历史版本可以回滚
 - 短链默认跟随档案的格式（档案没写就用 UA 判断），也可以 `?format=clash` / `proxies` / `singbox` / `base64` 临时覆盖；`links.format` 也可以在 `POST /api/v1/links` 里固定下来
+- **全部订阅也能发短链**：「订阅链接」卡片四行各有一个「短链」按钮，分别对应 `base64` / `clash` / `proxies` / `singbox`；每行一条码，`links.preset` 为空字符串表示「全部订阅」，这时 `format` 必填。界面上发了之后这一行显示的就是 `/s/xxxx`，`✕` 删掉恢复长链接
 - 访问会累加 `links.hits` / `last_at`，`GET /api/v1/links` 能看到每条短链被拉了多少次
 
 | 接口 | 说明 |
