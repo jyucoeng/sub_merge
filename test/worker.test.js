@@ -1680,6 +1680,37 @@ test("machines sharing a rank stay grouped instead of interleaving their nodes",
     "同一 rank 的两台机器必须各自成组，不能按节点下标交错");
 });
 
+test("reported nodes can be renamed without touching the reported content", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = "vless://11111111-1111-4111-8111-111111111111@rn.example.com:443?security=reality&sni=www.bing.com#原始名字";
+
+  const up = await call(env, "POST", "/api/v1/report/mach-rn",
+    Buffer.from(link + "\n").toString("base64"),
+    { "content-type": "text/plain", authorization: `Bearer ${TOKEN}` });
+  assert.equal(up.status, 200, "上报本身要能成功");
+
+  const rn = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias",
+    JSON.stringify({ link, name: "我的节点" }), auth);
+  assert.equal(rn.status, 200);
+
+  const view = await (await call(env, "GET", "/api/v1/nodes/mach-rn", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.equal(view.auto_nodes[0].name, "原始名字", "上报内容一个字都不该动");
+  assert.equal(view.nodes[0].name, "我的节点", "对外显示用别名");
+
+  const text = decodeURIComponent(unb64(await (await call(env, "GET", `/sub/all/${TOKEN}`)).text()));
+  assert.ok(text.includes("我的节点"), "订阅里也应该是新名字");
+
+  const undo = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias", JSON.stringify({ link, name: "" }), auth);
+  assert.equal(undo.status, 200);
+  const back = await (await call(env, "GET", "/api/v1/nodes/mach-rn", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.equal(back.nodes[0].name, "原始名字", "清空别名就回到上报的原名字");
+
+  const bad = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias",
+    JSON.stringify({ link: "vless://99999999-9999-4999-8999-999999999999@x.example.com:443?security=reality&sni=www.bing.com#别人的", name: "x" }), auth);
+  assert.equal(bad.status, 404, "不属于这台机器的节点不能被写进别名表");
+});
+
 test("shadowsocks links work in both the old base64 form and the SIP002 form", async () => {
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
