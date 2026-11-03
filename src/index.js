@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.72";
+const VERSION = "1.66.73";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1961,7 +1961,12 @@ body.locked .wrap{display:none}
       if (data.renamed === false) { setStatus("名字没变", true); return; }
       state.current = to;
       return loadMachines(true).then(function () { state.current = to; $("machine").value = to; return loadNodes(true); }).then(function () { return loadSubNodes(true); })
-        .then(function () { setStatus("已重命名 " + old + " → " + to, true); });
+        .then(function () {
+          var extra = data.was_former_of
+            ? "；「" + to + "」原本是机器「" + data.was_former_of + "」的旧名，它的上报现在会落到这台"
+            : "";
+          setStatus("已重命名 " + old + " → " + to + extra, true);
+        });
     }).catch(function (e) { setStatus("重命名失败：" + e.message, false); });
   };
   $("discard").onclick = function () {
@@ -3981,7 +3986,8 @@ async function renameMachine(request, env, machine) {
   if (to === machine) return json({ ok: true, machine, renamed: false });
   const old = await loadRecord(env, machine);
   if (!old) return json({ ok: false, error: "subscription not found" }, 404);
-  if (await loadRecord(env, to)) return json({ ok: false, error: "target machine already exists" }, 409);
+  const clash = await loadRecord(env, to);
+  if (clash) return json({ ok: false, error: "机器名「" + to + "」已经被占用了，换一个", taken: to }, 409);
   const record = { ...old, machine: to, updated_at: new Date().toISOString() };
   await saveRecord(env, record);
   const reports = await loadReports(env, machine);
@@ -3996,12 +4002,15 @@ async function renameMachine(request, env, machine) {
   }
   /* 旧名留给上报用：脚本那边改不了，只能这边认。之前指向旧名的链也要顺下去 */
   const former = await loadFormerMap(env);
+  /* 目标名如果正是某台机器的旧名，沿用之后那条重定向就被下面的 delete 抹掉了，
+     那台机器的上报会直接落进这一台。不算错，但得说一声。 */
+  const wasFormerOf = former[to] || "";
   delete former[to];
   for (const k of Object.keys(former)) if (former[k] === machine) former[k] = to;
   former[machine] = to;
   await saveFormerMap(env, former);
   const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
-  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
+  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, was_former_of: wasFormerOf, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
 async function listMachines(env) {
@@ -4147,6 +4156,20 @@ async function deleteMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   /* 先读一份：下面要拿它的节点身份去清全局排除清单 */
   const record = await loadRecord(env, machine);
+
+  /* 改名链一并断掉。留着的话，脚本还按旧名上报时 resolveFormer 会把它引到
+     这台刚被删的机器上，而 report() 查不到记录就会新建一条——机器"诈尸"。
+     A 改到 B 再改到 C 时链是压平的（A→C、B→C），所以这里按 value 扫一遍就够。 */
+  const formerMap = await loadFormerMap(env);
+  let formerTouched = false;
+  for (const key of Object.keys(formerMap)) {
+    if (formerMap[key] === machine || key === machine) {
+      delete formerMap[key];
+      formerTouched = true;
+    }
+  }
+  if (formerTouched) await saveFormerMap(env, formerMap);
+
   await deleteRecord(env, machine);
   await deleteReports(env, machine);
 

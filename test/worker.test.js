@@ -521,6 +521,54 @@ test("a members preset survives the machine being deleted", async () => {
   assert.equal(names.includes("keep"), true, "档案还在，等节点回来");
 });
 
+test("deleting the end of a rename chain breaks every link in it", async () => {
+  /* A 改名到 B 再改名到 C。脚本改不了配置，仍旧按 A 或 B 上报，靠 former 表
+     把它们引到 C。这时把 C 删掉——如果 former 不清，指向 C 的条目还在，
+     report() 查不到 C 的记录就会新建一条，机器就诈尸了。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/A", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "POST", "/api/v1/machines/A/rename", JSON.stringify({ to: "B" }), jsonAuth);
+  await call(env, "POST", "/api/v1/machines/B/rename", JSON.stringify({ to: "C" }), jsonAuth);
+
+  /* 改到 C 之后，报 A 和报 B 都应该落进 C */
+  await call(env, "POST", "/api/v1/report/A", b64(link), auth);
+  await call(env, "POST", "/api/v1/report/B", b64(link), auth);
+  let list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["C"]);
+
+  /* 删掉 C，链要一起断 */
+  await call(env, "DELETE", "/api/v1/machines/C", null, auth);
+  list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), [], "C 删掉了");
+
+  /* 脚本还在报 A：这时该长出 A，而不是把 C 复活 */
+  await call(env, "POST", "/api/v1/report/A", b64(link), auth);
+  list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["A"], "旧名重建自己，不能复活 C");
+});
+
+test("renaming onto a taken name is refused, onto a former name is allowed with a warning", async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  for (const m of ["one", "two"]) await call(env, "PUT", `/api/v1/nodes/${m}`, JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+
+  /* 撞名：直接拒，机器名不能重 */
+  const taken = await call(env, "POST", "/api/v1/machines/one/rename", JSON.stringify({ to: "two" }), jsonAuth);
+  assert.equal(taken.status, 409);
+  assert.match((await taken.json()).error, /已经被占用/);
+
+  /* 撞旧名：允许，但要把「这是谁的旧名」告诉调用方 */
+  await call(env, "POST", "/api/v1/machines/one/rename", JSON.stringify({ to: "gone" }), jsonAuth);
+  const reused = await (await call(env, "POST", "/api/v1/machines/two/rename", JSON.stringify({ to: "one" }), jsonAuth)).json();
+  assert.equal(reused.ok, true);
+  assert.equal(reused.was_former_of, "gone", "「one」是 gone 的旧名，得说清楚");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
