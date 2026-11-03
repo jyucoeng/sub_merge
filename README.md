@@ -25,7 +25,7 @@
 3. 点 **Edit code**（部分界面叫 **Edit**）→ 编辑器里那段 Hello World 默认代码 **Ctrl/Cmd+A 全选删掉** → 粘贴刚才复制的内容 → 右上角 **Deploy**
 4. 回到 Worker → **Settings → Bindings → Add → D1 database**：Variable name 填 **`DB`**（一字不差），Database 选 `sub-merge-db`
 5. **Settings → Variables and Secrets → Add**：加 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`（Type 选 Text）
-6. 打开 `https://<你的-worker-名>.workers.dev/ui`，用 `ADMIN_PASSWORD` 登录
+6. 打开 `https://<你的-worker-名>.workers.dev/ui`，用 `ADMIN_PASSWORD` 登录（改过 `UI_PATH` 就换成你的路径）
 
 > 一次粘 260 KB 编辑器会卡几秒，等代码高亮完再点 Deploy；中途别刷新页面。
 > 变量和绑定改完，要再点一次 **Deploy** 才生效。
@@ -46,7 +46,7 @@
 5. 进入项目 → **Settings → Bindings → Add → D1 database**：Variable name 填 **`DB`**，Database 选 `sub-merge-db`，Production 和 Preview 两个环境都加
 6. **Settings → Variables and Secrets → Add**：加 `SUB_TOKEN`、`ADMIN_PASSWORD`、`REPORT_TOKEN`
 7. **Deployments** → 最新那条 → 右侧 `⋯` → **Retry deployment**（绑定和变量在部署时注入，不重试会报 `env.DB is undefined`）
-8. 打开 `https://<项目名>.pages.dev/ui`，用 `ADMIN_PASSWORD` 登录
+8. 打开 `https://<项目名>.pages.dev/ui`，用 `ADMIN_PASSWORD` 登录（改过 `UI_PATH` 就换成你的路径）
 
 以后 push 到这个仓库的 main 分支，Pages 会自动重新部署；只改变量或绑定时要手动 Retry 一次。
 
@@ -59,11 +59,28 @@
 | `SUB_TOKEN` | ✅ | 订阅链接里的口令：`/sub/all/<SUB_TOKEN>`。够长够随机就行 |
 | `ADMIN_PASSWORD` | ✅ | WebUI 登录口令 |
 | `REPORT_TOKEN` | ✅ | 服务器上报用的口令（`/api/v1/report/...` 的 Bearer） |
-| `UI_PATH` | ❌ | 管理界面的入口路径，默认 `/ui`。填 `/x7q-entry` 之后只有这个路径能打开界面，`/ui` 直接 404 |
+| `UI_PATH` | ❌ | 管理界面的入口路径，默认 `/ui`。填了之后只有这个路径能打开，`/ui` 直接 404（见下） |
 
 三个口令互相独立、都填长随机串；`SUB_TOKEN` 会出现在订阅链接里，`REPORT_TOKEN` 只给上报脚本用，泄露了不会连带订阅链接。
 
-`UI_PATH` 只是**换门牌，不是加锁**：路径扫不到就不知道这站有界面，但知道路径的人照样要对着口令框输密码。真正的门槛是 `ADMIN_PASSWORD` 加上登录限速（同一 IP 10 分钟内错 10 次锁 24 小时）。填了之后要**重新部署**一次才生效，入口和 `/api` 返回的 `ui` 字段会一起变。
+### 自定义界面入口
+
+不想让 `/ui` 这么显眼就换一个，在环境变量里加 `UI_PATH`：
+
+| 填的值 | 实际入口 |
+| --- | --- |
+| 不填 / 空串 / `/` | `/ui`（默认） |
+| `my-panel` | `/my-panel`（自动补前导斜杠） |
+| `/my-panel/` | `/my-panel`（尾部斜杠归一） |
+
+配了之后**只认这个路径**，`/ui` 和别的路径一样返回 404、响应里什么内容都没有。子路径（`/my-panel/任意/深度`）也放行给同一个单页，前端刷新不会 404。
+
+两点容易踩：
+
+- 改完要**重新部署**一次。环境变量只对新的部署生效，光在后台加变量、刷新页面是没变化的。
+- 它是**换门牌，不是加锁**。路径扫不到只让人不知道这站有界面，知道路径的人照样要对着口令框输密码；真正的门槛是 `ADMIN_PASSWORD` 加上登录限速（同一 IP 10 分钟内错 10 次锁 24 小时）。
+
+`/api` 返回的 `ui` 字段会跟着变，脚本里要拼入口地址就从那儿取，别写死 `/ui`。
 
 绑定：D1 的变量名必须是 **`DB`**，不是这个名字代码取不到库。
 
