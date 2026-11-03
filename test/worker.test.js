@@ -619,6 +619,37 @@ test("legacy machine_former settings row is migrated into the table", { skip: Bo
   assert.equal(env.DB.formers.get("old"), "live", "新表里有这条");
 });
 
+/* 改名链不管多长，表里都是「每个旧名 → 当前的机器」这一层，
+   中间名不会残留成二级跳转。所以删掉终点，一条 WHERE 就能全清。 */
+test("a long rename chain stays flat and is wiped by one delete", { skip: Boolean(sqlite) }, async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/A", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  for (const [from, to] of [["A", "B"], ["B", "C"], ["C", "D"]]) {
+    const res = await call(env, "POST", `/api/v1/machines/${from}/rename`, JSON.stringify({ to }), jsonAuth);
+    assert.equal(res.status, 200, `${from} → ${to} 应该成功`);
+  }
+
+  /* 全部指向 D，没有 A→B、B→C 这种中间跳转 */
+  assert.deepEqual(Object.fromEntries(env.DB.formers), { A: "D", B: "D", C: "D" });
+
+  /* 三个旧名报上来都落进 D */
+  for (const old of ["A", "B", "C"]) await call(env, "POST", `/api/v1/report/${old}`, b64(link), auth);
+  let list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["D"]);
+
+  /* 删 D，三条记录一条不剩 */
+  await call(env, "DELETE", "/api/v1/machines/D", null, auth);
+  assert.equal(env.DB.formers.size, 0, "链上每个旧名都要清掉");
+
+  /* 再报 A 长出的是 A 自己，不是 D 复活 */
+  await call(env, "POST", "/api/v1/report/A", b64(link), auth);
+  list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["A"]);
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
