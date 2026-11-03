@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.101";
+const VERSION = "1.66.102";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2009,7 +2009,8 @@ body.locked .wrap{display:none}
         var _flag = flagOf(m.country);
         var _fimg = _flag ? null : flagImage(m.country);
         if (_flag) {
-          geo.textContent = _flag + " " + m.country;
+          /* 只留旗子。国家码已经在 title 里，标签够小，多两三个字母只会挤。 */
+          geo.textContent = _flag;
         } else if (_fimg) {
           /* 有旗子就不再跟国家码：标签本身够小，图 + 字母挤在一起反而嘈杂，
              地区码在 hover 的 title 里已经有了。 */
