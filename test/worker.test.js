@@ -355,9 +355,9 @@ test("same-named nodes still yield unique clash and singbox names", async () => 
   assert.equal(new Set(names).size, 2, "clash 的 proxy name 也必须唯一");
 });
 
-test("a node turned manual keeps its protocol slot but sits ahead of reported peers", async () => {
-  /* 一台上报机器里把某一协议转成手动：整体顺序仍是协议字母序，
-     但同一个协议里手动那条要排在上报的同类前面。 */
+test("a node turned manual moves to the manual block, ahead of every reported node", async () => {
+  /* 转手动之后它属于「手动那一层」：整段排在所有上报节点前面。
+     手动段内部按协议字母序，上报段内部也按协议字母序，两段不混排。 */
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}` };
   const vless = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-上报";
@@ -378,13 +378,13 @@ test("a node turned manual keeps its protocol slot but sits ahead of reported pe
   await call(env, "PUT", "/api/v1/nodes/mix", JSON.stringify({ nodes: [{ link: vless, name: "vless-手动" }] }), {
     ...auth, "content-type": "application/json",
   });
-  assert.deepEqual(await names(), ["hy2-上报", "tuic-上报", "vless-手动"], "不能重复、不能丢，位置按协议");
+  assert.deepEqual(await names(), ["vless-手动", "hy2-上报", "tuic-上报"], "手动那条整段在前面，且不重复不丢");
 
-  /* 同协议里手动那条要在上报的同类前面 */
+  /* 多来一条上报的 vless：手动段仍在前，上报段内部按协议字母序 */
   const vless2 = "vless://22222222-2222-4222-8222-222222222222@9.9.9.9:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-第二条";
   await call(env, "POST", "/api/v1/report/mix", b64([vless, hy2, tuic, vless2].join("\n")), auth);
-  assert.deepEqual(await names(), ["hy2-上报", "tuic-上报", "vless-手动", "vless-第二条"],
-    "同为 vless 时手动那条排前面");
+  assert.deepEqual(await names(), ["vless-手动", "hy2-上报", "tuic-上报", "vless-第二条"],
+    "手动段整段在前，上报段自己按协议排");
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {
@@ -625,10 +625,7 @@ test("manual nodes sit next to reported nodes and reports never touch them", asy
   assert.equal(data.manual_nodes.length, 1);
   assert.equal(data.auto_nodes.length, 2);
   assert.equal(data.nodes.length, 3);
-  /* 手动节点不再固定排最前——机器内统一按协议字母序，手动和上报混在一起排 */
-  assert.ok(data.nodes.some((n) => n.link === hand), "手动节点要在列表里");
-  const kinds = data.nodes.map((n) => n.protocol);
-  assert.deepEqual(kinds, kinds.slice().sort(), "机器内按协议字母升序");
+  assert.equal(data.nodes[0].link, hand, "手动节点排在这台机器最前面");
 
   // 再上报一次：自动部分整体换新，手动部分一个字都不动
   res = await call(env, "POST", "/api/v1/report/edit", b64("vless://new@example.com:443?sni=deb.debian.org#New"), auth);

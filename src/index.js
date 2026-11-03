@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.19";
+const VERSION = "1.37.20";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4068,16 +4068,11 @@ function sortNodes(nodes, useRank) {
   const decorated = nodes.map((node) => ({
     node,
     kind: String(nodeKind(node) || "").toLowerCase(),
-    /* 同一个协议下，手动节点排在上报节点前面。协议是第一关键字这点不变，
-       但「我亲手写的这条」在同协议里该在前面——不然转一条手动之后，
-       它会被上报的同类节点挤到后面去，看着像没生效。 */
-    src: node._src === "auto" ? 1 : 0,
     order: Number(node.order) || 0,
     name: String(node.name == null ? "" : node.name),
   }));
   decorated.sort(
-    (a, b) =>
-      a.kind.localeCompare(b.kind) || a.src - b.src || a.order - b.order || a.name.localeCompare(b.name),
+    (a, b) => a.kind.localeCompare(b.kind) || a.order - b.order || a.name.localeCompare(b.name),
   );
   return decorated.map((item) => item.node);
 }
@@ -4109,16 +4104,12 @@ async function nodesOf(record, allowed, disabled) {
     autoPart.push(node);
   }
   const hide = disabled instanceof Set ? disabled : new Set(disabled || []);
-  /* 手动段和自动段必须先合并再统一排序。以前是各排各的再拼起来，
-     于是手动那半段永远排在自动那半段前面，机器内整体并不是协议序——
-     实测一台机器出来的是 hy2, vless, trojan, tuic：两段各自有序，合起来乱。 */
-  const merged = sortNodes(
-    [
-      ...manualPart.map((node) => ({ ...node, _src: "manual" })),
-      ...autoPart.map((node) => ({ ...node, _src: "auto" })),
-    ],
-    true,
-  ).filter((node) => !hide.has(linkIdentity(node.link)));
+  /* 手动是独立的一层，排序时必须保留这个前提：手动段整体在前，上报段在后，
+     两段各自按协议字母升序。手动节点是你亲手写的，它不是「和上报混在一起的
+     同类项」——把它打散进上报里，那条人工改过的配置就找不到位置了。
+     所以这里是两段各排各的再拼，不是合并后统一排。 */
+  const merged = [...sortNodes(manualPart, true), ...sortNodes(autoPart, true)]
+    .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
 
