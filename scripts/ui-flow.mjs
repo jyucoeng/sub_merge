@@ -405,6 +405,14 @@ check("保存排序：提示", text("order-status").includes("机器顺序已保
   row.children[5].onclick(); // 编辑节点
   await idle();
   check("编辑节点：载入已保存的 2 条", nodeRows().length === 2, `rows=${nodeRows().length}`);
+  {
+    /* 点完按钮要变成「编辑中」，让人知道现在编辑的是这台机器的节点 */
+    const again = findMachineRow("香港-小叮当");
+    check("编辑节点：按钮变「编辑中」", again.children[5].textContent === "编辑中", again.children[5].textContent);
+    check("编辑节点：按钮带 editing 样式", String(again.children[5].className).includes("editing"), String(again.children[5].className));
+    const others = machineRows().filter((r) => r !== again);
+    check("编辑节点：其他机器按钮仍是「编辑节点」", others.every((r) => r.children[5].textContent === "编辑节点"), others.map((r) => r.children[5].textContent).join(","));
+  }
   prompts.push("香港-备用");
   click("rename");
   await idle();
@@ -491,6 +499,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("save");
   await idle();
   check("① 保存后显示保存时间", /保存于：\d{4}-\d\d-\d\d \d\d:\d\d:\d\d/.test(text("manual-when")), text("manual-when"));
+  {
+    /* 保存完编辑就结束了，按钮要变回「编辑节点」 */
+    const row = findMachineRow("auto-hk");
+    check("① 保存后：按钮变回「编辑节点」", row.children[5].textContent === "编辑节点", row.children[5].textContent);
+    check("① 保存后：editing 样式移除", !String(row.children[5].className).includes("editing"), String(row.children[5].className));
+  }
   {
     const d = (await api("/nodes/auto-hk")).data;
     check("保存后：手动 1 条 + 自动 2 条", (d.manual_nodes || []).length === 1 && (d.auto_nodes || []).length === 2, `manual=${(d.manual_nodes || []).length} auto=${(d.auto_nodes || []).length}`);

@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.0.0";
+const VERSION = "2.0.1";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -164,7 +164,7 @@ textarea:focus{border-color:var(--acc)}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
-.machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px}
+.machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;scroll-margin-top:14px}
 .nsec.auto{background:var(--soft)}
 .sources{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
 .sources .chip{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--sub);white-space:nowrap}
@@ -419,7 +419,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "" };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -1623,7 +1623,13 @@ body.locked .wrap{display:none}
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
-      var edit = document.createElement("button"); edit.type = "button"; edit.className = "edit"; edit.textContent = "编辑节点";
+      var editingThis = !!state.editingMachine && state.editingMachine === m.machine;
+      var edit = document.createElement("button"); edit.type = "button";
+      edit.className = editingThis ? "edit editing" : "edit";
+      edit.textContent = editingThis ? "编辑中" : "编辑节点";
+      edit.title = editingThis
+        ? "正在编辑这台机器的节点，改完点下面的「保存配置」或「撤销修改」"
+        : "编辑这台机器的节点，会跳到下面的节点配置";
       up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
       down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
       var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger"; delM.textContent = "×"; delM.title = "删除该机器";
@@ -1634,10 +1640,33 @@ body.locked .wrap{display:none}
           return loadMachines().then(function () { return loadSubNodes(true); });
         }).catch(function (e) { var tip = $("order-status"); tip.textContent = "删除失败：" + e.message; tip.className = "status err"; });
       };
-      edit.onclick = function () { state.current = m.machine; $("machine").value = m.machine; loadNodes(); };
+      edit.onclick = function () {
+        state.editingMachine = m.machine;
+        renderMachineList();
+        state.current = m.machine;
+        $("machine").value = m.machine;
+        loadNodes();
+        scrollToNodeConfig();
+      };
       row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(up); row.appendChild(down); row.appendChild(edit); row.appendChild(delM);
       box.appendChild(row);
     });
+  }
+  /* 从机器列表跳到下面的节点配置。滚到「① 手动节点」那一段的开头，
+     不滚到整个 card 顶部——顶部还有一排按钮，滚过去也看不到节点。 */
+  function scrollToNodeConfig() {
+    var el = $("nodes");
+    var box = (el && el.closest) ? el.closest(".nsec") : null;
+    if (!box) box = el;
+    if (!box) return;
+    try { box.scrollIntoView({ block: "start", behavior: "smooth" }); }
+    catch (e) { try { box.scrollIntoView(); } catch (e2) {} }
+  }
+  /* 编辑结束（保存 / 撤销 / 换机器）：按钮恢复成「编辑节点」 */
+  function endMachineEditing() {
+    if (!state.editingMachine) return;
+    state.editingMachine = "";
+    renderMachineList();
   }
   function linkViewMap() {
     try { return JSON.parse(window.localStorage.getItem("sub-worker-linkview") || "{}") || {}; } catch (e) { return {}; }
@@ -1742,7 +1771,7 @@ body.locked .wrap{display:none}
   }
   $("machine").onchange = function () {
     if (state.dirty && !window.confirm("① 手动节点有未保存的修改，切换机器会丢掉，继续？")) { this.value = state.current || ""; return; }
-    state.current = this.value; loadNodes();
+    state.current = this.value; loadNodes(); endMachineEditing();
   };
   $("save-machine-order").onclick = function () {
     var machines = state.machines.map(function (m) { return m.machine; });
@@ -1833,7 +1862,8 @@ body.locked .wrap{display:none}
     setStatus("保存中...");
     api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
       .then(function (data) {
-        markClean(); setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true);
+        markClean(); endMachineEditing();
+        setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true);
         // 手动节点变了，下面的「订阅中的节点」也要跟着变，否则看起来像没保存
         return loadMachines(true).then(function () { return loadSubNodes(true); });
       })
@@ -1911,6 +1941,7 @@ body.locked .wrap{display:none}
     state.nodes = JSON.parse(JSON.stringify(state.saved || []));
     state.dirty = false;
     render();
+    endMachineEditing();
     setStatus("已撤销未保存的修改", true);
   };
   $("clear-manual").onclick = function () {
