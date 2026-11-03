@@ -974,9 +974,16 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   const firstRow = nodeRows()[0];
   const metaCell = firstRow.children[2];
-  const srcTag = firstRow.children[3];
+  const nlName = metaCell.children[0];
+  const srcTag = nlName && nlName.children ? nlName.children[1] : null;
   check("订阅清单：每行显示节点原串", Boolean(metaCell.children[1]) && /^(vless|vmess|tuic|hysteria2|trojan|ss|ssr|hysteria):\/\//.test(String(metaCell.children[1].textContent)), String(metaCell.children[1] && metaCell.children[1].textContent).slice(0, 40));
   check("订阅清单：手动/上报是带颜色的标签", Boolean(srcTag) && (srcTag.className.indexOf("manual") !== -1 || srcTag.className.indexOf("auto") !== -1), srcTag && srcTag.className);
+  check("订阅清单：来源标签跟节点名同一行", Boolean(nlName) && nlName.children.length === 2 && nlName.children[0].className === "nm", nlName && nlName.children.map((c) => c.className).join("|"));
+  const copyBtn = firstRow.children[3];
+  check("订阅清单：每行右侧有复制按钮", Boolean(copyBtn) && copyBtn.textContent === "复制" && copyBtn.className === "nlcopy", copyBtn && (copyBtn.textContent + " / " + copyBtn.className));
+  let bubbled = false;
+  copyBtn.onclick.call(copyBtn, { stopPropagation: function () { bubbled = true; } });
+  check("订阅清单：复制后变已复制且不触发勾选", copyBtn.textContent === "已复制" && copyBtn.className.indexOf("copied") !== -1 && bubbled, copyBtn.textContent + " / " + copyBtn.className + " / " + bubbled);
   check("订阅链接卡片：链接框独占一列不压按钮", html.includes(".subrow code{flex:1 1 320px") && html.includes('<span class="tip">通用 base64（v2rayN、小火箭等）</span><code id="url-base">'), "");
   check("订阅清单：按机器分组显示", groupHeads().length >= 1, `${groupHeads().length} 组`);
   check("订阅清单：列出节点并默认勾选", nodeRows().length >= 2 && nodeRows().every((row) => !row.className.includes("off")), `${nodeRows().length} 行`);

@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.88";
+const VERSION = "1.66.89";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -269,7 +269,10 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .subnode input{width:15px;height:15px;margin:0;cursor:pointer}
 .subnode .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlmeta{min-width:0;display:grid;gap:2px}
-.subnode .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subnode .nlname{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}
+.subnode .nlname .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subnode .nlname .srctag{flex:0 0 auto}
+.subnode .nlcopy{padding:4px 10px;font-size:12px;line-height:1.5;white-space:nowrap}
 .subnode .nllink{font:11px ui-monospace,Consolas,monospace;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .subnode .nlsrc{text-align:right}
 .nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
@@ -1024,15 +1027,23 @@ body.locked .wrap{display:none}
         };
       }(subKey(node));
       var meta = document.createElement("div"); meta.className = "nlmeta";
-      var label = document.createElement("div"); label.className = "nlname"; label.textContent = node.name || node.link;
-      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link; raw.title = node.link;
-      meta.appendChild(label); meta.appendChild(raw);
+      var label = document.createElement("div"); label.className = "nlname";
+      var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = node.name || node.link;
       var src = document.createElement("span");
-      src.className = "nlsrc srctag " + (node.source === "manual" ? "manual" : "auto");
+      src.className = "srctag " + (node.source === "manual" ? "manual" : "auto");
       src.textContent = node.source === "manual" ? "手动" : "上报";
       src.title = node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
+      label.appendChild(nm); label.appendChild(src);
+      var raw = document.createElement("div"); raw.className = "nllink"; raw.textContent = node.link; raw.title = node.link;
+      meta.appendChild(label); meta.appendChild(raw);
+      var copy = document.createElement("button"); copy.type = "button"; copy.className = "nlcopy"; copy.textContent = "复制";
+      copy.title = "复制这条节点的原串（" + node.link.length + " 字符）";
+      copy.onclick = function (ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        copyToClipboard(node.link); flashButton(copy, "已复制");
+      };
       row.onclick = function () { toggleSubNode(node); };
-      row.appendChild(tick); row.appendChild(tag); row.appendChild(meta); row.appendChild(src);
+      row.appendChild(tick); row.appendChild(tag); row.appendChild(meta); row.appendChild(copy);
       frag.appendChild(row);
     });
     /* 整批插一次，别让浏览器每加一行就重排一遍 */
