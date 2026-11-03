@@ -671,6 +671,29 @@ test("machine list reports the country it parsed out of the name", async () => {
   assert.deepEqual((list.machines || []).map((m) => m.machine), ["hk-1", "dd-us-sje", "小叮当-淡-圣何塞", "我家机器"]);
 });
 
+test("machine name parsing weights the segments instead of taking the first match", async () => {
+  /* 机器名习惯把品牌、编号放最前面，首段那两个字母多半不是国家：
+       my-hk-01  → MY 是马来西亚，但用户想说的是 HK
+       dd-us-sje → DD 压根不是国家
+     所以所有候选都要收齐打分，不能第一个命中就返回。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  const names = ["my-hk-01", "vps-de-1", "sg-jp-1", "圣何塞-sjc", "tokyo-nrt-1", "香港-us-x"];
+  for (const name of names) {
+    await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(name)}`, JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  }
+  const list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  const byName = Object.fromEntries((list.machines || []).map((m) => [m.machine, m.country]));
+  assert.equal(byName["my-hk-01"], "HK", "首段 MY 是干扰项，非首段的 HK 更可信");
+  assert.equal(byName["vps-de-1"], "DE", "vp 不是国家码，落到 de");
+  assert.equal(byName["sg-jp-1"], "JP", "两个都是真国家码时取靠后的那个");
+  assert.equal(byName["圣何塞-sjc"], "US", "中文词和城市码都指向 US");
+  assert.equal(byName["tokyo-nrt-1"], "JP", "城市三字码要能认");
+  assert.equal(byName["香港-us-x"], "HK", "中文地区词权重最高，压过后面的 us");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };

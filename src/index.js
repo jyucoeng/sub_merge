@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.79";
+const VERSION = "1.66.80";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4244,31 +4244,56 @@ const CJK_REGION_KEYWORDS = new Map([
 ]);
 const CJK_REGION_SCAN = [...CJK_REGION_KEYWORDS.entries()].sort((a, b) => b[0].length - a[0].length);
 
+/* 机器名里能认出地区的写法有好几种，可靠程度不一样：
+     中文地区词（圣何塞）> 城市三字码（SJC）> ISO 三字国名（USA）> 两字国家码
+   两字码还要看位置——机器名习惯把品牌或编号放最前面（dd-us-sje、vps-de-1），
+   首段的两字码很可能压根不是国家（dd、vp）。所以不取第一个命中的就返回，
+   而是把所有候选收齐按可信度打分，取最高的那个。 */
+const REGION_SEG_SCORES = { cjk: 90, city: 85, iso3: 80, cc2Tail: 70, cjkScan: 60, cc2Head: 45 };
+
 function asciiCountryCode(part) {
   const first = String(part || "").toUpperCase();
   if (!first) return "";
   if (first === "UK") return "GB";
   if (first === "EL") return "GR";
   if (MACHINE_ALIASES[first]) return MACHINE_ALIASES[first];
-  /* 两位码不能见到就当国家：dd-us-sje 的 "dd" 是机器名前缀，不是国家 */
   if (first.length === 2) return COUNTRY_REGION[first] ? first : "";
   if (first.length === 3) return ISO3_TO_ALPHA2[first] || "";
   return "";
 }
 
-function countryCodeOf(machine) {
+/* 把机器名拆开，逐段打分，返回全部候选 */
+function regionCandidates(machine) {
   const name = String(machine || "");
-  // 先按分隔符切段，段内精确匹配（hk-洛杉矶 → HK，洛杉矶-小叮当 → US）
-  for (const seg of name.split(/[-_.\s]+/)) {
-    if (!seg) continue;
+  const out = [];
+  const segs = name.split(/[-_.\s]+/).filter(Boolean);
+  segs.forEach(function (seg, i) {
     const cjk = CJK_REGION_KEYWORDS.get(seg);
-    if (cjk) return cjk;
-    const ascii = asciiCountryCode(seg);
-    if (ascii) return ascii;
+    if (cjk) { out.push({ code: cjk, score: REGION_SEG_SCORES.cjk, at: i }); return; }
+    const up = seg.toUpperCase();
+    if (MACHINE_ALIASES[up]) { out.push({ code: MACHINE_ALIASES[up], score: REGION_SEG_SCORES.city, at: i }); return; }
+    if (up.length === 3 && ISO3_TO_ALPHA2[up]) { out.push({ code: ISO3_TO_ALPHA2[up], score: REGION_SEG_SCORES.iso3, at: i }); return; }
+    if (up.length === 2) {
+      const code = up === "UK" ? "GB" : (up === "EL" ? "GR" : up);
+      if (COUNTRY_REGION[code]) {
+        out.push({ code, score: i === 0 ? REGION_SEG_SCORES.cc2Head : REGION_SEG_SCORES.cc2Tail, at: i });
+      }
+    }
+  });
+  /* 整串里藏着中文地区词（小叮当洛杉矶，没有分隔符可切） */
+  if (!out.some(function (c) { return c.score >= REGION_SEG_SCORES.cc2Tail; })) {
+    for (const [kw, code] of CJK_REGION_SCAN) {
+      if (name.includes(kw)) { out.push({ code, score: REGION_SEG_SCORES.cjkScan, at: 99 }); break; }
+    }
   }
-  // 兜底：整串里包含中文地区词（小叮当洛杉矶）
-  for (const [kw, code] of CJK_REGION_SCAN) if (name.includes(kw)) return code;
-  return "";
+  return out;
+}
+
+function countryCodeOf(machine) {
+  const list = regionCandidates(machine);
+  if (!list.length) return "";
+  list.sort(function (a, b) { return b.score - a.score || a.at - b.at; });
+  return list[0].code;
 }
 
 function defaultMachineRank(machine) {
