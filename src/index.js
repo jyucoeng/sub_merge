@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.98";
+const VERSION = "1.66.99";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -165,6 +165,8 @@ textarea:focus{border-color:var(--acc)}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
+.flag-img{width:18px;height:13px;object-fit:cover;border-radius:2px;vertical-align:-2px;box-shadow:0 0 0 1px rgba(0,0,0,.14)}
+.flag-img.failed{display:none}
 .srctag.geo{color:var(--fg2);background:transparent;border-color:var(--line)}
 .srctag.geo.none{color:var(--fg3);border-style:dashed}
 .machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;scroll-margin-top:14px}
@@ -1699,6 +1701,19 @@ body.locked .wrap{display:none}
     return _flagEmojiOk;
   }
 
+  /* 系统没有国旗 emoji 时（Windows 的 Segoe UI Emoji 不收录国旗、Linux 常缺
+     Noto Color Emoji）用图片兜底。flagcdn 走 Cloudflare，只有尺寸 20px 的小图，
+     加载失败就把 img 隐藏、原样显示国家码，绝不打扰布局。 */
+  function flagImage(code) {
+    var im = document.createElement("img");
+    im.className = "flag-img";
+    im.alt = "";
+    im.loading = "lazy";
+    im.src = "https://flagcdn.com/w20/" + String(code || "").toLowerCase() + ".png";
+    im.onerror = function () { im.className = "flag-img failed"; };
+    return im;
+  }
+
   function flagOf(code) {
     var t = String(code || "").toUpperCase();
     if (!/^[A-Z]{2}$/.test(t)) return "";
@@ -1731,7 +1746,12 @@ body.locked .wrap{display:none}
       if (m.country) {
         geo.className = "srctag geo";
         var _flag = flagOf(m.country);
-        geo.textContent = _flag ? _flag + " " + m.country : m.country;
+        if (_flag) {
+          geo.textContent = _flag + " " + m.country;
+        } else {
+          geo.appendChild(flagImage(m.country));
+          geo.appendChild(document.createTextNode(" " + m.country));
+        }
         geo.title = "从机器名里认出的地区：" + m.country + "，默认排序按它排";
       } else {
         geo.className = "srctag geo none";
