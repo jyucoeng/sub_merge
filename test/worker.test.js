@@ -502,6 +502,25 @@ test("short links pointing at a deleted preset are cleaned up too", async () => 
   assert.equal(codes.includes("whole001"), true, "全量订阅的短链留着");
 });
 
+test("a members preset survives the machine being deleted", async () => {
+  /* members 档案勾的是节点副本，跟机器名无关。机器删了它就变成空订阅（200 但没内容），
+     这是留个空壳等节点回来，不该跟着删。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/m1", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "PUT", "/api/v1/presets/keep", JSON.stringify({ members: [link], mode: "members", create: true }), jsonAuth);
+
+  const res = await call(env, "DELETE", "/api/v1/machines/m1", null, auth);
+  const data = await res.json();
+  assert.deepEqual(data.presets, [], "members 档案不跟着删");
+
+  const after = await (await call(env, "GET", "/api/v1/presets", null, auth)).json();
+  const names = (after.presets || []).map((p) => p.name);
+  assert.equal(names.includes("keep"), true, "档案还在，等节点回来");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
