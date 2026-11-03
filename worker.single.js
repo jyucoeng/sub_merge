@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.96";
+const VERSION = "1.66.97";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3566,8 +3566,19 @@ async function deleteSource(env, machine, source) {
 async function report(request, env, machine) {
   const expected = reportToken(env);
   if (!expected) return missingConfig("SUB_TOKEN");
-  /* 机器被改过名时，脚本还报旧名，这里顺着改名记录落到现在的机器上 */
-  machine = resolveFormer(await loadFormerMap(env), machine);
+  /* 机器被改过名时，脚本还报旧名，这里顺着改名记录落到现在的机器上。
+     新实例没跑过 /api/v1/admin/schema 时 machine_former 还不存在，这里会炸成
+     500「internal error」，而脚本那头只印得出 HTTP 状态码，根本看不出是缺表。
+     就地补建一次表再重读；还是不行就把原始错误抛出去。 */
+  let formerMap;
+  try {
+    formerMap = await loadFormerMap(env);
+  } catch (error) {
+    if (!/no such table/i.test(String((error && error.message) || error))) throw error;
+    await initSchema(env);
+    formerMap = await loadFormerMap(env);
+  }
+  machine = resolveFormer(formerMap, machine);
   // 上报只认上报凭证；配了 REPORT_TOKEN 后 TOKEN 不再能上报，避免订阅链接泄露就能写数据
   if (!checkBearer(request, expected)) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
