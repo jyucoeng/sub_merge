@@ -355,6 +355,38 @@ test("same-named nodes still yield unique clash and singbox names", async () => 
   assert.equal(new Set(names).size, 2, "clash 的 proxy name 也必须唯一");
 });
 
+test("a node turned manual keeps its protocol slot but sits ahead of reported peers", async () => {
+  /* 一台上报机器里把某一协议转成手动：整体顺序仍是协议字母序，
+     但同一个协议里手动那条要排在上报的同类前面。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const vless = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-上报";
+  const hy2 = "hysteria2://pw@2.2.2.2:443?sni=a.com#hy2-上报";
+  const tuic = "tuic://u:p@4.4.4.4:443?sni=a.com#tuic-上报";
+  await call(env, "POST", "/api/v1/report/mix", b64([vless, hy2, tuic].join("\n")), auth);
+
+  const names = async () => {
+    const text = unb64(await (await call(env, "GET", `/sub/mix/${TOKEN}`)).text());
+    return text.split("\n").filter(Boolean).map((line) => {
+      const h = line.indexOf("#");
+      return h >= 0 ? decodeURIComponent(line.slice(h + 1)) : line.slice(0, 24);
+    });
+  };
+  assert.deepEqual(await names(), ["hy2-上报", "tuic-上报", "vless-上报"], "上报时按协议字母序");
+
+  /* 转成手动：link 一模一样，等于把手动层盖上去 */
+  await call(env, "PUT", "/api/v1/nodes/mix", JSON.stringify({ nodes: [{ link: vless, name: "vless-手动" }] }), {
+    ...auth, "content-type": "application/json",
+  });
+  assert.deepEqual(await names(), ["hy2-上报", "tuic-上报", "vless-手动"], "不能重复、不能丢，位置按协议");
+
+  /* 同协议里手动那条要在上报的同类前面 */
+  const vless2 = "vless://22222222-2222-4222-8222-222222222222@9.9.9.9:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-第二条";
+  await call(env, "POST", "/api/v1/report/mix", b64([vless, hy2, tuic, vless2].join("\n")), auth);
+  assert.deepEqual(await names(), ["hy2-上报", "tuic-上报", "vless-手动", "vless-第二条"],
+    "同为 vless 时手动那条排前面");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
