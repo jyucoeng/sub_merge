@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.90";
+const VERSION = "1.66.91";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -278,8 +278,8 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlmeta{min-width:0;display:grid;gap:2px}
 .subnode .nlname{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}
 .subnode .nlname .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.subnode .nlname .srctag{flex:0 0 auto}
-.subnode .nlcopy{padding:4px 10px;font-size:12px;line-height:1.5;white-space:nowrap}
+.subnode .nlname .srctag{flex:0 0 auto;font-size:10.5px;line-height:1.6;padding:0 6px;border-radius:4px;letter-spacing:.02em}
+.subnode .nlcopy{white-space:nowrap}
 .subnode .nllink{font:11px ui-monospace,Consolas,monospace;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .subnode .nlsrc{text-align:right}
 .nlrow{display:grid;grid-template-columns:20px 76px minmax(0,1fr) 42px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
