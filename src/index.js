@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.94";
+const VERSION = "1.66.95";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1381,9 +1381,19 @@ body.locked .wrap{display:none}
       raw.title = hit.node.link || "";
       meta.appendChild(nm); meta.appendChild(raw);
       row.appendChild(box); row.appendChild(tag); row.appendChild(meta);
+      /* 第四列二选一：在订阅里的给复制按钮，不在的给「没在订阅里」提示。
+         两者同时出现会把这一列撑得很宽，而且停用的节点本来也不该进档案。 */
       if (!inMaster) {
         var off = document.createElement("span"); off.className = "nlsrc"; off.textContent = "没在订阅里"; off.title = "这条在主订阅里被关掉了，所以不会进这个档案；想让它进来先去「订阅中的节点」勾上";
         row.appendChild(off);
+      } else {
+        var copy = document.createElement("button"); copy.type = "button"; copy.className = "nlcopy"; copy.textContent = "复制";
+        copy.title = "复制这条节点的原串（" + String(hit.node.link || "").length + " 字符）";
+        copy.onclick = function (ev) {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          copyToClipboard(hit.node.link || ""); flashButton(copy, "已复制");
+        };
+        row.appendChild(copy);
       }
       list.appendChild(row);
     });

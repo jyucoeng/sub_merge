@@ -1365,6 +1365,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const peSrc = checkedRow.children[2].children[0].children[1];
   check("订阅档案：提前勾好的就是档案里那条", peName.textContent === "档案-hy2", peName.textContent);
   check("订阅档案：节点名后面也带来源标签", Boolean(peSrc) && /srctag/.test(String(peSrc.className)) && peSrc.textContent.length > 0, peSrc && (peSrc.textContent + " / " + peSrc.className));
+  const peCopy = checkedRow.children[3];
+  check("订阅档案：在订阅里的节点有复制按钮", Boolean(peCopy) && peCopy.className === "nlcopy" && peCopy.textContent === "复制", peCopy && (peCopy.textContent + " / " + peCopy.className));
+  let peBubbled = false;
+  peCopy.onclick.call(peCopy, { stopPropagation: function () { peBubbled = true; } });
+  check("订阅档案：复制后变已复制", peCopy.textContent === "已复制" && peCopy.className.indexOf("copied") !== -1 && peBubbled, peCopy.textContent + " / " + peCopy.className);
   check("订阅档案：没改动时未保存标签隐藏", el("pe-badge").style.display === "none", el("pe-badge").style.display + "/" + el("pe-badge").textContent);
   const firstBox = peRows().filter((r) => r.children[0].checked)[0].children[0];
   firstBox.checked = false;
