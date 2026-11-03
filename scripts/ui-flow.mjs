@@ -293,8 +293,9 @@ check("新建机器：列表出现且标手动", text("machine-list").includes("
   /* 本环境没有国旗 emoji，就该退到图片：img.flag-img 的 src 指向对应国家码 */
   const walk = (n, out = []) => { (n.children || []).forEach((c) => { out.push(c); walk(c, out); }); return out; };
   const flags = walk(el("machine-list")).filter((n) => n.className === "flag-img");
-  check("地区标签：退到图片旗子", flags.length > 0 && flags.every((n) => /flagcdn\.com\/w20\/[a-z]{2}\.png$/.test(n.src)),
-    flags.length ? flags[0].src : "没有 flag-img");
+  /* 旗子必须是内联 data URI：页面 CSP 只允许 img-src 'self' data:，外链会被拦 */
+  check("地区标签：退到内联图片旗子", flags.length > 0 && flags.every((n) => /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(n.src)),
+    flags.length ? flags[0].src.slice(0, 40) : "没有 flag-img");
 }
 check("新建机器：节点区两行", nodeRows().length === 2, `rows=${nodeRows().length}`);
 check("新建机器：#片段自动成名字", names()[0] === "小叮当-洛杉矶-cloudnium-hy2-localhost", names()[0]);
