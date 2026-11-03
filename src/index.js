@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.69";
+const VERSION = "1.66.70";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1628,8 +1628,11 @@ body.locked .wrap{display:none}
       var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger"; delM.textContent = "×"; delM.title = "删除该机器";
       delM.onclick = function () {
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
-        api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function () {
-          var tip = $("order-status"); tip.textContent = "已删除 " + m.machine; tip.className = "status ok";
+        api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function (data) {
+          var tip = $("order-status");
+          var gone = (data && data.presets) || [];
+          tip.textContent = "已删除 " + m.machine + (gone.length ? "；同时删掉了只含它的档案：" + gone.join("、") : "");
+          tip.className = "status ok";
           /* 删掉的正好是正在编辑的那台：先断开引用，否则下面 loadNodes 会拿一个
              已经不存在的机器名去请求。renderMachines 那边会自动落到第一台。 */
           if (state.editingMachine === m.machine) state.editingMachine = "";
@@ -4168,15 +4171,28 @@ async function deleteMachine(env, machine) {
     }
   }
 
-  /* 按机器名筛选的档案：把这个名字从筛选列表里摘掉，别留个永远匹配不到的空位 */
+  /* 按机器名筛选的档案：把这个名字从筛选列表里摘掉，别留个永远匹配不到的空位。
+     摘完什么都不剩的（没有别的机器、也没有单独勾过的节点），这条档案就是个空订阅，
+     留着只会发出一条 200 但没内容的链接，一起删掉。 */
+  const orphanPresets = [];
   const db = dbEnv(env);
   if (db) {
-    const rows = await db.prepare("SELECT name, machines FROM presets").all();
+    const rows = await db.prepare("SELECT name, machines, members, mode FROM presets").all();
     for (const row of (rows && rows.results) || []) {
       const list = String(row.machines || "").split("\u0001").filter(Boolean);
       if (!list.includes(machine)) continue;
+      const left = list.filter((x) => x !== machine);
+      const members = String(row.members || "").split("\u0001").filter(Boolean);
+      /* 非 members 模式下，「按机器筛选」靠的就是这个 machines 列表。
+         一旦把它摘空，servePreset 里的判断会变成 records = 全部机器——
+         订阅会从「只含这几台」悄悄变成「全站所有节点」，比空订阅还危险。
+         所以摘空即删除，不留。 */
+      if (!left.length && String(row.mode || "") !== "members") {
+        orphanPresets.push(row.name);
+        continue;
+      }
       await db.prepare("UPDATE presets SET machines = ?1, updated_at = ?2 WHERE name = ?3")
-        .bind(list.filter((x) => x !== machine).join("\u0001"), new Date().toISOString(), row.name).run();
+        .bind(left.join("\u0001"), new Date().toISOString(), row.name).run();
     }
   }
 
@@ -4188,9 +4204,12 @@ async function deleteMachine(env, machine) {
   }
   if (touched) await saveFormerMap(env, former);
 
+  /* 空掉的档案连同它的短链一起删（短链跟着档案走，留着会指向 404） */
+  for (const name of orphanPresets) await deletePreset(env, name);
+
   /* 订阅正文是拼好的缓存，机器没了必须重拼，否则还发得出这台机器的节点 */
   SUB_CACHE.clear();
-  return json({ ok: true, deleted: machine });
+  return json({ ok: true, deleted: machine, presets: orphanPresets });
 }
 
 function internalError(err) {

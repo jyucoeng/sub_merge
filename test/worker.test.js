@@ -76,8 +76,8 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
-    if (/^SELECT name, machines FROM presets$/i.test(this.sql)) {
-      const results = [...this.db.presets.values()].map((r) => ({ name: r.name, machines: r.machines }));
+    if (/^SELECT name, machines, members, mode FROM presets$/i.test(this.sql)) {
+      const results = [...this.db.presets.values()].map((r) => ({ name: r.name, machines: r.machines, members: r.members, mode: r.mode }));
       return { results, success: true, meta: { changes: 0 } };
     }
     if (/^SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC$/i.test(this.sql)) {
@@ -448,6 +448,33 @@ test("deleting a machine also clears the settings keyed by its name", async () =
   assert.equal(res.status, 200);
   assert.equal(env.DB.settings.has("protocols:tmp"), false, "协议筛选要跟着删掉");
   assert.equal(env.DB.machines.has("tmp"), false);
+});
+
+test("deleting a machine drops the preset that only pointed at it", async () => {
+  /* 非 members 模式下，「只含这几台机器」就是靠 machines 列表实现的。
+     摘空之后 servePreset 会退化成「全部机器」，订阅从「只含一台」变成「全站」，
+     比空订阅更危险——所以摘空即删。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/only", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "PUT", "/api/v1/nodes/other", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "PUT", "/api/v1/presets/lonely", JSON.stringify({ machines: ["only"], create: true }), jsonAuth);
+  await call(env, "PUT", "/api/v1/presets/both", JSON.stringify({ machines: ["only", "other"], create: true }), jsonAuth);
+
+  const before = await (await call(env, "GET", "/api/v1/presets", null, auth)).json();
+  assert.deepEqual((before.presets || []).map((p) => p.name).sort(), ["both", "lonely"]);
+
+  const res = await call(env, "DELETE", "/api/v1/machines/only", null, auth);
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(data.presets, ["lonely"], "只含这一台机器的档案要一起删掉");
+
+  const after = await (await call(env, "GET", "/api/v1/presets", null, auth)).json();
+  assert.deepEqual((after.presets || []).map((p) => p.name), ["both"], "还有别的机器的档案留着");
+  const both = (after.presets || [])[0];
+  assert.deepEqual(both.machines, ["other"], "档案里只剩另一台机器，不能变成空的");
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {
