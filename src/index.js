@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.67";
+const VERSION = "1.66.68";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -287,7 +287,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。机器名只是分组标签，与节点真实归属无关，可随时重命名。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。<b>机器名是上报脚本认的标识</b>：改名之后旧名仍然收得到上报（服务端会转到现在这个名字上），但还是建议把脚本里的机器名一起改掉，否则以后只留个旧名在这边挂着。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -1937,6 +1937,14 @@ body.locked .wrap{display:none}
     var problem = machineNameProblem(to);
     if (problem) return setStatus(problem, false);
     var old = state.current;
+    var mine = null;
+    (state.machines || []).forEach(function (m) { if (m.machine === old) mine = m; });
+    var reporting = mine && (mine.auto_nodes || 0) > 0;
+    if (reporting && !window.confirm(
+      "「" + old + "」正在被上报（" + mine.auto_nodes + " 个上报节点）。\\n\\n"
+      + "上报脚本里的机器名改不到这边，改名之后脚本还会报 " + old + "。\\n"
+      + "服务端会把它转给 " + to + "，节点不会丢；但记得有空把脚本里的机器名也改成 " + to + "。\\n\\n确定改名？"
+    )) return;
     api("/machines/" + encodeURIComponent(old) + "/rename", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: to })
     }).then(function (data) {
@@ -2914,6 +2922,41 @@ async function putSetting(env, key, value) {
   ).bind(key, value).run();
 }
 
+async function deleteSetting(env, key) {
+  const db = dbEnv(env);
+  if (!db) return;
+  await db.prepare("DELETE FROM settings WHERE key = ?1").bind(key).run();
+}
+
+/* 改过名的机器：旧名 → 现在的名字。
+ * 上报脚本里的机器名是写死在 submerge.conf 里的，UI 这边改名不可能同步到那台机器上去。
+ * 不接这一层，改名之后脚本还在往旧名上报，服务端 loadRecord 查不到就当成新机器重建一台，
+ * 结果同一台机器裂成两个条目——历史节点在一半、新上报在另一半。
+ * 所以改名时把旧名记下来，上报撞上旧名就顺着找到现在的机器。 */
+const FORMER_KEY = "machine_former";
+
+async function loadFormerMap(env) {
+  const raw = await getSetting(env, FORMER_KEY);
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch { return {}; }
+}
+
+async function saveFormerMap(env, map) {
+  if (!Object.keys(map).length) { await deleteSetting(env, FORMER_KEY); return; }
+  await putSetting(env, FORMER_KEY, JSON.stringify(map));
+}
+
+/* 顺着改名链一路跟下去：A→B→C 之后，往 A 上报也要落到 C */
+function resolveFormer(map, machine) {
+  let cur = machine;
+  const seen = new Set([cur]);
+  while (map[cur] && !seen.has(map[cur])) { cur = map[cur]; seen.add(cur); }
+  return cur;
+}
+
 /* 协议筛选：每台机器可以只让部分协议进订阅。存在 settings 表里，key = protocols:<machine>，
  * value = JSON 数组（协议 kind）；空数组 / 没有记录 = 全部显示。不碰 machines 表，老库无需迁移。 */
 const PROTOCOL_KEY_PREFIX = "protocols:";
@@ -3259,6 +3302,8 @@ async function deleteSource(env, machine, source) {
 async function report(request, env, machine) {
   const expected = reportToken(env);
   if (!expected) return missingConfig("SUB_TOKEN");
+  /* 机器被改过名时，脚本还报旧名，这里顺着改名记录落到现在的机器上 */
+  machine = resolveFormer(await loadFormerMap(env), machine);
   // 上报只认上报凭证；配了 REPORT_TOKEN 后 TOKEN 不再能上报，避免订阅链接泄露就能写数据
   if (!checkBearer(request, expected)) return unauthorized();
   if (!dbEnv(env)) return missingConfig("DB");
@@ -3878,6 +3923,11 @@ async function putNodeConfig(request, env, machine) {
   }
   const old = await loadRecord(env, machine);
   if (!old && MACHINE_STATUS_SUFFIX.test(machine)) return json({ ok: false, error: MACHINE_STATUS_ERROR }, 400);
+  if (!old) {
+    /* 新建机器时如果用的是某个旧名，说明用户就是要这个名字，别再转给改名后的那台 */
+    const former = await loadFormerMap(env);
+    if (former[machine]) { delete former[machine]; await saveFormerMap(env, former); }
+  }
   const manualNodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [], inputs);
   const updatedAt = new Date().toISOString();
   // 手动节点写进 manual_nodes_json，上报内容（content/nodes_json）一个字都不动
@@ -3934,6 +3984,12 @@ async function renameMachine(request, env, machine) {
     order[idx] = to;
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
+  /* 旧名留给上报用：脚本那边改不了，只能这边认。之前指向旧名的链也要顺下去 */
+  const former = await loadFormerMap(env);
+  delete former[to];
+  for (const k of Object.keys(former)) if (former[k] === machine) former[k] = to;
+  former[machine] = to;
+  await saveFormerMap(env, former);
   const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
@@ -4083,6 +4139,12 @@ async function deleteMachine(env, machine) {
   await deleteReports(env, machine);
   const order = await getMachineOrder(env);
   if (order.includes(machine)) await putSetting(env, "machine_order", JSON.stringify(order.filter((m) => m !== machine)));
+  const former = await loadFormerMap(env);
+  let touched = false;
+  for (const k of Object.keys(former)) {
+    if (former[k] === machine || k === machine) { delete former[k]; touched = true; }
+  }
+  if (touched) await saveFormerMap(env, former);
   return json({ ok: true, deleted: machine });
 }
 

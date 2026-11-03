@@ -387,6 +387,42 @@ test("a node turned manual moves to the manual block, ahead of every reported no
     "手动段整段在前，上报段自己按协议排");
 });
 
+test("renaming a machine keeps accepting reports sent to the old name", async () => {
+  /* 上报脚本里的机器名是写死的，UI 改名同步不到那台机器上去。
+     改名后脚本还报旧名，必须落到改名后的机器，不能凭空多一台。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  await call(env, "POST", "/api/v1/report/old-name?source=a", b64("vless://a@1.1.1.1:443#n1"), auth);
+  await call(env, "POST", "/api/v1/machines/old-name/rename", JSON.stringify({ to: "new-name" }), jsonAuth);
+
+  let res = await call(env, "POST", "/api/v1/report/old-name?source=b", b64("vless://b@2.2.2.2:443#n2"), auth);
+  const data = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(data.machine, "new-name", "旧名上报要落到改名后的机器");
+
+  const list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  const names = (list.machines || []).map((m) => m.machine);
+  assert.deepEqual(names, ["new-name"], "不能多出一台旧名的机器");
+  const rec = (await call(env, "GET", "/api/v1/nodes/new-name", null, auth)).json();
+  const nodes = await rec;
+  assert.equal((nodes.auto_nodes || []).length, 2, "两个来源的内容都要在");
+});
+
+test("creating a machine with an old name cancels the redirect", async () => {
+  /* 用户显式拿旧名新建机器，说明就是要用这个名字，不能还被转到改名后的那台 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  await call(env, "POST", "/api/v1/report/old2?source=a", b64("vless://a@1.1.1.1:443#n1"), auth);
+  await call(env, "POST", "/api/v1/machines/old2/rename", JSON.stringify({ to: "new2" }), jsonAuth);
+  await call(env, "PUT", "/api/v1/nodes/old2", JSON.stringify({ nodes: [] }), jsonAuth);
+
+  const res = await call(env, "POST", "/api/v1/report/old2?source=a", b64("vless://c@3.3.3.3:443#n3"), auth);
+  const data = await res.json();
+  assert.equal(data.machine, "old2", "撤销重定向之后旧名是独立的机器");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
