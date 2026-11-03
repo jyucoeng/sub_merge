@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.66";
+const VERSION = "1.66.67";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -127,7 +127,7 @@ const UI_HTML = `<!doctype html>
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
 .wrap{max-width:1180px;margin:28px auto 50px;padding:0 18px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
 h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas,monospace;border:1px solid var(--line);padding:3px 8px;border-radius:8px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px;box-shadow:0 1px 4px var(--shadow)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px;box-shadow:0 1px 4px var(--shadow)}.card.card-flash{animation:cardFlash 4s ease-in-out 1}@keyframes cardFlash{0%,100%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}10%,42%{border-color:var(--acc);box-shadow:0 0 0 3px rgba(37,99,235,.45),0 0 30px 6px rgba(37,99,235,.38)}26%,58%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}74%{border-color:var(--acc);box-shadow:0 0 0 2px rgba(37,99,235,.30),0 0 18px 2px rgba(37,99,235,.22)}}
 .card h2{font-size:17px;margin:0 0 12px}.tip{font-size:12px;color:var(--sub);font-weight:400}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.row label{color:var(--sub);font-size:13px}
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
@@ -1661,6 +1661,23 @@ body.locked .wrap{display:none}
     if (!box) return;
     try { box.scrollIntoView({ block: "start", behavior: "smooth" }); }
     catch (e) { try { box.scrollIntoView(); } catch (e2) {} }
+    flashNodeCard();
+  }
+  /* 滚过去之后整块「节点配置」亮一下：连续点同一台机器的按钮也要重新亮，
+     所以先摘掉 class、强制重排、再加回去。 */
+  function flashNodeCard() {
+    var el = $("nodes");
+    var card = (el && el.closest) ? el.closest(".card") : null;
+    if (!card) return;
+    card.classList.remove("card-flash");
+    /* 读一次 offsetWidth 让浏览器认账，否则同一个 class 加了等于没加 */
+    void card.offsetWidth;
+    card.classList.add("card-flash");
+    if (card._flashTimer) clearTimeout(card._flashTimer);
+    card._flashTimer = setTimeout(function () {
+      card.classList.remove("card-flash");
+      card._flashTimer = null;
+    }, 4200);
   }
   /* 编辑结束（保存 / 撤销 / 换机器）：按钮恢复成「编辑节点」 */
   function endMachineEditing() {

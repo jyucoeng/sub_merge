@@ -70,6 +70,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* ---------------- DOM 壳 ---------------- */
 class El {
   constructor(tag) {
+    this.parentNode = null;
     this.tagName = String(tag || "div").toUpperCase();
     this.children = [];
     this._text = "";
@@ -84,7 +85,28 @@ class El {
     this.style = {};
     this._listeners = {};
   }
-  appendChild(c) { this.children.push(c); return c; }
+  appendChild(c) { if (c) c.parentNode = this; this.children.push(c); return c; }
+  /* mock 里也要有 closest：编辑节点后要给整张卡片加发光 class */
+  closest(sel) {
+    let n = this;
+    while (n) {
+      const cls = String(n.className || "").split(/\s+/).filter(Boolean);
+      if (sel.startsWith(".") ? cls.includes(sel.slice(1))
+        : sel.startsWith("#") ? n.id === sel.slice(1)
+        : n.tagName === String(sel).toUpperCase()) return n;
+      n = n.parentNode;
+    }
+    return null;
+  }
+  get classList() {
+    const self = this;
+    return {
+      add(c) { const set = new Set(String(self.className || "").split(/\s+/).filter(Boolean)); set.add(c); self.className = Array.from(set).join(" "); },
+      remove(c) { const set = new Set(String(self.className || "").split(/\s+/).filter(Boolean)); set.delete(c); self.className = Array.from(set).join(" "); },
+      contains(c) { return String(self.className || "").split(/\s+/).includes(c); },
+      toggle(c, on) { if (on === undefined ? this.contains(c) : on) this.remove(c); else this.add(c); },
+    };
+  }
   removeChild(c) { this.children = this.children.filter((x) => x !== c); return c; }
   set innerHTML(v) { this._html = String(v || ""); if (!v) this.children = []; }
   get innerHTML() { return this._html; }
@@ -98,6 +120,7 @@ class El {
   addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); }
   focus() {}
   select() {}
+  get offsetWidth() { return 1; }
 }
 
 const elements = {};
@@ -402,9 +425,15 @@ check("保存排序：提示", text("order-status").includes("机器顺序已保
 // H. 重命名（保留节点与排序位）
 {
   const row = findMachineRow("香港-小叮当");
+  /* 给 #nodes 造一条父链，让 closest(".card") 能找到那张卡片 */
+  const flashCard = new El("section"); flashCard.className = "card";
+  const flashSec = new El("div"); flashSec.className = "nsec";
+  flashCard.appendChild(flashSec); flashSec.appendChild(el("nodes"));
+
   row.children[5].onclick(); // 编辑节点
   await idle();
   check("编辑节点：载入已保存的 2 条", nodeRows().length === 2, `rows=${nodeRows().length}`);
+  check("编辑节点：整张节点配置卡片发光", flashCard.classList.contains("card-flash"), flashCard.className);
   {
     /* 点完按钮要变成「编辑中」，让人知道现在编辑的是这台机器的节点 */
     const again = findMachineRow("香港-小叮当");
