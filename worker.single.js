@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.85";
+const VERSION = "1.66.86";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -190,7 +190,7 @@ textarea:focus{border-color:var(--acc)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
-.mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--warnink);background:var(--warnbg);border:1px solid var(--warnline);border-left:3px solid var(--warnink);border-radius:8px;padding:8px 11px}
+.mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px}
 .mlist-head button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--sub);cursor:pointer}
 .mlist-head button:hover{border-color:var(--acc);color:var(--acc)}
 .mlist-head button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
