@@ -10,7 +10,7 @@
  *       GET  /sub/all/:token                 全部机器
  *       GET  /sub/:token                     全部机器简写
  * 格式：?format=clash|singbox|base64，或 ?clash / ?singbox / ?b64
- * WebUI：GET /ui/:token
+ * WebUI：GET /ui（入口路径可用 UI_PATH 改，例如 /x7q-entry）
  * API：GET/PUT /api/v1/nodes/:machine
  *      POST /api/v1/machines/:machine/reset
  *      POST /api/v1/admin/schema            建表（幂等）
@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.102";
+const VERSION = "1.66.103";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2824,7 +2824,8 @@ async function handleRequest(request, env) {
       storage: "d1",
       subscription_base: baseUrl(request),
       formats: ["base64", "clash", "proxies", "singbox"],
-      ui: "/ui",
+      // 入口路径可被 UI_PATH 改掉，别在这里写死
+      ui: normalizeUiPath(env && env.UI_PATH),
       endpoints: [
         "POST /api/v1/report/:machine",
         "GET /sub/:machine/:token",
