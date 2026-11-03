@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.91";
+const VERSION = "1.66.94";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -278,7 +278,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlmeta{min-width:0;display:grid;gap:2px}
 .subnode .nlname{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}
 .subnode .nlname .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.subnode .nlname .srctag{flex:0 0 auto;font-size:10.5px;line-height:1.6;padding:0 6px;border-radius:4px;letter-spacing:.02em}
+.subnode .nlname .srctag{flex:0 0 auto;font-size:10.5px;line-height:1.6;padding:0 6px;border-radius:4px;letter-spacing:.02em;text-decoration:none}
 .subnode .nlcopy{white-space:nowrap}
 .subnode .nllink{font:11px ui-monospace,Consolas,monospace;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .subnode .nlsrc{text-align:right}
@@ -1376,7 +1376,13 @@ body.locked .wrap{display:none}
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var nm = document.createElement("div"); nm.className = "nlname";
-      nm.textContent = hit.node.name || "（无名）";
+      var nmText = document.createElement("span"); nmText.className = "nm";
+      nmText.textContent = hit.node.name || "（无名）";
+      var src = document.createElement("span");
+      src.className = "srctag " + (hit.node.source === "manual" ? "manual" : "auto");
+      src.textContent = hit.node.source === "manual" ? "手动" : "上报";
+      src.title = hit.node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
+      nm.appendChild(nmText); nm.appendChild(src);
       var raw = document.createElement("div"); raw.className = "nllink";
       raw.textContent = hit.node.link || "";
       raw.title = hit.node.link || "";

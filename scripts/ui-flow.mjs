@@ -1361,7 +1361,10 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[3].children[0].textContent === "编辑中" && String(presets()[0].children[3].children[0].className).indexOf("editing") >= 0, presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
   check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[3].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[3].children[0].textContent).join(","));
   const checkedRow = peRows().filter((r) => r.children[0].checked)[0];
-  check("订阅档案：提前勾好的就是档案里那条", checkedRow.children[2].children[0].textContent === "档案-hy2", checkedRow.children[2].children[0].textContent);
+  const peName = checkedRow.children[2].children[0].children[0];
+  const peSrc = checkedRow.children[2].children[0].children[1];
+  check("订阅档案：提前勾好的就是档案里那条", peName.textContent === "档案-hy2", peName.textContent);
+  check("订阅档案：节点名后面也带来源标签", Boolean(peSrc) && /srctag/.test(String(peSrc.className)) && peSrc.textContent.length > 0, peSrc && (peSrc.textContent + " / " + peSrc.className));
   check("订阅档案：没改动时未保存标签隐藏", el("pe-badge").style.display === "none", el("pe-badge").style.display + "/" + el("pe-badge").textContent);
   const firstBox = peRows().filter((r) => r.children[0].checked)[0].children[0];
   firstBox.checked = false;
