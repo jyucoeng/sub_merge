@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.76";
+const VERSION = "1.66.77";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -178,6 +178,11 @@ textarea:focus{border-color:var(--acc)}
 .fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 .fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink)}
+.mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
+.mlist-head .lab{color:var(--sub);opacity:.85}
+.mlist-head button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--sub);cursor:pointer}
+.mlist-head button:hover{border-color:var(--acc);color:var(--acc)}
+.mlist-head button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
 .clash-head{display:grid;gap:7px;font-size:11px;color:#8b98a5;padding:0 2px 4px}
@@ -298,6 +303,7 @@ body.locked .wrap{display:none}
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
+<div class="mlist-head" id="mlist-head"></div>
 <div id="machine-list" class="machine-list"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
 <div id="order-status" class="status"></div>
@@ -419,7 +425,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -1686,6 +1692,7 @@ body.locked .wrap{display:none}
       row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(up); row.appendChild(down); row.appendChild(edit); row.appendChild(delM);
       box.appendChild(row);
     });
+    paintSortHead();
   }
   /* 从机器列表跳到下面的节点配置。滚到「① 手动节点」那一段的开头，
      不滚到整个 card 顶部——顶部还有一排按钮，滚过去也看不到节点。 */
@@ -1825,6 +1832,52 @@ body.locked .wrap{display:none}
     if (state.dirty && !window.confirm("① 手动节点有未保存的修改，切换机器会丢掉，继续？")) { this.value = state.current || ""; return; }
     state.current = this.value; loadNodes(); endMachineEditing();
   };
+  function applyMachineSort() {
+    var key = state.sortKey, dir = state.sortDir || 1;
+    if (!key) return;
+    state.machines.sort(function (a, b) {
+      var r = 0;
+      if (key === "name") r = String(a.machine).localeCompare(String(b.machine));
+      else if (key === "region") r = String(a.country || "\uffff").localeCompare(String(b.country || "\uffff"));
+      else if (key === "nodes") r = (Number(a.nodes) || 0) - (Number(b.nodes) || 0);
+      if (!r) r = String(a.machine).localeCompare(String(b.machine));
+      return r * dir;
+    });
+  }
+  var SORT_FIELDS = [["name", "机器名"], ["region", "地区"], ["nodes", "节点数"]];
+  function paintSortHead() {
+    var box = $("mlist-head");
+    if (!box) return;
+    if (!box.children.length) {
+      var lab = document.createElement("span"); lab.className = "lab"; lab.textContent = "排序：";
+      box.appendChild(lab);
+      for (var f = 0; f < SORT_FIELDS.length; f += 1) {
+        var b = document.createElement("button");
+        b.type = "button"; b.setAttribute("data-k", SORT_FIELDS[f][0]); b.textContent = SORT_FIELDS[f][1];
+        b.onclick = function () {
+          var k = this.getAttribute("data-k");
+          if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
+          else { state.sortKey = k; state.sortDir = 1; }
+          applyMachineSort();
+          paintSortHead();
+          renderMachineList();
+          markOrderDirty();
+        };
+        box.appendChild(b);
+      }
+      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "点一次升序，再点降序";
+      box.appendChild(tip);
+    }
+    var kids = box.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      var el = kids[i], kk = el.getAttribute && el.getAttribute("data-k");
+      if (!kk) continue;
+      var base = kk === "name" ? "机器名" : (kk === "region" ? "地区" : "节点数");
+      var on = !!state.sortKey && kk === state.sortKey;
+      el.className = on ? "on" : "";
+      el.textContent = base + (on ? (state.sortDir === 1 ? " \u2191" : " \u2193") : "");
+    }
+  }
   function markOrderDirty() {
     if (state.orderDirty) return;
     state.orderDirty = true;

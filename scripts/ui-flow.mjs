@@ -445,6 +445,41 @@ check("保存排序：按钮恢复常态", !el("save-machine-order").className.i
   const { data } = await api("/machines");
   check("保存排序：服务端顺序一致", (data.machines || []).map((m) => m.machine).join(",") === "洛杉矶 备用,香港-小叮当", JSON.stringify((data.machines || []).map((m) => m.machine)));
 }
+{
+  /* 表头排序：点列名直接重排，省得一条条按 ↑↓ */
+  const head = el("mlist-head");
+  const btn = (k) => { for (let i = 0; i < head.children.length; i += 1) if (head.children[i].getAttribute && head.children[i].getAttribute("data-k") === k) return head.children[i]; return null; };
+  check("表头：有机器名/地区/节点数三列", ["name", "region", "nodes"].every((k) => btn(k)), head.children.map((c) => c.textContent).join("|"));
+  check("表头：初始没有高亮列", !["name", "region", "nodes"].some((k) => btn(k).className === "on"), [btn("name").className, btn("region").className, btn("nodes").className].join(","));
+
+  btn("name").onclick.call(btn("name"));
+  await idle();
+  check("表头：按机器名升序", machineRows()[0].children[1].textContent.indexOf("洛杉矶") === 0, machineRows().map((r) => r.children[1].textContent).join(" | "));
+  check("表头：升序按钮带 ↑", btn("name").textContent === "机器名 ↑", btn("name").textContent);
+  check("表头：排序后标为未保存", el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
+
+  btn("name").onclick.call(btn("name"));
+  await idle();
+  check("表头：再点一次转降序", machineRows()[0].children[1].textContent.indexOf("香港") === 0, machineRows().map((r) => r.children[1].textContent).join(" | "));
+  check("表头：降序按钮带 ↓", btn("name").textContent === "机器名 ↓", btn("name").textContent);
+
+  btn("name").onclick.call(btn("name"));
+  await idle();
+  check("表头：第三次点回升序", btn("name").textContent === "机器名 ↑" && machineRows()[0].children[1].textContent.indexOf("洛杉矶") === 0, btn("name").textContent);
+
+  btn("nodes").onclick.call(btn("nodes"));
+  await idle();
+  check("表头：切到按节点数排序", btn("nodes").textContent.startsWith("节点数 ") && btn("name").className === "", `${btn("nodes").textContent} / name=${btn("name").className}`);
+  const counts = machineRows().map((r) => Number((r.children[2].textContent.match(/\d+/) || [0])[0]));
+  check("表头：节点数升序", counts.every((v, i) => i === 0 || counts[i - 1] <= v), counts.join(","));
+
+  /* 排序结果要落库，不然刷新又回去了 */
+  click("save-machine-order");
+  await idle();
+  const saved = (await api("/machines/order")).data.machine_order;
+  check("表头：排序后保存写回服务端", Array.isArray(saved) && saved.length === 2, JSON.stringify(saved));
+  check("表头：保存后按钮恢复", !el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
+}
 
 // H. 重命名（保留节点与排序位）
 {
