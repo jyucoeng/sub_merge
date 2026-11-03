@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.80";
+const VERSION = "1.66.81";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -124,6 +124,9 @@ const UI_HTML = `<!doctype html>
 [data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
 .wrap{max-width:1180px;margin:28px auto 50px;padding:0 18px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+/* 左边标题+说明很长，会把右边那排控件挤到换行；让说明自己收缩，控件不许折行 */
+.top>div:first-child{flex:1 1 auto;min-width:0}
+.top>.row{flex:0 0 auto;flex-wrap:nowrap}
 h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas,monospace;border:1px solid var(--line);padding:3px 8px;border-radius:8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px;box-shadow:0 1px 4px var(--shadow)}.card.card-flash{animation:cardFlash 4s ease-in-out 1}@keyframes cardFlash{0%,100%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}10%,42%{border-color:var(--acc);box-shadow:0 0 0 3px rgba(37,99,235,.45),0 0 30px 6px rgba(37,99,235,.38)}26%,58%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}74%{border-color:var(--acc);box-shadow:0 0 0 2px rgba(37,99,235,.30),0 0 18px 2px rgba(37,99,235,.22)}}
 .card h2{font-size:17px;margin:0 0 12px}.tip{font-size:12px;color:var(--sub);font-weight:400}
@@ -198,7 +201,7 @@ textarea:focus{border-color:var(--acc)}
 @media(max-width:850px){.clash-row.group-row,.clash-row.rule-row{grid-template-columns:1fr 96px}}
 /* 窄屏：头部标题和右侧控件（主题/角色/版本/退出）必须分行，否则 .top 是 nowrap 的
    flex，右侧 .row 被挤成很窄一列、内部换行后压到标题上，看着就是"样式错乱"。 */
-@media(max-width:720px){.top{flex-wrap:wrap;align-items:flex-start;gap:10px}.top>div{min-width:0}.top>div:first-child{flex:1 1 100%}.top .row{flex:0 0 100%;gap:8px}.top .row button{padding:7px 11px}.top .row .tag,.top .row .ver{flex:0 0 auto}.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
+@media(max-width:720px){.top{flex-wrap:wrap;align-items:flex-start;gap:10px}.top>div{min-width:0}.top>div:first-child{flex:1 1 100%}.top .row{flex:0 0 100%;flex-wrap:wrap;gap:8px}.top .row button{padding:7px 11px}.top .row .tag,.top .row .ver{flex:0 0 auto}.machine{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.machine .idx-input{width:46px;flex:0 0 46px}.machine .mname{flex:1 1 140px;min-width:0;word-break:keep-all}.machine .mcount{flex:1 1 100%;order:9}.machine .edit{order:8}.machine button{padding:6px 9px}.wrap{padding:16px 12px}}
 code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-all}
 .protocols{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .proto{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--card);color:var(--ink);font:13px system-ui;cursor:pointer;transition:.12s}
