@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.82";
+const VERSION = "1.66.83";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -148,7 +148,7 @@ button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);co
 button.copied::before{content:"✓ ";font-weight:700}
 [data-theme="dark"] button.copied{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
 .err{color:var(--err)}
-button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center}
+button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
 .node.auto-row{grid-template-columns:minmax(0,1fr) 104px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
 .node.auto-row input.link{grid-column:1/-1}
@@ -180,7 +180,7 @@ textarea:focus{border-color:var(--acc)}
 .fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
 .fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 .fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink)}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .mlist-head button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--sub);cursor:pointer}
@@ -261,7 +261,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .subrow button{flex:none}
 .chipgap{display:inline-block;width:8px}
-.subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer}
+.subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 42px}
 .subnode:hover{border-color:#c7d5e8}
 .subnode.off{opacity:.45;background:var(--soft)}
 .subnode.off .nlname,.subnode.off .nllink{text-decoration:line-through}
@@ -769,7 +769,10 @@ body.locked .wrap{display:none}
       box.appendChild(e);
       return;
     }
-    state.nodes.forEach(function (n, i) { box.appendChild(nodeRow(n, i)); });
+    /* 一台机器几十条节点时逐行 appendChild 会触发几十次重排，先攒进片段再插一次 */
+    var frag = document.createDocumentFragment();
+    state.nodes.forEach(function (n, i) { frag.appendChild(nodeRow(n, i)); });
+    box.appendChild(frag);
   }
   function renderSources() {
     var box = $("auto-sources"); if (!box) return;
@@ -823,13 +826,13 @@ body.locked .wrap{display:none}
     return subRows().filter(function (item) { return subInSub(item.node); }).length;
   }
   /* 分面筛选：ignore 用来算「某个胶囊自己的候选数量」——统计它时不算它自己那一维。 */
-  function subVisible(ignore) {
+  function subVisible(ignore, rows) {
     ignore = ignore || {};
     var q = String(state.sub.search || "").trim().toLowerCase();
     var protos = state.sub.protos || [];
     var machines = state.sub.machinesF || [];
     var tunnel = state.sub.tunnel || "";
-    return subRows().filter(function (item) {
+    return (rows || subRows()).filter(function (item) {
       if (!ignore.proto && protos.length && protos.indexOf(subKey(item.node)) === -1) return false;
       if (!ignore.tunnel && tunnel && (item.node.tunnel || "") !== tunnel) return false;
       if (!ignore.machine && machines.length && machines.indexOf(item.machine) === -1) return false;
@@ -945,10 +948,21 @@ body.locked .wrap{display:none}
     if (undoBtn) undoBtn.disabled = !dirty;
     renderSubChips();
     box.innerHTML = "";
-    var visible = subVisible();
+    /* subRows() 会把所有机器的所有节点摊平一遍。原来这里调了四五次，分组计数时
+       每遇到一台机器还要再调一次 + filter 一遍——机器越多越慢，全是重复计算。
+       摊一次、把勾选状态换成 Set，后面只读不重算。 */
+    var allRows = subRows();
+    var draftSet = new Set(state.sub.draft || []);
+    var inSub = function (node) { return !draftSet.has(node.id); };
+    var groupTotal = new Map(), groupOn = new Map();
+    allRows.forEach(function (x) {
+      groupTotal.set(x.machine, (groupTotal.get(x.machine) || 0) + 1);
+      if (inSub(x.node)) groupOn.set(x.machine, (groupOn.get(x.machine) || 0) + 1);
+    });
+    var visible = subVisible({}, allRows);
     var shown = $("sub-shown");
     if (shown) {
-      var totalRows = subRows().length;
+      var totalRows = allRows.length;
       var picked = [];
       if ((state.sub.protos || []).length) {
         var known = (state.sub.stats && state.sub.stats.classes) || (state.sub.stats && state.sub.stats.protocols) || [];
@@ -964,11 +978,12 @@ body.locked .wrap{display:none}
     }
     if (!visible.length) {
       var empty = document.createElement("div"); empty.className = "empty";
-      empty.textContent = subRows().length ? "没有匹配的节点（改一下搜索或筛选）" : "还没有任何节点，先在上面添加或上报";
+      empty.textContent = allRows.length ? "没有匹配的节点（改一下搜索或筛选）" : "还没有任何节点，先在上面添加或上报";
       box.appendChild(empty);
       return;
     }
     var currentMachine = null;
+    var frag = document.createDocumentFragment();
     visible.forEach(function (item) {
       if (item.machine !== currentMachine) {
         currentMachine = item.machine;
@@ -984,17 +999,16 @@ body.locked .wrap{display:none}
         }(item.machine);
         var name = document.createElement("span"); name.textContent = item.machine;
         var count = document.createElement("span"); count.className = "tag auto";
-        var groupRows = subRows().filter(function (x) { return x.machine === item.machine; });
-        count.textContent = groupRows.filter(function (x) { return subInSub(x.node); }).length + " / " + groupRows.length;
+        count.textContent = (groupOn.get(item.machine) || 0) + " / " + (groupTotal.get(item.machine) || 0);
         head.appendChild(name); head.appendChild(count);
-        box.appendChild(head);
+        frag.appendChild(head);
       }
       var node = item.node;
       var row = document.createElement("div");
-      row.className = "subnode" + (subInSub(node) ? "" : " off");
+      row.className = "subnode" + (inSub(node) ? "" : " off");
       row.title = node.link;
       var tick = document.createElement("input");
-      tick.type = "checkbox"; tick.checked = subInSub(node);
+      tick.type = "checkbox"; tick.checked = inSub(node);
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = node.cls_label || node.label;
       tag.title = "点标签只看这个细分类型";
@@ -1017,8 +1031,10 @@ body.locked .wrap{display:none}
       src.title = node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
       row.onclick = function () { toggleSubNode(node); };
       row.appendChild(tick); row.appendChild(tag); row.appendChild(meta); row.appendChild(src);
-      box.appendChild(row);
+      frag.appendChild(row);
     });
+    /* 整批插一次，别让浏览器每加一行就重排一遍 */
+    box.appendChild(frag);
   }
   function putSubDisabled(list) {
     return api("/sub/disabled", {
@@ -1550,10 +1566,13 @@ body.locked .wrap{display:none}
       box.appendChild(e);
       return;
     }
-    var manualKeys = state.nodes.map(function (x) { return (x.link || "").split("#")[0]; });
+    /* 原来对每条自动节点都拿 manualKeys.indexOf 找一遍，key 是纯文本的整条 link
+       （vless 带后量子参数动辄两三千字符）。几十条手动 × 几十条自动，就是上千万次
+       长字符串比较——这就是「点开机器要等」的来源之一。换成 Set 一次建好。 */
+    var manualKeys = new Set(state.nodes.map(function (x) { return (x.link || "").split("#")[0]; }));
     state.autoNodes.forEach(function (n) {
       var here = (n.link || "").split("#")[0];
-      var copied = manualKeys.indexOf(here) !== -1;
+      var copied = manualKeys.has(here);
       var row = document.createElement("div"); row.className = "node auto-row" + (copied ? " copied" : "");
       var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = n.link || "";
       /* 上报节点的名字由上报内容决定，这里只读。想改就「转 ① 手动」再改。 */

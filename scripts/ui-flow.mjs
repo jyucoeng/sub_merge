@@ -85,7 +85,17 @@ class El {
     this.style = {};
     this._listeners = {};
   }
-  appendChild(c) { if (c) c.parentNode = this; this.children.push(c); return c; }
+  /* 片段插进去要展开成子元素，否则 margin/计数都算在一层假节点上，
+     测试里 children[0] 拿到的就不是第一行了 */
+  appendChild(c) {
+    if (!c) return c;
+    if (c.isFragment) {
+      for (const kid of c.children.slice()) this.appendChild(kid);
+      c.children.length = 0;
+      return c;
+    }
+    c.parentNode = this; this.children.push(c); return c;
+  }
   /* mock 里也要有 closest：编辑节点后要给整张卡片加发光 class */
   closest(sel) {
     let n = this;
@@ -131,6 +141,7 @@ const documentShim = {
     return elements[id];
   },
   createElement(tag) { return new El(tag); },
+  createDocumentFragment() { const f = new El("#fragment"); f.isFragment = true; return f; },
   createTextNode(t) { return { textContent: String(t), children: [] }; },
   addEventListener(t, fn) { (docListeners[t] = docListeners[t] || []).push(fn); },
   body: new El("body"),
