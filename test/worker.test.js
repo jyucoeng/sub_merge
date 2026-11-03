@@ -18,6 +18,7 @@ class MockD1 {
     this.reports = new Map();
     this.presets = new Map();
     this.links = new Map();
+    this.formers = new Map();
   }
   prepare(sql) {
     return new MockStatement(this, sql);
@@ -73,9 +74,16 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
+    if (/^SELECT target FROM machine_former WHERE alias = \?1$/i.test(this.sql)) {
+      const target = this.db.formers.get(this.args[0]);
+      return target === undefined ? null : { target };
+    }
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT alias, target FROM machine_former$/i.test(this.sql)) {
+      return { results: [...this.db.formers.entries()].map(([alias, target]) => ({ alias, target })), success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT name, machines, members, mode FROM presets$/i.test(this.sql)) {
       const results = [...this.db.presets.values()].map((r) => ({ name: r.name, machines: r.machines, members: r.members, mode: r.mode }));
       return { results, success: true, meta: { changes: 0 } };
@@ -153,6 +161,27 @@ class MockStatement {
     }
     if (/^DELETE FROM machines WHERE machine = \?1$/i.test(this.sql)) {
       return { success: true, meta: { changes: this.db.machines.delete(args[0]) ? 1 : 0 } };
+    }
+    if (/^INSERT INTO machine_former \(alias, target\) VALUES \(\?1, \?2\) ON CONFLICT\(alias\) DO UPDATE SET target = \?2$/i.test(this.sql)) {
+      this.db.formers.set(args[0], args[1]);
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE machine_former SET target = \?2 WHERE target = \?1$/i.test(this.sql)) {
+      let changes = 0;
+      for (const [alias, target] of this.db.formers) {
+        if (target === args[0]) { this.db.formers.set(alias, args[1]); changes += 1; }
+      }
+      return { success: true, meta: { changes } };
+    }
+    if (/^DELETE FROM machine_former WHERE alias = \?1$/i.test(this.sql)) {
+      return { success: true, meta: { changes: this.db.formers.delete(args[0]) ? 1 : 0 } };
+    }
+    if (/^DELETE FROM machine_former WHERE target = \?1 OR alias = \?1$/i.test(this.sql)) {
+      let changes = 0;
+      for (const [alias, target] of [...this.db.formers]) {
+        if (target === args[0] || alias === args[0]) { this.db.formers.delete(alias); changes += 1; }
+      }
+      return { success: true, meta: { changes } };
     }
     if (/^INSERT INTO settings .+ ON CONFLICT\(key\) DO UPDATE/i.test(this.sql)) {
       this.db.settings.set(args[0], args[1]);
@@ -433,7 +462,9 @@ test("creating a machine with an old name cancels the redirect", async () => {
   assert.equal(data.machine, "old2", "撤销重定向之后旧名是独立的机器");
 });
 
-test("deleting a machine also clears the settings keyed by its name", async () => {
+/* 这条靠查 MockD1 内部的 Map 来断言，SqliteD1 没有这些字段。
+   真 sqlite 下跑别的用例已经覆盖了同一条路径，这里只在 mock 后端跑。 */
+test("deleting a machine also clears the settings keyed by its name", { skip: Boolean(sqlite) }, async () => {
   /* 协议筛选是按机器存的（protocols:<机器>）。机器删了这条设置还在，
      同名机器下次建出来会莫名其妙只显示一部分协议，而且看不出是哪来的。 */
   const env = makeEnv();
@@ -567,6 +598,25 @@ test("renaming onto a taken name is refused, onto a former name is allowed with 
   const reused = await (await call(env, "POST", "/api/v1/machines/two/rename", JSON.stringify({ to: "one" }), jsonAuth)).json();
   assert.equal(reused.ok, true);
   assert.equal(reused.was_former_of, "gone", "「one」是 gone 的旧名，得说清楚");
+});
+
+/* 老版本把整张改名表塞在 settings 的一个 row 里。新表建好后第一次读到空表时
+   要把老数据搬过来，否则线上已有的重定向会在升级瞬间全部失效。 */
+test("legacy machine_former settings row is migrated into the table", { skip: Boolean(sqlite) }, async () => {
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/live", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  /* 造一条「old 已改名为 live」的老记录 */
+  env.DB.settings.set("machine_former", JSON.stringify({ old: "live" }));
+
+  await call(env, "POST", "/api/v1/report/old", b64(link), auth);
+
+  const list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["live"], "老重定向要生效，old 不能另起一条");
+  assert.equal(env.DB.settings.has("machine_former"), false, "搬完把老的 settings row 删掉");
+  assert.equal(env.DB.formers.get("old"), "live", "新表里有这条");
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {
@@ -1335,7 +1385,7 @@ test("scripts/schema.sql matches SCHEMA_STATEMENTS", () => {
   for (const statement of SCHEMA_STATEMENTS) {
     assert.ok(sql.includes(`${norm(statement)};`), `schema.sql 缺少语句: ${statement.split("\n")[0]}`);
   }
-  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 5);
+  assert.equal((sql.match(/CREATE TABLE IF NOT EXISTS/g) || []).length, 6);
   assert.ok(sql.includes("manual INTEGER NOT NULL DEFAULT 0"));
 });
 

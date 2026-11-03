@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- machine_former 改名记录：alias（旧机器名）→ target（现在真正在用的机器名）。
+-- 上报脚本里的机器名写在脚本里，改了名它还在按旧名报，靠这张表转过去。
+-- 早先整张表是一个 settings row，改名要「读出来→改→整张写回」，
+-- 两台同时改名会互相覆盖；现在一条一名，写的是单行 upsert。
+-- 老数据在第一次读的时候自动搬过来，搬完就删掉那个 settings row。
+CREATE TABLE IF NOT EXISTS machine_former (
+  alias  TEXT PRIMARY KEY,
+  target TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_machine_former_target ON machine_former (target);
+
 
 -- 老库升级（已有 machines 表时执行；重复执行会报 duplicate column，忽略即可）：
 -- ALTER TABLE machines ADD COLUMN auto_content TEXT;

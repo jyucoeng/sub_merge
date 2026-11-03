@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.73";
+const VERSION = "1.66.74";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -62,6 +62,11 @@ export const SCHEMA_STATEMENTS = [
   manual_updated_at TEXT
 )`,
   "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
+  `CREATE TABLE IF NOT EXISTS machine_former (
+  alias  TEXT PRIMARY KEY,
+  target TEXT NOT NULL
+)`,
+  "CREATE INDEX IF NOT EXISTS idx_machine_former_target ON machine_former (target)",
   `CREATE TABLE IF NOT EXISTS reports (
   machine    TEXT NOT NULL,
   source     TEXT NOT NULL,
@@ -2955,21 +2960,57 @@ async function deleteSetting(env, key) {
  * 不接这一层，改名之后脚本还在往旧名上报，服务端 loadRecord 查不到就当成新机器重建一台，
  * 结果同一台机器裂成两个条目——历史节点在一半、新上报在另一半。
  * 所以改名时把旧名记下来，上报撞上旧名就顺着找到现在的机器。 */
+/* 改名记录：旧名 → 现在真正在用的机器名。
+ * 早先整张表塞在一个 settings row 里，改名是「读出来 → 改内存 → 整张写回」，
+ * 两台机器同时改名就会互相覆盖，重定向凭空消失。现在一条一名独立成表，
+ * 写的是单行 upsert，不会再打架。老数据在 loadFormerMap 里懒迁移。 */
 const FORMER_KEY = "machine_former";
 
+async function readFormerRows(env) {
+  const db = dbEnv(env);
+  if (!db) return [];
+  const { results } = await db.prepare("SELECT alias, target FROM machine_former").all();
+  return (results || []).filter((r) => r && r.alias && r.target);
+}
+
 async function loadFormerMap(env) {
-  const raw = await getSetting(env, FORMER_KEY);
-  if (!raw) return {};
+  const rows = await readFormerRows(env);
+  if (rows.length) return Object.fromEntries(rows.map((r) => [r.alias, r.target]));
+  /* 新表是空的，看看老 settings 里还有没有货。搬完就把旧的删掉，之后就只读表。 */
+  const legacy = await getSetting(env, FORMER_KEY);
+  if (!legacy) return {};
   try {
-    const v = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    const parsed = JSON.parse(legacy);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    for (const [alias, target] of Object.entries(parsed)) {
+      if (alias && typeof target === "string" && target) await setFormer(env, alias, target);
+    }
+    await deleteSetting(env, FORMER_KEY);
+    const moved = await readFormerRows(env);
+    return Object.fromEntries(moved.map((r) => [r.alias, r.target]));
   } catch { return {}; }
 }
 
-async function saveFormerMap(env, map) {
-  if (!Object.keys(map).length) { await deleteSetting(env, FORMER_KEY); return; }
-  await putSetting(env, FORMER_KEY, JSON.stringify(map));
+async function setFormer(env, alias, target) {
+  const db = dbEnv(env);
+  if (!db) return;
+  await db.prepare("INSERT INTO machine_former (alias, target) VALUES (?1, ?2) ON CONFLICT(alias) DO UPDATE SET target = ?2")
+    .bind(alias, target).run();
 }
+
+async function dropFormer(env, alias) {
+  const db = dbEnv(env);
+  if (!db) return;
+  await db.prepare("DELETE FROM machine_former WHERE alias = ?1").bind(alias).run();
+}
+
+async function formerTargetOf(env, alias) {
+  const db = dbEnv(env);
+  if (!db) return "";
+  const row = await db.prepare("SELECT target FROM machine_former WHERE alias = ?1").bind(alias).first();
+  return (row && row.target) || "";
+}
+
 
 /* 顺着改名链一路跟下去：A→B→C 之后，往 A 上报也要落到 C */
 function resolveFormer(map, machine) {
@@ -3947,8 +3988,7 @@ async function putNodeConfig(request, env, machine) {
   if (!old && MACHINE_STATUS_SUFFIX.test(machine)) return json({ ok: false, error: MACHINE_STATUS_ERROR }, 400);
   if (!old) {
     /* 新建机器时如果用的是某个旧名，说明用户就是要这个名字，别再转给改名后的那台 */
-    const former = await loadFormerMap(env);
-    if (former[machine]) { delete former[machine]; await saveFormerMap(env, former); }
+    await dropFormer(env, machine);
   }
   const manualNodes = await normalizeNodes(inputs.map((x) => x.link), old && Array.isArray(old.manual_nodes) ? old.manual_nodes : [], inputs);
   const updatedAt = new Date().toISOString();
@@ -4008,14 +4048,13 @@ async function renameMachine(request, env, machine) {
     await putSetting(env, "machine_order", JSON.stringify(order));
   }
   /* 旧名留给上报用：脚本那边改不了，只能这边认。之前指向旧名的链也要顺下去 */
-  const former = await loadFormerMap(env);
-  /* 目标名如果正是某台机器的旧名，沿用之后那条重定向就被下面的 delete 抹掉了，
+  /* 目标名如果正是某台机器的旧名，沿用之后那条重定向就没了，
      那台机器的上报会直接落进这一台。不算错，但得说一声。 */
-  const wasFormerOf = former[to] || "";
-  delete former[to];
-  for (const k of Object.keys(former)) if (former[k] === machine) former[k] = to;
-  former[machine] = to;
-  await saveFormerMap(env, former);
+  const wasFormerOf = await formerTargetOf(env, to);
+  await dropFormer(env, to);
+  /* 指向旧名的那些链顺下去，一步改成指向新名 */
+  await dbEnv(env).prepare("UPDATE machine_former SET target = ?2 WHERE target = ?1").bind(machine, to).run();
+  await setFormer(env, machine, to);
   const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, was_former_of: wasFormerOf, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
@@ -4164,19 +4203,6 @@ async function deleteMachine(env, machine) {
   /* 先读一份：下面要拿它的节点身份去清全局排除清单 */
   const record = await loadRecord(env, machine);
 
-  /* 改名链一并断掉。留着的话，脚本还按旧名上报时 resolveFormer 会把它引到
-     这台刚被删的机器上，而 report() 查不到记录就会新建一条——机器"诈尸"。
-     A 改到 B 再改到 C 时链是压平的（A→C、B→C），所以这里按 value 扫一遍就够。 */
-  const formerMap = await loadFormerMap(env);
-  let formerTouched = false;
-  for (const key of Object.keys(formerMap)) {
-    if (formerMap[key] === machine || key === machine) {
-      delete formerMap[key];
-      formerTouched = true;
-    }
-  }
-  if (formerTouched) await saveFormerMap(env, formerMap);
-
   await deleteRecord(env, machine);
   await deleteReports(env, machine);
 
@@ -4243,13 +4269,10 @@ async function deleteMachine(env, machine) {
     }
   }
 
-  /* 改名记录：指向这台机器的一并清掉，别让上报继续往一个不存在的地方转 */
-  const former = await loadFormerMap(env);
-  let touched = false;
-  for (const k of Object.keys(former)) {
-    if (former[k] === machine || k === machine) { delete former[k]; touched = true; }
-  }
-  if (touched) await saveFormerMap(env, former);
+  /* 改名记录：指向这台机器的一并清掉，别让上报继续往一个不存在的地方转。
+     不清的话，脚本还按旧名上报时 resolveFormer 会把它引到刚删掉的机器上，
+     report() 查不到记录又新建一条——机器就"诈尸"了。 */
+  await dbEnv(env).prepare("DELETE FROM machine_former WHERE target = ?1 OR alias = ?1").bind(machine).run();
 
   /* 空掉的档案连同它的短链一起删（短链跟着档案走，留着会指向 404） */
   for (const name of orphanPresets) await deletePreset(env, name);
