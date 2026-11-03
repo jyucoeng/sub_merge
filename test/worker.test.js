@@ -316,50 +316,6 @@ test("report, dedupe, read and list", async () => {
   assert.equal(data.machines[0].machine, "sgw");
 });
 
-test("a machine can carry one alias for all of its reported nodes", async () => {
-  const env = makeEnv();
-  const auth = { authorization: `Bearer ${TOKEN}` };
-  await call(env, "POST", "/api/v1/report/sgw", b64("vless://one\nanytls://two"), auth);
-
-  /* 没设机器别名时，订阅里保持上报自带的原名，一个字都不动 */
-  assert.equal(unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()), "anytls://two\nvless://one");
-
-  /* 设了机器别名，这台机器的自动节点就统一显示这个名字 */
-  let res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "家里那台" }), {
-    ...auth, "content-type": "application/json",
-  });
-  assert.equal(res.status, 200);
-  let data = await res.json();
-  assert.equal(data.alias, "家里那台");
-  assert.deepEqual(data.nodes.map((n) => n.name), ["家里那台", "家里那台"]);
-  assert.equal(
-    unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()),
-    `anytls://two#${encodeURIComponent("家里那台")}\nvless://one#${encodeURIComponent("家里那台")}`,
-  );
-
-  /* 单条别名优先级更高，能和机器别名同时存在 */
-  res = await call(env, "PUT", "/api/v1/nodes/sgw/alias", JSON.stringify({ link: "vless://one", name: "主力" }), {
-    ...auth, "content-type": "application/json",
-  });
-  assert.equal(res.status, 200);
-  const sub = unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text());
-  assert.ok(sub.includes(`vless://one#${encodeURIComponent("主力")}`), "单条别名盖过机器别名");
-  assert.ok(sub.includes(`anytls://two#${encodeURIComponent("家里那台")}`), "没单独改的仍用机器别名");
-
-  /* 写回机器名本身 = 撤销，回到原名 */
-  res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "sgw" }), {
-    ...auth, "content-type": "application/json",
-  });
-  data = await res.json();
-  assert.equal(data.alias, "sgw");
-  assert.equal(unb64(await (await call(env, "GET", `/sub/sgw/${TOKEN}`)).text()), "anytls://two\nvless://one#%E4%B8%BB%E5%8A%9B");
-
-  res = await call(env, "PUT", "/api/v1/machines/sgw/alias", JSON.stringify({ name: "" }), {
-    ...auth, "content-type": "application/json",
-  });
-  assert.equal(res.status, 200);
-});
-
 test("renaming a manual node shows up in the subscription too", async () => {
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
@@ -379,16 +335,14 @@ test("renaming a manual node shows up in the subscription too", async () => {
   assert.ok((unb64(await (await call(env, "GET", `/sub/man/${TOKEN}`)).text())).includes("#old-name"));
 });
 
-test("one alias on many nodes still yields unique clash and singbox names", async () => {
-  /* 机器别名一设，同一台机器的节点全叫一个名字。
-     base64 订阅里重名没关系（客户端自己编号），但 clash 的 proxy name 和
+test("same-named nodes still yield unique clash and singbox names", async () => {
+  /* base64 订阅里重名没问题（客户端自己编号），但 clash 的 proxy name 和
      sing-box 的 tag 必须唯一，否则配置直接起不来。 */
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
-  const a = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?encryption=none&security=tls&type=ws&path=%2Fa&sni=www.apple.com#a";
-  const b = "hysteria2://pw@203.0.113.2:8443?sni=www.apple.com&insecure=1#b";
+  const a = "vless://11111111-1111-4111-8111-111111111111@203.0.113.1:443?encryption=none&security=tls&type=ws&path=%2Fa&sni=www.apple.com#同一台";
+  const b = "hysteria2://pw@203.0.113.2:8443?sni=www.apple.com&insecure=1#同一台";
   await call(env, "POST", "/api/v1/report/twin", b64([a, b].join("\n")), auth);
-  await call(env, "PUT", "/api/v1/machines/twin/alias", JSON.stringify({ name: "同一台" }), auth);
 
   const sb = JSON.parse(await (await call(env, "GET", `/sub/twin/${TOKEN}?format=singbox`)).text());
   const tags = sb.outbounds.filter((o) => o.type && o.type !== "selector").map((o) => o.tag);
@@ -399,22 +353,6 @@ test("one alias on many nodes still yields unique clash and singbox names", asyn
   const clash = await (await call(env, "GET", `/sub/twin/${TOKEN}?format=proxies`)).text();
   const names = [...clash.matchAll(/^  - name: "(.*)"$/gm)].map((m) => m[1]);
   assert.equal(new Set(names).size, 2, "clash 的 proxy name 也必须唯一");
-});
-
-test("renaming a vmess node rewrites the ps field, not a useless fragment", async () => {
-  const env = makeEnv();
-  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
-  const payload = { v: "2", ps: "原名", add: "203.0.113.7", port: "443", id: "11111111-1111-4111-8111-111111111111", aid: "0", scy: "auto", net: "ws", type: "none", host: "x.example.com", path: "/", tls: "tls" };
-  const link = "vmess://" + Buffer.from(JSON.stringify(payload)).toString("base64");
-  await call(env, "POST", "/api/v1/report/vm", b64(link), auth);
-  await call(env, "PUT", "/api/v1/nodes/vm/alias", JSON.stringify({ link, name: "换了名字" }), auth);
-
-  const sub = unb64(await (await call(env, "GET", `/sub/vm/${TOKEN}`)).text()).trim();
-  assert.ok(!sub.includes("#"), "vmess 不该用 # 片段传名字");
-  const inner = JSON.parse(Buffer.from(sub.slice("vmess://".length), "base64").toString());
-  assert.equal(inner.ps, "换了名字", "名字要写进 base64 里的 ps");
-  assert.equal(inner.add, "203.0.113.7", "其余字段一个字都不许动");
-  assert.equal(inner.path, "/");
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {
@@ -1804,37 +1742,6 @@ test("machines sharing a rank stay grouped instead of interleaving their nodes",
   });
   assert.deepEqual(names, ["东京A-hy2", "东京A-vless", "东京B-hy2", "东京B-vless"],
     "同一 rank 的两台机器必须各自成组，不能按节点下标交错");
-});
-
-test("reported nodes can be renamed without touching the reported content", async () => {
-  const env = makeEnv();
-  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
-  const link = "vless://11111111-1111-4111-8111-111111111111@rn.example.com:443?security=reality&sni=www.bing.com#原始名字";
-
-  const up = await call(env, "POST", "/api/v1/report/mach-rn",
-    Buffer.from(link + "\n").toString("base64"),
-    { "content-type": "text/plain", authorization: `Bearer ${TOKEN}` });
-  assert.equal(up.status, 200, "上报本身要能成功");
-
-  const rn = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias",
-    JSON.stringify({ link, name: "我的节点" }), auth);
-  assert.equal(rn.status, 200);
-
-  const view = await (await call(env, "GET", "/api/v1/nodes/mach-rn", null, { authorization: `Bearer ${TOKEN}` })).json();
-  assert.equal(view.auto_nodes[0].name, "原始名字", "上报内容一个字都不该动");
-  assert.equal(view.nodes[0].name, "我的节点", "对外显示用别名");
-
-  const text = decodeURIComponent(unb64(await (await call(env, "GET", `/sub/all/${TOKEN}`)).text()));
-  assert.ok(text.includes("我的节点"), "订阅里也应该是新名字");
-
-  const undo = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias", JSON.stringify({ link, name: "" }), auth);
-  assert.equal(undo.status, 200);
-  const back = await (await call(env, "GET", "/api/v1/nodes/mach-rn", null, { authorization: `Bearer ${TOKEN}` })).json();
-  assert.equal(back.nodes[0].name, "原始名字", "清空别名就回到上报的原名字");
-
-  const bad = await call(env, "PUT", "/api/v1/nodes/mach-rn/alias",
-    JSON.stringify({ link: "vless://99999999-9999-4999-8999-999999999999@x.example.com:443?security=reality&sni=www.bing.com#别人的", name: "x" }), auth);
-  assert.equal(bad.status, 404, "不属于这台机器的节点不能被写进别名表");
 });
 
 test("shadowsocks links work in both the old base64 form and the SIP002 form", async () => {
