@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.78";
+const VERSION = "1.66.79";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4230,7 +4230,7 @@ const ISO3_TO_ALPHA2 = {
   TUN:"TN", TUR:"TR", TKM:"TM", TCA:"TC", TUV:"TV", UGA:"UG", UKR:"UA", ARE:"AE", GBR:"GB", USA:"US", UMI:"UM", URY:"UY", UZB:"UZ", VUT:"VU", VEN:"VE",
   VNM:"VN", VGB:"VG", VIR:"VI", WLF:"WF", ESH:"EH", YEM:"YE", ZMB:"ZM", ZWE:"ZW",
 };
-const MACHINE_ALIASES = { PHX: "US", FRA: "FR", DXB: "AE", AMS: "NL", TKY: "JP", OSA: "JP", SIN: "SG", HKG: "HK", SFO: "US", SJC: "US", LAX: "US", NYC: "US" };
+const MACHINE_ALIASES = { PHX: "US", FRA: "FR", DXB: "AE", AMS: "NL", TKY: "JP", OSA: "JP", SIN: "SG", HKG: "HK", SFO: "US", SJC: "US", LAX: "US", NYC: "US", SJE: "US", NRT: "JP", ICN: "KR", TPE: "TW", LHR: "GB", SYD: "AU" };
 
 /* 机器名里出现的中文地区词 → 国家码，用来给「洛杉矶-小叮当」这类名字排默认顺序 */
 const CJK_REGION_KEYWORDS = new Map([
@@ -4250,7 +4250,8 @@ function asciiCountryCode(part) {
   if (first === "UK") return "GB";
   if (first === "EL") return "GR";
   if (MACHINE_ALIASES[first]) return MACHINE_ALIASES[first];
-  if (first.length === 2) return first;
+  /* 两位码不能见到就当国家：dd-us-sje 的 "dd" 是机器名前缀，不是国家 */
+  if (first.length === 2) return COUNTRY_REGION[first] ? first : "";
   if (first.length === 3) return ISO3_TO_ALPHA2[first] || "";
   return "";
 }

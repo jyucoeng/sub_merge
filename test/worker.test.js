@@ -657,17 +657,18 @@ test("machine list reports the country it parsed out of the name", async () => {
   const auth = { authorization: `Bearer ${TOKEN}` };
   const jsonAuth = { ...auth, "content-type": "application/json" };
   const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
-  for (const name of ["hk-1", "小叮当-淡-圣何塞", "我家机器"]) {
+  for (const name of ["hk-1", "dd-us-sje", "小叮当-淡-圣何塞", "我家机器"]) {
     await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(name)}`, JSON.stringify({ nodes: [{ link }] }), jsonAuth);
   }
   const list = await (await call(env, "GET", "/api/v1/machines", null, auth)).json();
   const byName = Object.fromEntries((list.machines || []).map((m) => [m.machine, m.country]));
   assert.equal(byName["hk-1"], "HK", "两字母国家码直接认");
+  assert.equal(byName["dd-us-sje"], "US", "前缀 dd 不是国家码，要接着看后面的段");
   assert.equal(byName["小叮当-淡-圣何塞"], "US", "切段找不到就看整串里有没有地区词");
   assert.equal(byName["我家机器"], "", "认不出来就是空串，界面据此提示");
 
   /* 认出来的排前面，认不出的垫底 */
-  assert.deepEqual((list.machines || []).map((m) => m.machine), ["hk-1", "小叮当-淡-圣何塞", "我家机器"]);
+  assert.deepEqual((list.machines || []).map((m) => m.machine), ["hk-1", "dd-us-sje", "小叮当-淡-圣何塞", "我家机器"]);
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {
