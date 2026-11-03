@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.86";
+const VERSION = "1.66.87";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -172,7 +172,7 @@ textarea:focus{border-color:var(--acc)}
 .sources{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
 .sources .chip{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:12px;color:var(--sub);white-space:nowrap}
 .nsec-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.nstep{width:20px;height:20px;border-radius:50%;background:var(--accbg);color:var(--accink);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.nstep{width:25px;height:25px;border-radius:50%;background:var(--accbg);color:var(--accink);font-size:16px;line-height:1;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 .tag.warn{background:var(--warnbg);color:var(--warnink);border-color:var(--warnline)}
 .status{margin-top:12px;min-height:22px;font-size:13px;color:var(--sub)}
 #clash-body.hidden,#sub-body.hidden{display:none}
