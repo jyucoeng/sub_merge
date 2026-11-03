@@ -988,6 +988,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅清单：按机器分组显示", groupHeads().length >= 1, `${groupHeads().length} 组`);
   check("订阅清单：列出节点并默认勾选", nodeRows().length >= 2 && nodeRows().every((row) => !row.className.includes("off")), `${nodeRows().length} 行`);
   check("订阅清单：计数徽章", /\/\s*\d+/.test(text("sub-count")), text("sub-count"));
+  const srcChips = el("sub-source-chips").children.map((c) => c.textContent);
+  check("订阅清单：按来源筛选（手动 / 上报）", srcChips.length === 2 && srcChips[0].indexOf("手动") !== -1 && srcChips[1].indexOf("上报") !== -1, srcChips.join(" | "));
 
   // 按机器筛选
   const machineChips = () => el("sub-machine-chips").children;
@@ -1365,6 +1367,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const peSrc = checkedRow.children[2].children[0].children[1];
   check("订阅档案：提前勾好的就是档案里那条", peName.textContent === "档案-hy2", peName.textContent);
   check("订阅档案：节点名后面也带来源标签", Boolean(peSrc) && /srctag/.test(String(peSrc.className)) && peSrc.textContent.length > 0, peSrc && (peSrc.textContent + " / " + peSrc.className));
+  const peSrcChips = el("pe-source-chips").children.map((c) => c.textContent);
+  check("订阅档案：按来源筛选（手动 / 上报）", peSrcChips.length === 2 && peSrcChips[0].indexOf("手动") !== -1 && peSrcChips[1].indexOf("上报") !== -1, peSrcChips.join(" | "));
   const peCopy = checkedRow.children[3];
   check("订阅档案：在订阅里的节点有复制按钮", Boolean(peCopy) && peCopy.className === "nlcopy" && peCopy.textContent === "复制", peCopy && (peCopy.textContent + " / " + peCopy.className));
   let peBubbled = false;

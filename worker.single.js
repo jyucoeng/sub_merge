@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.95";
+const VERSION = "1.66.96";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -360,6 +360,7 @@ body.locked .wrap{display:none}
 </div>
 <div class="row" style="margin-top:8px"><label>按协议</label><span id="sub-protos" class="protocols"></span></div>
 <div class="row" style="margin-top:6px"><label>按机器</label><span id="sub-machine-chips" class="protocols"></span></div>
+<div class="row" style="margin-top:6px"><label>按来源</label><span id="sub-source-chips" class="protocols"></span></div>
 <div class="row" style="margin-top:8px"><label>当前显示</label><span id="sub-shown" class="tip">全部节点</span></div>
 <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都在订阅里，◐ = 只选了一部分，没有标记 = 都不在（点「全选 / 全不选」会一起变）；胶囊上的数字 = 在订阅 / 全部。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
 <div class="hint" style="margin-top:4px">胶囊样式：<b>蓝底 ✓</b> = 这组节点都在订阅里；<b>琥珀 ◐</b> = 只选了一部分；<b>白底无标记</b> = 都不在；<b>蓝框加粗</b> = 正在按它筛选（再点一下取消）；<b style="border:1px dashed var(--line);padding:0 6px;border-radius:999px;font-weight:400;opacity:.55">虚线半透明</b> = 在当前筛选下这组<b>一个节点都没列出来</b>，不是被删除、也不代表订阅状态。</div>
@@ -399,6 +400,7 @@ body.locked .wrap{display:none}
   </div>
   <div class="row" style="margin-top:8px"><label>按协议</label><span id="pe-proto-chips" class="protocols"></span></div>
   <div class="row" style="margin-top:6px"><label>按机器</label><span id="pe-machine-chips" class="protocols"></span></div>
+  <div class="row" style="margin-top:6px"><label>按来源</label><span id="pe-source-chips" class="protocols"></span></div>
   <div class="row" style="margin-top:8px"><label>当前显示</label><span id="pe-shown" class="tip">全部节点</span></div>
   <div class="hint" style="margin-top:8px">胶囊前的 ✓ = 这组节点全都勾进这个档案了，◐ = 只勾了一部分，没有标记 = 一个都没勾；胶囊上的数字 = 已勾进档案 / 共几个（跟着其它筛选条件变）。行尾划掉 + 「没在订阅里」的那些是主订阅里没启用的，勾不上。搜索和胶囊筛选只影响「看到哪些」，不改变勾选状态；「全选 / 只选筛出来的 / 全不选」作用于当前筛出来的那些节点。</div>
   <div id="pe-list" class="sub-list sub-list-narrow"></div>
@@ -440,7 +442,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -816,6 +818,8 @@ body.locked .wrap{display:none}
   }
   /* 细分类型键：vless-reality / vless-argo / vless-cdn / hy2 …，老数据没有 cls 时退回 kind */
   function subKey(node) { return (node && node.cls) || (node && node.kind) || "unknown"; }
+  /* 节点来源只有两种，固定成常量，两处筛选共用 */
+  var SOURCE_KINDS = [{ key: "manual", label: "手动" }, { key: "auto", label: "上报" }];
   /* 勾选状态先存在 draft 里，点「保存勾选」才写库；disabled 是上次保存的结果。 */
   function subInSub(node) { return (state.sub.draft || []).indexOf(node.id) === -1; }
   function subChanged() {
@@ -844,7 +848,9 @@ body.locked .wrap{display:none}
     var protos = state.sub.protos || [];
     var machines = state.sub.machinesF || [];
     var tunnel = state.sub.tunnel || "";
+    var sources = state.sub.sources || [];
     return (rows || subRows()).filter(function (item) {
+      if (!ignore.source && sources.length && sources.indexOf(item.node.source || "auto") === -1) return false;
       if (!ignore.proto && protos.length && protos.indexOf(subKey(item.node)) === -1) return false;
       if (!ignore.tunnel && tunnel && (item.node.tunnel || "") !== tunnel) return false;
       if (!ignore.machine && machines.length && machines.indexOf(item.machine) === -1) return false;
@@ -860,7 +866,7 @@ body.locked .wrap{display:none}
     var shownSet = {};
     var rowKey = function (item) { return item.machine + "|" + item.node.id; };
     visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
-    var filtering = Boolean((state.sub.protos || []).length || (state.sub.machinesF || []).length || state.sub.search);
+    var filtering = Boolean((state.sub.protos || []).length || (state.sub.machinesF || []).length || (state.sub.sources || []).length || state.sub.search);
     function tally(keyOf) {
       var map = [];
       rows.forEach(function (item) {
@@ -937,6 +943,21 @@ body.locked .wrap{display:none}
           if (at === -1) list.push(item.key); else list.splice(at, 1);
           state.sub.machinesF = list; renderSub();
         }, "只看这台机器"));
+      });
+    }
+    var sourceBox = $("sub-source-chips");
+    if (sourceBox) {
+      sourceBox.innerHTML = "";
+      var bySource = tally(function (item) { return item.node.source || "auto"; }, null, subVisible({}));
+      SOURCE_KINDS.forEach(function (kind) {
+        var hit = bySource.filter(function (x) { return x.key === kind.key; })[0] || { shown: 0, total: 0, inSub: 0 };
+        var on = (state.sub.sources || []).indexOf(kind.key) !== -1;
+        sourceBox.appendChild(chip(kind.label, hit.shown, hit.total, hit.inSub, on, function () {
+          var list = (state.sub.sources || []).slice();
+          var at = list.indexOf(kind.key);
+          if (at === -1) list.push(kind.key); else list.splice(at, 1);
+          state.sub.sources = list; renderSub();
+        }, "只看" + kind.label + "节点"));
       });
     }
   }
@@ -1161,6 +1182,7 @@ body.locked .wrap{display:none}
       protos: [],
       tunnel: "",
       machines: [],
+      sources: [],
       search: "",
       picked: item ? (item.members || []).slice() : [],
       orig: item ? (item.members || []).slice() : [],
@@ -1265,6 +1287,7 @@ body.locked .wrap{display:none}
       if (!o.ignoreMachine && st.machines.length && st.machines.indexOf(m.machine) < 0) return;
       (m.nodes || []).forEach(function (n) {
         if (!o.ignoreTunnel && st.tunnel && n.tunnel !== st.tunnel) return;
+        if (!o.ignoreSource && (st.sources || []).length && (st.sources || []).indexOf(n.source || "auto") < 0) return;
         if (!o.ignoreProto && st.protos.length) {
           var cls = n.cls || n.kind;
           if (st.protos.indexOf(cls) < 0 && st.protos.indexOf(n.kind) < 0) return;
@@ -1291,7 +1314,7 @@ body.locked .wrap{display:none}
     var shownSet = {};
     var rowKey = function (item) { return item.machine + "|" + item.node.id; };
     visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
-    var filtering = Boolean((st.protos || []).length || (st.machines || []).length || st.tunnel || String(st.search || "").trim());
+    var filtering = Boolean((st.protos || []).length || (st.machines || []).length || (st.sources || []).length || st.tunnel || String(st.search || "").trim());
     function tally(keyOf, labelOf, rowsOf) {
       var map = [];
       (rowsOf || all).forEach(function (item) {
@@ -1344,6 +1367,19 @@ body.locked .wrap{display:none}
           if (at === -1) st.machines.push(m.machine); else st.machines.splice(at, 1);
           renderPresetEditor();
         }, "只在列表里显示这台机器"));
+      });
+    }
+    var sourceBox = $("pe-source-chips");
+    if (sourceBox) {
+      sourceBox.innerHTML = "";
+      var bySource = tally(function (item) { return item.node.source || "auto"; }, null, peRows({ ignoreSource: true }));
+      SOURCE_KINDS.forEach(function (kind) {
+        var hit = bySource.filter(function (x) { return x.key === kind.key; })[0] || { shown: 0, total: 0, inSub: 0 };
+        sourceBox.appendChild(presetChip(kind.label, hit.shown, hit.total, hit.inSub, (st.sources || []).indexOf(kind.key) !== -1, filtering, function () {
+          var at = (st.sources || []).indexOf(kind.key);
+          if (at === -1) st.sources.push(kind.key); else st.sources.splice(at, 1);
+          renderPresetEditor();
+        }, "只在列表里显示" + kind.label + "节点"));
       });
     }
     var rows = peRows();
@@ -2000,7 +2036,7 @@ body.locked .wrap{display:none}
   }
   setSubOpen(false);
   $("sub-toggle").onclick = function () { setSubOpen(!subOpen); };
-  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; $("sub-search").value = ""; renderSub(); };
+  $("sub-clear").onclick = function () { state.sub.search = ""; state.sub.protos = []; state.sub.machinesF = []; state.sub.tunnel = ""; state.sub.sources = []; $("sub-search").value = ""; renderSub(); };
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("preset-new").onclick = function () { openPresetEditor(null); };
   $("preset-search").oninput = function () { state.presetSearch = this.value || ""; renderPresets(); };
@@ -2028,7 +2064,7 @@ body.locked .wrap{display:none}
   $("pe-clear-filter").onclick = function () {
     if (!state.presetEdit) return;
     cancelPresetClose();
-    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.search = "";
+    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.sources = []; state.presetEdit.search = "";
     if ($("pe-search")) $("pe-search").value = "";
     renderPresetEditor();
   };
