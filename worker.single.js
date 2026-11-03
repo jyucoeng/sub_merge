@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.97";
+const VERSION = "1.66.98";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1683,9 +1683,33 @@ body.locked .wrap{display:none}
     sel.value = state.current;
   }
   /* 国家码 → 国旗 emoji（两个区域指示符拼起来） */
+  /* 国旗是 regional indicator 字符对（U+1F1E6 U+1F1FA），能不能画出旗帜全看
+     系统有没有彩色 emoji 字体：Windows 的 Segoe UI Emoji 根本没有国旗，Linux
+     多数没装 Noto Color Emoji。这两种系统上会退化成普通字母 "AU"，再拼上国家码
+     就成了「AU AU」。所以先量一下，量不出旗帜就只留国家码。 */
+  var _flagEmojiOk = null;
+  function canRenderFlagEmoji() {
+    if (_flagEmojiOk !== null) return _flagEmojiOk;
+    _flagEmojiOk = false;
+    try {
+      var cv = document.createElement("canvas");
+      var ctx = cv && cv.getContext ? cv.getContext("2d") : null;
+      if (!ctx || typeof ctx.measureText !== "function") return _flagEmojiOk;
+      ctx.font = "16px sans-serif";
+      /* 用 fromCharCode 写字面量：这整段页面是模板字符串，写反斜杠转义会被先解析掉 */
+      var flag = ctx.measureText(String.fromCharCode(0xD83C, 0xDDE6, 0xD83C, 0xDDFA)).width;
+      var two = ctx.measureText("AA").width;
+      var one = ctx.measureText("A").width;
+      /* 支持时旗帜宽度约 1em、明显宽于单字母，又不等同于两个字母的宽度 */
+      _flagEmojiOk = one > 0 && flag > one * 1.5 && Math.abs(flag - two) > 1;
+    } catch (e) { _flagEmojiOk = false; }
+    return _flagEmojiOk;
+  }
+
   function flagOf(code) {
     var t = String(code || "").toUpperCase();
     if (!/^[A-Z]{2}$/.test(t)) return "";
+    if (!canRenderFlagEmoji()) return "";
     try {
       return String.fromCodePoint(0x1F1E6 + t.charCodeAt(0) - 65, 0x1F1E6 + t.charCodeAt(1) - 65);
     } catch (e) { return ""; }
@@ -1713,7 +1737,8 @@ body.locked .wrap{display:none}
       var geo = document.createElement("span");
       if (m.country) {
         geo.className = "srctag geo";
-        geo.textContent = flagOf(m.country) + " " + m.country;
+        var _flag = flagOf(m.country);
+        geo.textContent = _flag ? _flag + " " + m.country : m.country;
         geo.title = "从机器名里认出的地区：" + m.country + "，默认排序按它排";
       } else {
         geo.className = "srctag geo none";

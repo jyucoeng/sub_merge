@@ -282,6 +282,15 @@ click("create-machine");
 await idle();
 check("新建机器：状态文案", text("status").includes("已创建 香港-小叮当，带入 2 个节点"), text("status"));
 check("新建机器：列表出现且标手动", text("machine-list").includes("香港-小叮当") && text("machine-list").includes("手动"));
+/* 国旗是 regional indicator 字符对，能不能画出旗帜全看系统有没有彩色 emoji 字体
+   （Windows 的 Segoe UI Emoji 没有国旗、Linux 常缺 Noto Color Emoji）。本环境没有
+   canvas，测出来就是不支持，于是只拼国家码——不能出现「HK HK」这种重复。 */
+{
+  const lt = text("machine-list");
+  check("地区标签：无 emoji 字体时只显示国家码",
+    lt.includes("HK") && !/[\uD83C][\uDDE6-\uDDFF]/.test(lt),
+    `HK=${lt.includes("HK")} 有旗帜=${/[\uD83C][\uDDE6-\uDDFF]/.test(lt)}`);
+}
 check("新建机器：节点区两行", nodeRows().length === 2, `rows=${nodeRows().length}`);
 check("新建机器：#片段自动成名字", names()[0] === "小叮当-洛杉矶-cloudnium-hy2-localhost", names()[0]);
 check("新建机器：第二个名字", names()[1] === "小叮当-洛杉矶-cloudnium-tuic-localhost", names()[1]);
