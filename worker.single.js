@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.103";
+const VERSION = "1.66.104";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -433,6 +433,10 @@ textarea:focus{border-color:var(--acc)}
 .flag-img{width:18px;height:13px;object-fit:cover;border-radius:2px;vertical-align:-2px;box-shadow:0 0 0 1px rgba(0,0,0,.14)}
 .flag-img.failed{display:none}
 .srctag.geo{color:var(--fg2);background:transparent;border-color:var(--line)}
+/* 机器列表里的旗子单独放大：它是图形不是文字，11px 时远看只是几个色块，分不出是哪国。
+   只动 .geo 这一个标签，同一行后面的「上报 7」「手动 1」仍然是 .srctag 的 11px。 */
+.machine .srctag.geo{font-size:14px;line-height:1.2;padding:0 5px}
+.machine .srctag.geo .flag-img{width:auto;height:14px;vertical-align:-2px;box-shadow:0 0 0 1px rgba(0,0,0,.16)}
 .srctag.geo.none{color:var(--fg3);border-style:dashed}
 .machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;scroll-margin-top:14px}
 .nsec.auto{background:var(--soft)}
