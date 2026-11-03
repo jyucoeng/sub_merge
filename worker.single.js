@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.37.17";
+const VERSION = "1.37.18";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4111,10 +4111,10 @@ async function nodesOf(record, allowed, disabled) {
     autoPart.push(node);
   }
   const hide = disabled instanceof Set ? disabled : new Set(disabled || []);
-  /* 机器内一律按协议排（reality vless → anytls → argo vless → ws vless → hy2 → tuic
-     → socks → trojan → 其它），手动节点也参与。以前手动那部分靠数组顺序，
-     结果同一台机器里协议是混着来的，看着比客户端自己排还乱。 */
-  const merged = [...sortNodes(manualPart, true), ...sortNodes(autoPart, true)]
+  /* 手动段和自动段必须先合并再统一排序。以前是各排各的再拼起来，
+     于是手动那半段永远排在自动那半段前面，机器内整体并不是协议序——
+     实测一台机器出来的是 hy2, vless, trojan, tuic：两段各自有序，合起来乱。 */
+  const merged = sortNodes([...manualPart, ...autoPart], true)
     .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }

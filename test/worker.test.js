@@ -593,7 +593,10 @@ test("manual nodes sit next to reported nodes and reports never touch them", asy
   assert.equal(data.manual_nodes.length, 1);
   assert.equal(data.auto_nodes.length, 2);
   assert.equal(data.nodes.length, 3);
-  assert.equal(data.nodes[0].link, hand, "手动节点排在这台机器最前面");
+  /* 手动节点不再固定排最前——机器内统一按协议字母序，手动和上报混在一起排 */
+  assert.ok(data.nodes.some((n) => n.link === hand), "手动节点要在列表里");
+  const kinds = data.nodes.map((n) => n.protocol);
+  assert.deepEqual(kinds, kinds.slice().sort(), "机器内按协议字母升序");
 
   // 再上报一次：自动部分整体换新，手动部分一个字都不动
   res = await call(env, "POST", "/api/v1/report/edit", b64("vless://new@example.com:443?sni=deb.debian.org#New"), auth);
