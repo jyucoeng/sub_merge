@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.74";
+const VERSION = "1.66.75";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -162,6 +162,8 @@ textarea:focus{border-color:var(--acc)}
 .srctag{display:inline-block;font-size:11px;line-height:1.6;padding:1px 7px;border-radius:6px;border:1px solid transparent;white-space:nowrap;font-weight:500}
 .srctag.manual{color:var(--warnink);background:var(--manualbg);border-color:var(--warnline)}
 .srctag.auto{color:var(--autoink);background:var(--autobg);border-color:var(--autoline)}
+.srctag.geo{color:var(--fg2);background:transparent;border-color:var(--line)}
+.srctag.geo.none{color:var(--fg3);border-style:dashed}
 .machine .srctag{margin-left:7px;vertical-align:1px}.nsec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:14px;scroll-margin-top:14px}
 .nsec.auto{background:var(--soft)}
 .sources{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
@@ -1580,6 +1582,15 @@ body.locked .wrap{display:none}
     if (!state.current || !state.machines.some(function (m) { return m.machine === state.current; })) state.current = state.machines[0].machine;
     sel.value = state.current;
   }
+  /* 国家码 → 国旗 emoji（两个区域指示符拼起来） */
+  function flagOf(code) {
+    var t = String(code || "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(t)) return "";
+    try {
+      return String.fromCodePoint(0x1F1E6 + t.charCodeAt(0) - 65, 0x1F1E6 + t.charCodeAt(1) - 65);
+    } catch (e) { return ""; }
+  }
+
   function renderMachineList() {
     var box = $("machine-list"); box.innerHTML = "";
     if (!state.machines.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = "暂无机器上报"; box.appendChild(e); return; }
@@ -1596,6 +1607,21 @@ body.locked .wrap{display:none}
       idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
       var name = document.createElement("div"); name.className = "mname";
       name.appendChild(document.createTextNode(m.machine));
+      /* 名字里解析出的地区。解析不出来就明说——这种机器只能排到最后，
+         而用户看着自己的名字不会觉得有问题，不显示出来永远发现不了。 */
+      var geo = document.createElement("span");
+      if (m.country) {
+        geo.className = "srctag geo";
+        geo.textContent = flagOf(m.country) + " " + m.country;
+        geo.title = "从机器名里认出的地区：" + m.country + "，默认排序按它排";
+      } else {
+        geo.className = "srctag geo none";
+        geo.textContent = "无地区";
+        geo.title = "机器名里没有地区词，认不出这是哪里的机器，默认排序会把它排到最后。"
+          + String.fromCharCode(10)
+          + "名字里加个地区词就能自动归位，比如：香港-1、圣何塞-2、us-lax、jp-osaka。";
+      }
+      name.appendChild(geo);
       // 一层一个标签：有多少手动、多少上报一眼看清，不存在「整台机器都变手动」
       if (m.manual_nodes) {
         var mt = document.createElement("span"); mt.className = "srctag manual";
@@ -4061,6 +4087,9 @@ async function listMachines(env) {
     const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
     machines.push({
       machine: record.machine,
+      /* 名字里解析出的国家码，给界面显示用：解析不出来说明名字里没有地区词，
+       * 默认排序只能把它扔到最后，这种情况得让用户看见，光靠文档说不清。 */
+      country: countryCodeOf(record.machine),
       bytes: record.bytes,
       updated_at: record.updated_at,
       hash: record.hash,
