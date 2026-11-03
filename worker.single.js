@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.70";
+const VERSION = "1.66.71";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1638,7 +1638,10 @@ body.locked .wrap{display:none}
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function (data) {
           var tip = $("order-status");
           var gone = (data && data.presets) || [];
-          tip.textContent = "已删除 " + m.machine + (gone.length ? "；同时删掉了只含它的档案：" + gone.join("、") : "");
+          var dead = (data && data.links) || [];
+          tip.textContent = "已删除 " + m.machine
+            + (gone.length ? "；同时删掉了只含它的档案：" + gone.join("、") : "")
+            + (dead.length ? "；顺带清了 " + dead.length + " 条废掉的短链" : "");
           tip.className = "status ok";
           /* 删掉的正好是正在编辑的那台：先断开引用，否则下面 loadNodes 会拿一个
              已经不存在的机器名去请求。renderMachines 那边会自动落到第一台。 */
@@ -4182,6 +4185,7 @@ async function deleteMachine(env, machine) {
      摘完什么都不剩的（没有别的机器、也没有单独勾过的节点），这条档案就是个空订阅，
      留着只会发出一条 200 但没内容的链接，一起删掉。 */
   const orphanPresets = [];
+  const purgedLinks = [];
   const db = dbEnv(env);
   if (db) {
     const rows = await db.prepare("SELECT name, machines, members, mode FROM presets").all();
@@ -4201,6 +4205,19 @@ async function deleteMachine(env, machine) {
       await db.prepare("UPDATE presets SET machines = ?1, updated_at = ?2 WHERE name = ?3")
         .bind(left.join("\u0001"), new Date().toISOString(), row.name).run();
     }
+
+    /* 指向已经不存在的档案的短链：留着只会让客户端拿到 404，
+       而且界面上看不出来它已经废了（列表里还挂着一条 /s/xxxx）。 */
+    const alive = new Set(((rows && rows.results) || []).map((r) => r.name));
+    for (const name of orphanPresets) alive.delete(name);
+    const linkRows = await db
+      .prepare("SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC")
+      .all();
+    for (const item of (linkRows && linkRows.results) || []) {
+      if (!item.preset || alive.has(item.preset)) continue;
+      await db.prepare("DELETE FROM links WHERE code = ?1").bind(item.code).run();
+      purgedLinks.push(item.code);
+    }
   }
 
   /* 改名记录：指向这台机器的一并清掉，别让上报继续往一个不存在的地方转 */
@@ -4216,7 +4233,7 @@ async function deleteMachine(env, machine) {
 
   /* 订阅正文是拼好的缓存，机器没了必须重拼，否则还发得出这台机器的节点 */
   SUB_CACHE.clear();
-  return json({ ok: true, deleted: machine, presets: orphanPresets });
+  return json({ ok: true, deleted: machine, presets: orphanPresets, links: purgedLinks });
 }
 
 function internalError(err) {

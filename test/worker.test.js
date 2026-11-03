@@ -477,6 +477,31 @@ test("deleting a machine drops the preset that only pointed at it", async () => 
   assert.deepEqual(both.machines, ["other"], "档案里只剩另一台机器，不能变成空的");
 });
 
+test("short links pointing at a deleted preset are cleaned up too", async () => {
+  /* 档案跟着删了，短链还留着的话客户端只会拿到 404，
+     而界面上那条 /s/xxxx 仍然挂着，看不出已经废了。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/only", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "PUT", "/api/v1/presets/tiny", JSON.stringify({ machines: ["only"], create: true }), jsonAuth);
+  const made = await (await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "tiny", format: "base64", code: "tiny0001" }), jsonAuth)).json();
+  assert.ok(made.ok, JSON.stringify(made));
+  /* 全量订阅的短链不绑档案，不该被牵连 */
+  await call(env, "POST", "/api/v1/links", JSON.stringify({ preset: "", format: "base64", code: "whole001" }), jsonAuth);
+
+  const res = await call(env, "DELETE", "/api/v1/machines/only", null, auth);
+  const data = await res.json();
+  assert.deepEqual(data.presets, ["tiny"]);
+  assert.deepEqual(data.links, ["tiny0001"], "只清指向被删档案的那条");
+
+  const links = await (await call(env, "GET", "/api/v1/links", null, auth)).json();
+  const codes = (links.links || []).map((l) => l.code);
+  assert.equal(codes.includes("tiny0001"), false, "废掉的短链要消失");
+  assert.equal(codes.includes("whole001"), true, "全量订阅的短链留着");
+});
+
 test("manual saves record their own timestamp, reports do not touch it", async () => {
   const env = { TOKEN, DB: makeDb({ withSchema: true }) };
   const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
