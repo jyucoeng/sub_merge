@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.81";
+const VERSION = "1.66.82";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3962,6 +3962,15 @@ async function putClashRules(request, env) {
 async function getNodeConfig(env, machine) {
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [], manual_updated_at: null });
+  /* 这几项原来在 json() 里各写一遍：loadAllowedProtocols 两次、loadDisabledGlobal 三次、
+   * autoNodesOf 两次。点一台机器就要来回问 D1 五六遍，而每次拿到的都是同一份数据。
+   * 先取一次，后面全部复用。 */
+  const [allowed, disabled, autoNodes, reports] = await Promise.all([
+    loadAllowedProtocols(env, machine),
+    loadDisabledGlobal(env),
+    autoNodesOf(record),
+    loadReports(env, machine),
+  ]);
   return json({
     ok: true,
     machine,
@@ -3969,16 +3978,16 @@ async function getNodeConfig(env, machine) {
     updated_at: record.updated_at,
     manual_updated_at: record.manual_updated_at || null,
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
-    nodes: await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env)),
+    nodes: await nodesOf(record, allowed, disabled),
     manual_nodes: record.manual_nodes || [],
-    auto_nodes: await autoNodesOf(record),
-    sources: (await loadReports(env, machine)).map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
+    auto_nodes: autoNodes,
+    sources: reports.map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
-    protocols: await loadAllowedProtocols(env, machine),
-    protocol_stats: protocolStats([...((record && record.manual_nodes) || []), ...(await autoNodesOf(record))]),
+    protocols: allowed,
+    protocol_stats: protocolStats([...((record && record.manual_nodes) || []), ...autoNodes]),
     // 全量节点清单：all_nodes 里带 enabled，取消勾选的不会进订阅
-    disabled: [...(await loadDisabledGlobal(env))],
-    all_nodes: await nodeEntries(record, await loadDisabledGlobal(env)),
+    disabled: [...disabled],
+    all_nodes: await nodeEntries(record, disabled),
   });
 }
 
@@ -4176,14 +4185,37 @@ async function renameMachine(request, env, machine) {
   return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, was_former_of: wasFormerOf, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
+/* 每条上报记录只取机器名和来源名，一次查全表。原来在 for 循环里按机器逐个查，
+ * 机器一多就是 N 次往返。 */
+async function loadReportSourceMap(env) {
+  const map = new Map();
+  const db = dbEnv(env);
+  if (!db) return map;
+  const result = await db.prepare("SELECT machine, source FROM reports").all();
+  for (const row of (result && result.results) || []) {
+    const key = String(row.machine);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(String(row.source));
+  }
+  for (const list of map.values()) list.sort();
+  return map;
+}
+
 async function listMachines(env) {
-  const records = await loadAllRecords(env);
-  const order = await getMachineOrder(env);
+  /* 这四个查询原来都写在 for 循环体里，逐台机器重复执行：N 台机器就是 4N 次 D1 往返，
+   * 而其中 loadDisabledGlobal 每次返回的都是同一份全局数据，纯属白跑。
+   * 改成先并行取齐，循环里只剩纯内存计算。 */
+  const [records, order, disabled, protocolMap, sourceMap] = await Promise.all([
+    loadAllRecords(env),
+    getMachineOrder(env),
+    loadDisabledGlobal(env),
+    loadProtocolMap(env),
+    loadReportSourceMap(env),
+  ]);
   const rank = new Map(order.map((m, i) => [m, i]));
-  const machines = [];
-  for (const record of records) {
-    const nodes = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
-    machines.push({
+  const machines = await Promise.all(records.map(async (record) => {
+    const nodes = await nodesOf(record, protocolMap.get(record.machine) || [], disabled);
+    return {
       machine: record.machine,
       /* 名字里解析出的国家码，给界面显示用：解析不出来说明名字里没有地区词，
        * 默认排序只能把它扔到最后，这种情况得让用户看见，光靠文档说不清。 */
@@ -4195,9 +4227,9 @@ async function listMachines(env) {
       nodes: nodes.length,
       manual_nodes: (record.manual_nodes || []).length,
       auto_nodes: (record.nodes || []).length,
-      sources: (await loadReports(env, record.machine)).map((item) => item.source),
-    });
-  }
+      sources: sourceMap.get(record.machine) || [],
+    };
+  }));
   machines.sort((a, b) => {
     const ar = rank.has(a.machine) ? rank.get(a.machine) : defaultMachineRank(a.machine);
     const br = rank.has(b.machine) ? rank.get(b.machine) : defaultMachineRank(b.machine);
