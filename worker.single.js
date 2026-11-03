@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.77";
+const VERSION = "1.66.78";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -312,7 +312,7 @@ body.locked .wrap{display:none}
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
 <div class="mlist-head" id="mlist-head"></div>
 <div id="machine-list" class="machine-list"></div>
-<div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button></div>
+<div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button><button id="reset-machine-order" type="button" disabled title="放弃这次改动，回到上次保存的顺序">撤销改动</button></div>
 <div id="order-status" class="status"></div>
 </section>
 
@@ -1830,6 +1830,14 @@ body.locked .wrap{display:none}
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
+  $("reset-machine-order").onclick = function () {
+    if (!state.orderDirty) return;
+    state.sortKey = ""; state.sortDir = 1;
+    /* 顺序这一块有自己的提示位（#order-status），别写到页面底部的全局状态条去 */
+    var el = $("order-status"); el.textContent = "正在恢复…"; el.className = "status";
+    loadMachines(true).then(function () { el.textContent = "已回到上次保存的顺序"; el.className = "status ok"; })
+      .catch(function (e) { el.textContent = "恢复失败：" + e.message; el.className = "status err"; });
+  };
   function loadMachines(quiet) {
     return api("/machines").then(function (data) {
       state.machines = data.machines || []; clearOrderDirty(); renderMachines(); renderMachineList(); return loadNodes(quiet);
@@ -1885,18 +1893,25 @@ body.locked .wrap{display:none}
       el.textContent = base + (on ? (state.sortDir === 1 ? " \u2191" : " \u2193") : "");
     }
   }
+  function syncOrderButtons() {
+    var save = $("save-machine-order");
+    if (save) {
+      save.className = state.orderDirty ? "primary dirty" : "primary";
+      save.textContent = state.orderDirty ? "保存机器顺序（未保存）" : "保存机器顺序";
+    }
+    var reset = $("reset-machine-order");
+    if (reset) reset.disabled = !state.orderDirty;
+  }
   function markOrderDirty() {
     if (state.orderDirty) return;
     state.orderDirty = true;
-    var btn = $("save-machine-order");
-    if (btn) { btn.className = "primary dirty"; btn.textContent = "保存机器顺序（未保存）"; }
+    syncOrderButtons();
     var el = $("order-status");
     if (el && !el.textContent) { el.textContent = "顺序改过了，记得点上面的按钮存下来"; el.className = "status"; }
   }
   function clearOrderDirty() {
     state.orderDirty = false;
-    var btn = $("save-machine-order");
-    if (btn) { btn.className = "primary"; btn.textContent = "保存机器顺序"; }
+    syncOrderButtons();
   }
   window.addEventListener("beforeunload", function (e) {
     if (!state.orderDirty) return;

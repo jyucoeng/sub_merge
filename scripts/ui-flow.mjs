@@ -480,6 +480,27 @@ check("保存排序：按钮恢复常态", !el("save-machine-order").className.i
   check("表头：排序后保存写回服务端", Array.isArray(saved) && saved.length === 2, JSON.stringify(saved));
   check("表头：保存后按钮恢复", !el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
 }
+{
+  /* 撤销改动：排乱了不想一个个调回去，一键回到上次保存的顺序 */
+  const before = machineRows().map((r) => r.children[1].textContent.split("🇺")[0].split("🇭")[0].trim()).join(",");
+  check("撤销：未改动时按钮禁用", el("reset-machine-order").disabled === true, String(el("reset-machine-order").disabled));
+
+  const head = el("mlist-head");
+  const pick = (k) => { for (let i = 0; i < head.children.length; i += 1) if (head.children[i].getAttribute && head.children[i].getAttribute("data-k") === k) return head.children[i]; return null; };
+  pick("name").onclick.call(pick("name"));
+  await idle();
+  check("撤销：排序后按钮可点", el("reset-machine-order").disabled === false, String(el("reset-machine-order").disabled));
+  const shuffled = machineRows().map((r) => r.children[1].textContent.split("🇺")[0].split("🇭")[0].trim()).join(",");
+
+  el("reset-machine-order").onclick();
+  await idle();
+  const after = machineRows().map((r) => r.children[1].textContent.split("🇺")[0].split("🇭")[0].trim()).join(",");
+  check("撤销：顺序回到上次保存的样子", after === before, `${before} → ${shuffled} → ${after}`);
+  check("撤销：保存按钮不再标红", !el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
+  check("撤销：按钮自己回到禁用", el("reset-machine-order").disabled === true, String(el("reset-machine-order").disabled));
+  check("撤销：表头高亮清掉", !["name", "region", "nodes"].some((k) => pick(k).className === "on"), [pick("name").className, pick("region").className, pick("nodes").className].join(","));
+  check("撤销：提示已恢复", el("order-status").textContent.indexOf("回到上次保存") >= 0 || el("order-status").textContent.indexOf("恢复") >= 0, el("order-status").textContent);
+}
 
 // H. 重命名（保留节点与排序位）
 {
