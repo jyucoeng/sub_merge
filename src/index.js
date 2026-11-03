@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.75";
+const VERSION = "1.66.76";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -130,7 +130,7 @@ h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.row label{color:var(--sub);font-size:13px}
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
-button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}
+button:hover{border-color:var(--acc)}button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}button.danger{color:var(--err)}button.primary.dirty{background:var(--err);border-color:var(--err);color:#fff}button.primary.dirty::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#fff;margin-left:6px;vertical-align:middle}
 button.shortlink{padding:7px 13px;font-size:12.5px;font-weight:600;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12);color:#15803d}
 button.shortlink:hover{background:#16a34a;border-color:#16a34a;color:#fff}
 [data-theme="dark"] button.shortlink{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
@@ -419,7 +419,7 @@ body.locked .wrap{display:none}
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "" };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "" }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -1602,6 +1602,7 @@ body.locked .wrap{display:none}
         var to = Math.max(1, Math.min(state.machines.length, isNaN(want) ? index + 1 : want)) - 1;
         if (!moveItem(state.machines, index, to)) { idx.value = String(index + 1); return; }
         var tip = $("order-status"); tip.textContent = "顺序已改，点「保存顺序」生效"; tip.className = "status";
+        markOrderDirty();
         renderMachineList(); renderMachines();
       };
       idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
@@ -1654,8 +1655,8 @@ body.locked .wrap{display:none}
       edit.title = editingThis
         ? "正在编辑这台机器的节点，改完点下面的「保存配置」或「撤销修改」"
         : "编辑这台机器的节点，会跳到下面的节点配置";
-      up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
-      down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); } };
+      up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
+      down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
       var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger"; delM.textContent = "×"; delM.title = "删除该机器";
       delM.onclick = function () {
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
@@ -1817,18 +1818,37 @@ body.locked .wrap{display:none}
   }
   function loadMachines(quiet) {
     return api("/machines").then(function (data) {
-      state.machines = data.machines || []; renderMachines(); renderMachineList(); return loadNodes(quiet);
+      state.machines = data.machines || []; clearOrderDirty(); renderMachines(); renderMachineList(); return loadNodes(quiet);
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
   $("machine").onchange = function () {
     if (state.dirty && !window.confirm("① 手动节点有未保存的修改，切换机器会丢掉，继续？")) { this.value = state.current || ""; return; }
     state.current = this.value; loadNodes(); endMachineEditing();
   };
+  function markOrderDirty() {
+    if (state.orderDirty) return;
+    state.orderDirty = true;
+    var btn = $("save-machine-order");
+    if (btn) { btn.className = "primary dirty"; btn.textContent = "保存机器顺序（未保存）"; }
+    var el = $("order-status");
+    if (el && !el.textContent) { el.textContent = "顺序改过了，记得点上面的按钮存下来"; el.className = "status"; }
+  }
+  function clearOrderDirty() {
+    state.orderDirty = false;
+    var btn = $("save-machine-order");
+    if (btn) { btn.className = "primary"; btn.textContent = "保存机器顺序"; }
+  }
+  window.addEventListener("beforeunload", function (e) {
+    if (!state.orderDirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+    return "";
+  });
   $("save-machine-order").onclick = function () {
     var machines = state.machines.map(function (m) { return m.machine; });
     var el = $("order-status"); el.textContent = "保存中..."; el.className = "status";
     api("/machines/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ machines: machines }) })
-      .then(function () { el.textContent = "机器顺序已保存"; el.className = "status ok"; return loadMachines(); })
+      .then(function () { el.textContent = "机器顺序已保存"; el.className = "status ok"; clearOrderDirty(); return loadMachines(); })
       .catch(function (e) { el.textContent = "保存失败：" + e.message; el.className = "status err"; });
   };
   $("reload").onclick = loadMachines;

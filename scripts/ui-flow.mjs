@@ -144,9 +144,12 @@ const documentElement = new El("html");
 documentElement.setAttribute = function (k, v) { this[k] = String(v); };
 documentElement.getAttribute = function (k) { return this[k] == null ? null : this[k]; };
 documentShim.documentElement = documentElement;
+const winListeners = new Map();
 const windowShim = {
   prompt: () => (prompts.length ? prompts.shift() : null),
   confirm: () => (confirms.length ? confirms.shift() : true),
+  addEventListener: (type, fn) => { const a = winListeners.get(type) || []; a.push(fn); winListeners.set(type, a); },
+  removeEventListener: (type, fn) => { const a = winListeners.get(type) || []; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); },
   localStorage: {
     getItem: (k) => (storage.has(k) ? storage.get(k) : null),
     setItem: (k, v) => storage.set(k, String(v)),
@@ -391,8 +394,21 @@ check("第二台机器创建", text("status").includes("已创建 洛杉矶 备�
 check("机器列表两行", machineRows().length === 2, `rows=${machineRows().length}`);
 const orderBefore = machineRows().map((r) => r.children[1].textContent);
 check("创建顺序符合预期", orderBefore[0].includes("香港-小叮当") && orderBefore[1].includes("洛杉矶 备用"), orderBefore.join(" | "));
+const btnBefore = { cls: el("save-machine-order").className, txt: el("save-machine-order").textContent };
+check("保存顺序：初始不是脏状态", !btnBefore.cls.includes("dirty") && btnBefore.txt === "保存机器顺序", `${btnBefore.cls} / ${btnBefore.txt}`);
 machineRows()[0].children[4].onclick(); // ↓
 check("下移：UI 顺序交换", machineRows()[0].children[1].textContent.includes("洛杉矶 备用"), machineRows().map((r) => r.children[1].textContent).join(" | "));
+check("下移：保存按钮标红", el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
+check("下移：按钮文案提示未保存", el("save-machine-order").textContent.includes("未保存"), el("save-machine-order").textContent);
+{
+  // 离开页面应当被拦下
+  const handlers = winListeners.get("beforeunload") || [];
+  check("注册了 beforeunload", handlers.length > 0, `count=${handlers.length}`);
+  let prevented = false;
+  const ev = { preventDefault: () => { prevented = true; }, returnValue: "" };
+  handlers[0].call(windowShim, ev);
+  check("有未保存改动时 beforeunload 拦下离开", prevented && ev.returnValue === "", `prevented=${prevented} returnValue="${ev.returnValue}"`);
+}
 {
   // 机器序号直接调整：第 2 行改成 1，再改回 2，最后越界填 99
   check("机器序号是输入框", machineRows()[0].children[0].type === "number", machineRows()[0].children[0].type);
@@ -417,6 +433,14 @@ check("下移：UI 顺序交换", machineRows()[0].children[1].textContent.inclu
 click("save-machine-order");
 await idle();
 check("保存排序：提示", text("order-status").includes("机器顺序已保存"), text("order-status"));
+check("保存排序：按钮恢复常态", !el("save-machine-order").className.includes("dirty") && el("save-machine-order").textContent === "保存机器顺序", `${el("save-machine-order").className} / ${el("save-machine-order").textContent}`);
+{
+  const handlers = winListeners.get("beforeunload") || [];
+  let prevented = false;
+  const ev = { preventDefault: () => { prevented = true; }, returnValue: "" };
+  if (handlers.length) handlers[0].call(windowShim, ev);
+  check("保存后再离开不再拦截", !prevented, `prevented=${prevented}`);
+}
 {
   const { data } = await api("/machines");
   check("保存排序：服务端顺序一致", (data.machines || []).map((m) => m.machine).join(",") === "洛杉矶 备用,香港-小叮当", JSON.stringify((data.machines || []).map((m) => m.machine)));
