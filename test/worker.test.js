@@ -76,6 +76,10 @@ class MockStatement {
     throw new Error(`MockD1: unsupported first() -> ${this.sql}`);
   }
   async all() {
+    if (/^SELECT name, machines FROM presets$/i.test(this.sql)) {
+      const results = [...this.db.presets.values()].map((r) => ({ name: r.name, machines: r.machines }));
+      return { results, success: true, meta: { changes: 0 } };
+    }
     if (/^SELECT code, preset, format, note, created_at, hits, last_at FROM links ORDER BY created_at ASC$/i.test(this.sql)) {
       const rows = [...this.db.links.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
@@ -183,6 +187,12 @@ class MockStatement {
     if (/^INSERT INTO presets/i.test(this.sql)) {
       const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clashMode] = args;
       this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "", members: members || "", mode: mode || "", clash_mode: clashMode || "inherit" });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE presets SET machines = \?1, updated_at = \?2 WHERE name = \?3$/i.test(this.sql)) {
+      const row = this.db.presets.get(args[2]);
+      if (!row) return { success: true, meta: { changes: 0 } };
+      this.db.presets.set(args[2], { ...row, machines: args[0], updated_at: args[1] });
       return { success: true, meta: { changes: 1 } };
     }
     if (/^UPDATE presets SET skips = \?2, updated_at = \?3 WHERE name = \?1$/i.test(this.sql)) {
@@ -421,6 +431,23 @@ test("creating a machine with an old name cancels the redirect", async () => {
   const res = await call(env, "POST", "/api/v1/report/old2?source=a", b64("vless://c@3.3.3.3:443#n3"), auth);
   const data = await res.json();
   assert.equal(data.machine, "old2", "撤销重定向之后旧名是独立的机器");
+});
+
+test("deleting a machine also clears the settings keyed by its name", async () => {
+  /* 协议筛选是按机器存的（protocols:<机器>）。机器删了这条设置还在，
+     同名机器下次建出来会莫名其妙只显示一部分协议，而且看不出是哪来的。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.1.1.1:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#n1";
+  await call(env, "PUT", "/api/v1/nodes/tmp", JSON.stringify({ nodes: [{ link }] }), jsonAuth);
+  await call(env, "PUT", "/api/v1/nodes/tmp/protocols", JSON.stringify({ protocols: ["vless"] }), jsonAuth);
+  assert.ok(env.DB.settings.has("protocols:tmp"), "前置：协议筛选确实存下来了");
+
+  const res = await call(env, "DELETE", "/api/v1/machines/tmp", null, auth);
+  assert.equal(res.status, 200);
+  assert.equal(env.DB.settings.has("protocols:tmp"), false, "协议筛选要跟着删掉");
+  assert.equal(env.DB.machines.has("tmp"), false);
 });
 
 test("manual saves record their own timestamp, reports do not touch it", async () => {

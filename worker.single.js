@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.68";
+const VERSION = "1.66.69";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1637,7 +1637,11 @@ body.locked .wrap{display:none}
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function () {
           var tip = $("order-status"); tip.textContent = "已删除 " + m.machine; tip.className = "status ok";
-          return loadMachines().then(function () { return loadSubNodes(true); });
+          /* 删掉的正好是正在编辑的那台：先断开引用，否则下面 loadNodes 会拿一个
+             已经不存在的机器名去请求。renderMachines 那边会自动落到第一台。 */
+          if (state.editingMachine === m.machine) state.editingMachine = "";
+          if (state.current === m.machine) { state.current = ""; state.dirty = false; state.nodes = []; state.autoNodes = []; }
+          return loadMachines().then(function () { return loadSubNodes(true); }).then(function () { renderMachineList(); });
         }).catch(function (e) { var tip = $("order-status"); tip.textContent = "删除失败：" + e.message; tip.className = "status err"; });
       };
       edit.onclick = function () {
@@ -4142,16 +4146,57 @@ async function putMachineOrder(request, env) {
 
 async function deleteMachine(env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  /* 先读一份：下面要拿它的节点身份去清全局排除清单 */
+  const record = await loadRecord(env, machine);
   await deleteRecord(env, machine);
   await deleteReports(env, machine);
+
   const order = await getMachineOrder(env);
   if (order.includes(machine)) await putSetting(env, "machine_order", JSON.stringify(order.filter((m) => m !== machine)));
+
+  /* 协议筛选是按机器存的。机器删了这条设置就成了孤儿，将来同名机器再建出来，
+     会莫名其妙只显示一部分协议，还查不出是哪来的。 */
+  await deleteSetting(env, protocolKey(machine));
+  /* 老版本按机器存的排除键，虽然已经迁到全局，残留的也一并清掉 */
+  await deleteSetting(env, disabledKey(machine));
+
+  /* 全局排除清单按「节点身份 = 去掉 #名字 的链接」存。这些节点所在的机器都没了，
+     身份还留着的话，以后同样的节点再从别处冒出来会被静默排除——这正是最难查的那种问题。 */
+  if (record) {
+    const ids = new Set();
+    for (const node of record.nodes || []) ids.add(linkIdentity(node && node.link));
+    for (const node of record.manual_nodes || []) ids.add(linkIdentity(node && node.link));
+    ids.delete("");
+    if (ids.size) {
+      const global = await loadDisabledGlobal(env);
+      let changed = false;
+      for (const id of ids) if (global.delete(id)) changed = true;
+      if (changed) await saveDisabledGlobal(env, [...global]);
+    }
+  }
+
+  /* 按机器名筛选的档案：把这个名字从筛选列表里摘掉，别留个永远匹配不到的空位 */
+  const db = dbEnv(env);
+  if (db) {
+    const rows = await db.prepare("SELECT name, machines FROM presets").all();
+    for (const row of (rows && rows.results) || []) {
+      const list = String(row.machines || "").split("\u0001").filter(Boolean);
+      if (!list.includes(machine)) continue;
+      await db.prepare("UPDATE presets SET machines = ?1, updated_at = ?2 WHERE name = ?3")
+        .bind(list.filter((x) => x !== machine).join("\u0001"), new Date().toISOString(), row.name).run();
+    }
+  }
+
+  /* 改名记录：指向这台机器的一并清掉，别让上报继续往一个不存在的地方转 */
   const former = await loadFormerMap(env);
   let touched = false;
   for (const k of Object.keys(former)) {
     if (former[k] === machine || k === machine) { delete former[k]; touched = true; }
   }
   if (touched) await saveFormerMap(env, former);
+
+  /* 订阅正文是拼好的缓存，机器没了必须重拼，否则还发得出这台机器的节点 */
+  SUB_CACHE.clear();
   return json({ ok: true, deleted: machine });
 }
 

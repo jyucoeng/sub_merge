@@ -664,6 +664,9 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("删除确认：机器消失", !findMachineRow("auto-hk"), text("machine-list").slice(0, 40));
   const { data } = await api("/machines");
   check("删除确认：服务端也没了", !(data.machines || []).some((m) => m.machine === "auto-hk"));
+  /* 删掉的正好是正在编辑的那台：不能还留着它的节点，得自动落到剩下的机器上 */
+  check("删除当前机器：自动切到剩余机器", String(el("machine").value || "") === "洛杉矶 备用", String(el("machine").value));
+  check("删除当前机器：节点区换成那台的内容", nodeRows().length === 1 && links().some((l) => String(l).startsWith("tuic://")), `rows=${nodeRows().length}`);
 }
 
 // N. 复制按钮（data-copy）
