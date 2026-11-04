@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.107";
+const VERSION = "1.66.108";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -444,7 +444,7 @@ textarea:focus{border-color:var(--acc)}
 .fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
 .fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 .fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 70px 34px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 58px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px}
@@ -547,7 +547,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlrow .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
-.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
+.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-machine{padding:8px 9px;white-space:nowrap}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
 h1 #gh{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:8px;border-radius:7px;color:var(--sub);vertical-align:-4px;text-decoration:none;border:1px solid transparent}
 h1 #gh:hover{color:var(--ink);background:var(--chip);border-color:var(--line)}
@@ -570,7 +570,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。<b>机器名是上报脚本认的标识</b>：改名之后旧名仍然收得到上报（服务端会转到现在这个名字上），但还是建议把脚本里的机器名一起改掉，否则以后只留个旧名在这边挂着。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。<b>机器名是上报脚本认的标识</b>：改名之后旧名仍然收得到上报（服务端会转到现在这个名字上），但还是建议把脚本里的机器名一起改掉，否则以后只留个旧名在这边挂着。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="export-data" class="admin-only" type="button" title="把机器、上报、档案、短链、设置全部导成一份 JSON，用来备份或搬到别的实例">导出备份</button><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -592,7 +592,7 @@ body.locked .wrap{display:none}
 <div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><button id="add" type="button">+ 空节点</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
-<div class="row admin-only"><button id="save" class="primary" type="button">保存配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
+<div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
 <div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
@@ -1825,20 +1825,35 @@ body.locked .wrap{display:none}
           })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      var shortBtn = document.createElement("button"); shortBtn.type = "button"; shortBtn.className = "shortlink"; shortBtn.textContent = "短链";
-      shortBtn.title = "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
-      shortBtn.style.display = sl ? "none" : "";
-      shortBtn.onclick = function () {
-        api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
-          .then(function (data) {
-            copyToClipboard(data.url);
-            // 同主订阅链接：生成后直接把这一条切到短链视图，
-            // 否则视图停在 long 时还得再点一次「换短链」。
-            setLinkView("p:" + item.name, "short");
-            loadPresets(true);
-          })
-          .catch(function (err) { presetStatus(err.message, false); });
-      };
+      var shortBtn = document.createElement("button"); shortBtn.type = "button";
+      /* 和上面的主订阅链接保持一致：没有短链是「短链」（生成），有了就是「删短链」。
+         /s/xxxx 是免 token 公开可访问的，以前这里只有「换长链」，想收回只能进 D1。 */
+      if (sl) {
+        shortBtn.className = "shortlink danger";
+        shortBtn.textContent = "删短链";
+        shortBtn.title = "删除 /s/" + sl.code + "：档案本身还在，长链接照旧可用";
+        shortBtn.onclick = function () {
+          if (!confirm("删除短链 /s/" + sl.code + " ？它对外已经能直接访问，删掉之后这个地址立即失效；档案和长链接都不受影响。")) return;
+          api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+            .then(function () { setLinkView("p:" + item.name, "long"); loadPresets(true); })
+            .catch(function (err) { presetStatus(err.message, false); });
+        };
+      } else {
+        shortBtn.className = "shortlink";
+        shortBtn.textContent = "短链";
+        shortBtn.title = "生成一条不带 token 的短链接 /s/xxxx，用你自己的域名发给客户端";
+        shortBtn.onclick = function () {
+          api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: item.name }) })
+            .then(function (data) {
+              copyToClipboard(data.url);
+              // 同主订阅链接：生成后直接把这一条切到短链视图，
+              // 否则视图停在 long 时还得再点一次「换短链」。
+              setLinkView("p:" + item.name, "short");
+              loadPresets(true);
+            })
+            .catch(function (err) { presetStatus(err.message, false); });
+        };
+      }
       right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
       if (sl) {
         var sw = document.createElement("button"); sw.type = "button"; sw.className = "linkview";
@@ -2089,7 +2104,9 @@ body.locked .wrap{display:none}
         : "编辑这台机器的节点，会跳到下面的节点配置";
       up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
       down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
-      var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger"; delM.textContent = "×"; delM.title = "删除该机器";
+      /* 一个 34px 的「×」紧挨着「编辑节点」，两个都是小按钮、其中一个不可逆，
+         误触太容易。换成带文字的「删除」，宽度也放开一点。 */
+      var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger del-machine"; delM.textContent = "删除"; delM.title = "删除该机器：上报内容和手动配置都会一起删掉";
       delM.onclick = function () {
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function (data) {
@@ -2817,6 +2834,25 @@ body.locked .wrap{display:none}
         loginStatus(msg, false);
       });
   };
+  var exportBtn = $("export-data");
+  if (exportBtn) exportBtn.onclick = function () {
+    exportBtn.disabled = true;
+    setStatus("正在打包全部数据...");
+    api("/admin/export").then(function (data) {
+      var text = JSON.stringify(data, null, 2);
+      var stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "").replace("T", "-");
+      var name = "sub_merge_" + stamp + ".json";
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      a.download = name;
+      a.click();
+      var n = 0;
+      Object.keys(data.data || {}).forEach(function (k) { n += (data.data[k] || []).length; });
+      setStatus("已导出 " + name + "（" + n + " 行，" + Math.round(text.length / 1024) + " KB）", true);
+    }).catch(function (e) {
+      setStatus("导出失败：" + e.message, false);
+    }).then(function () { exportBtn.disabled = false; });
+  };
   $("logout").onclick = function () {
     storeToken("");
     ROLE = null;
@@ -2972,6 +3008,26 @@ async function handleRequest(request, env) {
       present,
       unused: present.filter((key) => !(key in known)),
     });
+  }
+
+  // 一键导出：整库打包成一份 JSON。以前备份只能在命令行 wrangler d1 execute，
+  // 换个实例搬数据全靠手抄；这里把六张表一次吐出来，缺表的老库也不报错。
+  if (path === "/api/v1/admin/export") {
+    if (request.method !== "GET") return methodNotAllowed("GET");
+    if (!dbEnv(env)) return missingConfig("DB");
+    const dump = {};
+    const missing = {};
+    for (const table of ["machines", "reports", "presets", "links", "settings", "machine_former"]) {
+      try {
+        const res = await env.DB.prepare("SELECT * FROM " + table).all();
+        dump[table] = (res && res.results) || [];
+      } catch (error) {
+        // 老库可能还没建 machine_former，缺一张表不该让整份备份失败
+        dump[table] = [];
+        missing[table] = String((error && error.message) || error);
+      }
+    }
+    return json({ ok: true, version: VERSION, exported_at: new Date().toISOString(), missing_tables: missing, data: dump });
   }
 
   if (path === "/api/v1/auth/session") {

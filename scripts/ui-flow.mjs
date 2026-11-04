@@ -1497,7 +1497,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   slBtn("换短链").onclick.call(slBtn("换短链"));
   await idle();
   check("订阅档案：换回短链", slRow().children[1].textContent === shortShown, slRow().children[1].textContent);
-  check("订阅档案：有短链后发短链按钮收起", slBtn("短链").style.display === "none", String(slBtn("短链").style.display));
+  check("订阅档案：有短链后按钮变成删短链", !!slBtn("删短链"), Array.from(slRow().children[3].children).map((b) => b.textContent).join(","));
   check("订阅档案：列表按创建时间倒序", presets().length < 2 || presets()[0].children[1].textContent !== "" , "行数 " + presets().length);
 
   // 搜短链也要能搜到这条档案

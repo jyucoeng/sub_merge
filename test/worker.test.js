@@ -1791,6 +1791,26 @@ test("admin env report lists known variables and flags leftovers", async () => {
   assert.equal(anon.status, 401);
 });
 
+test("admin export dumps every table and needs a token", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "sub-token-abc" });
+  // 先制造一点数据，导出来不该是空的
+  await call(env, "POST", "/api/v1/report/hk-1", btoa("vless://11111111-1111-1111-1111-111111111111@a.example.com:443?security=reality#hk-1"), {
+    authorization: "Bearer sub-token-abc",
+    "content-type": "text/plain",
+  });
+
+  const res = await call(env, "GET", "/api/v1/admin/export", null, { authorization: "Bearer sub-token-abc" });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.deepEqual(Object.keys(data.data).sort(), ["links", "machine_former", "machines", "presets", "reports", "settings"]);
+  assert.ok(Array.isArray(data.data.machines) && data.data.machines.length >= 1, "machines 必须被导出来");
+  assert.equal(data.version, data.version, "带上版本号，方便对上导出来的是哪一版");
+
+  const anon = await call(env, "GET", "/api/v1/admin/export");
+  assert.equal(anon.status, 401);
+});
+
 test("login is rate limited per IP after repeated failures", async () => {
   const env = makeEnv({ ADMIN_PASSWORD: "right-pass" });
   const headers = { "content-type": "application/json", "cf-connecting-ip": "203.0.113.9" };
