@@ -99,7 +99,7 @@ class MockStatement {
       const rows = [...this.db.links.values()].filter((row) => row.preset === this.args[0]);
       return { results: rows, success: true, meta: { changes: 0 } };
     }
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)?(, sources)? FROM presets ORDER BY created_at DESC, name ASC$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)?(, sources)? FROM presets ORDER BY created_at ASC, name ASC$/i.test(this.sql)) {
       const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }

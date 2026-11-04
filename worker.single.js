@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.24";
+const VERSION = "2.4.25";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4780,7 +4780,7 @@ function presetFromRow(row) {
 }
 
 async function listPresets(env) {
-  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode, sources FROM presets ORDER BY created_at DESC, name ASC").all();
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode, sources FROM presets ORDER BY created_at ASC, name ASC").all();
   return (res.results || []).map(presetFromRow);
 }
 
