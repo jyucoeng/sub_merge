@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.112";
+const VERSION = "1.66.113";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1023,7 +1023,16 @@ body.locked .wrap{display:none}
     if (mins < 60) return mins + " 分钟前";
     var hours = Math.floor(mins / 60);
     if (hours < 24) return hours + " 小时前";
-    return Math.floor(hours / 24) + " 天前";
+    /* 过了 24 小时就别再按「多少天」切了——「1 天前」横跨 24 到 47 小时，
+       昨天下午刚报的和前天凌晨报的长得一模一样。改成按日历日说话：
+       昨天给时刻，一周内给天数，再往前直接给日期。 */
+    var pad = function (n) { return n < 10 ? "0" + n : String(n); };
+    var today0 = new Date(); today0.setHours(0, 0, 0, 0);
+    var that0 = new Date(d.getTime()); that0.setHours(0, 0, 0, 0);
+    var dayDiff = Math.round((today0.getTime() - that0.getTime()) / 86400000);
+    if (dayDiff <= 1) return "昨天 " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    if (dayDiff < 7) return dayDiff + " 天前";
+    return (d.getMonth() + 1) + "月" + d.getDate() + "日";
   }
   function counts() {
     var m = $("manual-count"), a = $("auto-count");
