@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.2";
+const VERSION = "2.4.3";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1992,7 +1992,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
       badge.textContent = n.cls_label || n.label || n.kind || "";
       var meta = document.createElement("div"); meta.className = "nlname";
       var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name || "(未命名)";
-      var src = document.createElement("span"); src.className = "srctag";
+      var src = document.createElement("span");
+      /* 带上 manual/auto 才有底色和描边——只写 srctag 是裸文字，看着像丢了样式 */
+      src.className = "srctag " + (n.source === "manual" ? "manual" : "auto");
       src.textContent = n.source === "manual" ? "手动" : "上报";
       var sub = document.createElement("div"); sub.className = "nllink"; sub.textContent = n.link || "";
       var mid = document.createElement("div"); mid.className = "nlmeta";
