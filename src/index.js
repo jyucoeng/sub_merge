@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.104";
+const VERSION = "1.66.105";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -547,7 +547,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlrow .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
-.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}
+.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
 h1 #gh{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:8px;border-radius:7px;color:var(--sub);vertical-align:-4px;text-decoration:none;border:1px solid transparent}
 h1 #gh:hover{color:var(--ink);background:var(--chip);border-color:var(--line)}
@@ -1990,7 +1990,26 @@ body.locked .wrap{display:none}
 
   function renderMachineList() {
     var box = $("machine-list"); box.innerHTML = "";
-    if (!state.machines.length) { var e = document.createElement("div"); e.className = "empty"; e.textContent = "暂无机器上报"; box.appendChild(e); return; }
+    if (!state.machines.length) {
+      /* 第一次进来最需要知道的不是「没有数据」，而是「怎么让数据出现」。
+         这里只拼 SUB_TOKEN 以外的部分——页面上拿得到 origin，拿不到 REPORT_TOKEN，
+         所以那一格留占位符，让用户自己去后台复制。 */
+      var e = document.createElement("div"); e.className = "empty mlist-empty";
+      var t = document.createElement("div"); t.className = "me-title"; t.textContent = "还没有机器上报过";
+      var d = document.createElement("div"); d.className = "me-desc";
+      d.textContent = "在要上报的那台机器上跑一次，它就会出现在这里：";
+      var cmdText = "REPORT_BASE='" + location.origin + "' \\\n"
+        + "  REPORT_TOKEN='<REPORT_TOKEN>' \\\n"
+        + "  REPORT_MACHINE='机器名' \\\n"
+        + "  bash sb.sh rep";
+      var cmd = document.createElement("code"); cmd.className = "me-cmd"; cmd.textContent = cmdText;
+      var cp = document.createElement("button"); cp.type = "button"; cp.textContent = "复制命令";
+      cp.onclick = function () { copyToClipboard(cmdText); flashButton(cp, "已复制"); };
+      var d2 = document.createElement("div"); d2.className = "me-desc";
+      d2.textContent = "装过 singbox-tools 的机器直接 sb rep；REPORT_TOKEN 在 Cloudflare 后台的环境变量里。";
+      e.appendChild(t); e.appendChild(d); e.appendChild(cmd); e.appendChild(cp); e.appendChild(d2);
+      box.appendChild(e); return;
+    }
     state.machines.forEach(function (m, index) {
       var row = document.createElement("div"); row.className = "machine";
       var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1); idx.title = "输入序号直接调整这台机器的位置";
@@ -2050,7 +2069,11 @@ body.locked .wrap{display:none}
         name.appendChild(et);
       }
       var count = document.createElement("div"); count.className = "mcount";
-      count.textContent = (m.nodes || 0) + " 条进订阅";
+      /* 只有条数看不出这台机器还活着没有。超过一天没上报的标黄，
+         省得一台早就关掉的机器混在里面看不出问题。 */
+      var lastUp = m.updated_at ? String(m.updated_at) : "";
+      count.textContent = (m.nodes || 0) + " 条进订阅" + (lastUp ? " · " + agoText(lastUp) : "");
+      if (lastUp && Date.now() - Date.parse(lastUp) > 86400000) count.className = "mcount stale";
       count.title = "手动 " + (m.manual_nodes || 0) + " 个 + 上报 " + (m.auto_nodes || 0) + " 个"
         + (((m.manual_nodes || 0) + (m.auto_nodes || 0) > (m.nodes || 0)) ? "，合并时按链接去重" : "")
         + " · 进订阅 " + (m.nodes || 0) + " 条"

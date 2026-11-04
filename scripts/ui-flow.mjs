@@ -271,7 +271,20 @@ const names = () => nodeRows().map((r) => r.children[2].value);
 
 /* ---------------- 流程 ---------------- */
 // A. 空状态
-check("空状态：机器列表提示", text("machine-list").includes("暂无机器上报"), text("machine-list").slice(0, 20));
+check("空状态：机器列表给出上报引导",
+  text("machine-list").includes("还没有机器上报过") && text("machine-list").includes("REPORT_MACHINE"),
+  text("machine-list").slice(0, 30));
+check("空状态：引导里有可复制的上报命令",
+  (function () {
+    var cmd = null;
+    (function walk(node) {
+      if (!node) return;
+      if (node.className === "me-cmd") cmd = node;
+      (node.children || []).forEach(walk);
+    })(el("machine-list"));
+    return !!cmd && String(cmd.textContent).indexOf("REPORT_BASE=") === 0
+      && String(cmd.textContent).indexOf("sb.sh rep") !== -1;
+  })(), "没有 me-cmd");
 check("空状态：下拉提示", (machineRows()[0], el("machine").children[0].textContent.includes("暂无机器，先用下面「新建机器」")));
 check("空状态：节点区提示", text("nodes").includes("暂无节点") || text("nodes").includes("没有手动节点"), text("nodes").slice(0, 30));
 
