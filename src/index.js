@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.8";
+const VERSION = "2.2.9";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -511,7 +511,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 #pe-badge.warn{color:var(--warnink)}
 .sub-list-narrow{max-height:320px;overflow:auto}
 .preset{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
-.preset .pname{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.preset .pname{flex:0 1 340px;min-width:120px;max-width:340px;display:flex;flex-direction:column;gap:2px}
 .preset .pname b{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 描述整行放到末行，不再和链接抢宽度：链接一长，「全部协议 · base64 · 共用主 token · 规则跟随全局」
@@ -2012,6 +2012,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var row = document.createElement("div"); row.className = "preset";
       var name = document.createElement("div"); name.className = "pname";
       var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
+      title.title = title.textContent;   /* 名字被截断时，悬停能看全 */
       var desc = document.createElement("span"); desc.className = "pdesc";
       desc.appendChild(document.createTextNode(presetProtoText(item) + (item.format ? " · " + item.format : " · 格式自动") + " · "));
       var tk = document.createElement("span");
