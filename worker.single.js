@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.105";
+const VERSION = "1.66.106";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2295,6 +2295,7 @@ body.locked .wrap{display:none}
       for (var f = 0; f < SORT_FIELDS.length; f += 1) {
         var b = document.createElement("button");
         b.type = "button"; b.setAttribute("data-k", SORT_FIELDS[f][0]); b.textContent = SORT_FIELDS[f][1];
+        b.title = "按" + SORT_FIELDS[f][1] + "重排；再点一次反过来排。顺序会变成「未保存」，确认无误后点「保存机器顺序」";
         b.onclick = function () {
           var k = this.getAttribute("data-k");
           if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
@@ -2769,6 +2770,12 @@ body.locked .wrap{display:none}
     loadPresets(true);
   }
 
+  /* 口令框里按回车就该进得去。原来只有点「进入」这一条路，
+     密码管理器填完之后手还在键盘上，敲回车没反应会以为卡住了。 */
+  (function () {
+    var pw = $("login-password");
+    if (pw) pw.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); $("login-submit").click(); } };
+  })();
   $("login-submit").onclick = function () {
     var password = String($("login-password").value || "").trim();
     var userEl = $("login-username");
