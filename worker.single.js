@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.5";
+const VERSION = "2.4.6";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -535,7 +535,6 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .subnode+.subnode{margin-top:6px}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
-.pdetail .ident{flex:0 0 auto;font:10.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg3);background:var(--code);border:1px solid var(--line);border-radius:4px;padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
@@ -2000,19 +1999,16 @@ vless-cdn  vless-reality  vmess-argo</pre>
       badge.textContent = n.cls_label || n.label || n.kind || "";
       var meta = document.createElement("div"); meta.className = "nlname";
       var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name || "(未命名)";
-      /* 勾选依据：这条节点是靠哪个身份命中的。名字会被截断，靠它校对
-         「我勾的是这台机器的这个协议」对不对，比看节点名可靠。 */
-      var ident = document.createElement("span");
-      ident.className = "ident";
-      ident.textContent = identKey(hit.machine, n);
-      ident.title = "档案里勾的就是这一条：机器名::协议类";
+      /* 勾选依据（机器::协议类）不占版面——挂在整行的 title 上，鼠标停上去
+         才显示。需要校对时一看就有，平时不抢节点名和原串的位置。 */
       var src = document.createElement("span");
       /* 带上 manual/auto 才有底色和描边——只写 srctag 是裸文字，看着像丢了样式 */
       src.className = "srctag " + (n.source === "manual" ? "manual" : "auto");
       src.textContent = n.source === "manual" ? "手动" : "上报";
+      line.title = identKey(hit.machine, n) + "   ← 勾选依据（机器名::协议类）";
       var sub = document.createElement("div"); sub.className = "nllink"; sub.textContent = n.link || "";
       var mid = document.createElement("div"); mid.className = "nlmeta";
-      meta.appendChild(nm); meta.appendChild(ident); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
+      meta.appendChild(nm); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
       var cp = document.createElement("button"); cp.type = "button"; cp.className = "nlcopy"; cp.textContent = "复制";
       cp.title = "复制这条节点原串";
       cp.onclick = function () { copyToClipboard(n.link); flashButton(cp, "已复制"); };
