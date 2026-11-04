@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.12";
+const VERSION = "2.4.13";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -529,15 +529,12 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
-/* 三块都会越堆越长（机器、节点、分组/规则来源）：各自限高 + 独立纵向滚动，
-   页面本身不被撑到几屏长，标题和按钮也不会被推出视野。
-   min() 让矮屏按视口比例缩，不会出现「高度上限比屏幕还高」。 */
-#machine-list{max-height:min(56vh,520px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
-#sub-list{max-height:min(56vh,560px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
-#clash-groups,#clash-rulesets{max-height:min(46vh,420px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
-#machine-list::-webkit-scrollbar,#sub-list::-webkit-scrollbar,#clash-groups::-webkit-scrollbar,#clash-rulesets::-webkit-scrollbar{width:8px}
-#machine-list::-webkit-scrollbar-thumb,#sub-list::-webkit-scrollbar-thumb,#clash-groups::-webkit-scrollbar-thumb,#clash-rulesets::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
-#machine-list::-webkit-scrollbar-thumb:hover,#sub-list::-webkit-scrollbar-thumb:hover,#clash-groups::-webkit-scrollbar-thumb:hover,#clash-rulesets::-webkit-scrollbar-thumb:hover{background:var(--sub)}
+/* 长列表统一规则：超过 20 条才出滚动条，高度由 limitRows() 按真实行高算，
+   不再用 vh 拍脑袋——行少的块铺开就好，别平白多一条滚动条。 */
+.can-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
+.can-scroll::-webkit-scrollbar{width:8px}
+.can-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+.can-scroll::-webkit-scrollbar-thumb:hover{background:var(--sub)}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
@@ -962,6 +959,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
     renderClashCounts();
     renderClashGroups();
     renderClashRulesets();
+    limitRows($("clash-groups"), 20);
+    limitRows($("clash-rulesets"), 20);
   }
   function clashPayload() {
     var groups = clash.groups.map(function (group) {
@@ -1022,6 +1021,37 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var el = id && $(id);
     if (el) { el.textContent = text; el.className = "status" + (ok === false ? " err" : ok ? " ok" : ""); }
     if (id !== "status") setStatus(text, ok);
+  }
+  /* 行数超过 max 才限高：把「第 max+1 行」的 offsetTop 减掉第一行，得出前
+     max 行实际占多高，多一行都不留。行高随内容/字号变，所以不用固定像素。 */
+  function limitRows(box, max) {
+    if (!box || !box.children) return;
+    box.classList.remove("can-scroll");
+    box.style.maxHeight = "";
+    if (box.children.length <= max) return;
+    var first = box.children[0], cut = box.children[max];
+    if (!first || !cut) return;
+    if (typeof first.offsetTop !== "number" || typeof cut.offsetTop !== "number") return;
+    var h = cut.offsetTop - first.offsetTop;
+    if (!(h > 0)) return;
+    box.style.maxHeight = h + "px";
+    box.classList.add("can-scroll");
+  }
+  /* 窗口宽度变了，行可能从两行折成一行，20 条的高度跟着变，得重算 */
+  if (typeof window !== "undefined" && window.addEventListener) {
+    var limitTimer = 0;
+    window.addEventListener("resize", function () {
+      clearTimeout(limitTimer);
+      limitTimer = setTimeout(function () {
+        limitRows($("machine-list"), 20);
+        limitRows($("sub-list"), 20);
+        limitRows($("clash-groups"), 20);
+        limitRows($("clash-rulesets"), 20);
+        if (document.querySelectorAll) {
+          Array.prototype.forEach.call(document.querySelectorAll(".pdetail"), function (el) { limitRows(el, 20); });
+        }
+      }, 180);
+    });
   }
   function setStatus(text, ok) {
     var el = $("status"); el.textContent = text || ""; el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
@@ -1534,6 +1564,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     });
     /* 整批插一次，别让浏览器每加一行就重排一遍 */
     box.appendChild(frag);
+    limitRows(box, 20);
   }
   function putSubDisabled(list) {
     return api("/sub/disabled", {
@@ -2049,6 +2080,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       line.appendChild(badge); line.appendChild(mid); line.appendChild(cp);
       wrap.appendChild(line);
     });
+    limitRows(wrap, 20);
     return wrap;
   }
   function renderPresets() {
@@ -2469,6 +2501,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.appendChild(row);
     });
     paintSortHead();
+    limitRows(box, 20);
   }
   /* 从机器列表跳到下面的节点配置。滚到「① 手动节点」那一段的开头，
      不滚到整个 card 顶部——顶部还有一排按钮，滚过去也看不到节点。 */
