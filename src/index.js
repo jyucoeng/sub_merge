@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.110";
+const VERSION = "1.66.111";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -570,7 +570,7 @@ body.locked .wrap{display:none}
 </div>
 </div>
 <div class="wrap">
-<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。<b>机器名是上报脚本认的标识</b>：改名之后旧名仍然收得到上报（服务端会转到现在这个名字上），但还是建议把脚本里的机器名一起改掉，否则以后只留个旧名在这边挂着。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="export-sql" class="admin-only" type="button" title="导出一份 .sql：建表 + INSERT OR REPLACE，可以直接在 Cloudflare D1 的 Console 里粘贴执行">导出 SQL</button><button id="export-json" class="admin-only" type="button" title="导出一份 JSON：完整原始数据，给程序读或做版本对比">JSON</button><button id="logout" type="button">退出登录</button></div></div>
+<div class="top"><div><h1>sub-merge <span class="tip">节点聚合管理</span><a id="gh" href="https://github.com/jyucoeng/sub_merge" target="_blank" rel="noopener" title="GitHub 仓库" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a></h1><div class="hint">先调整机器顺序，再编辑每台机器的节点顺序；保存后订阅自动按顺序生成。<b>机器名是上报脚本认的标识</b>：改名之后旧名仍然收得到上报（服务端会转到现在这个名字上），但还是建议把脚本里的机器名一起改掉，否则以后只留个旧名在这边挂着。</div></div><div class="row"><button id="theme-toggle" class="theme" type="button" title="切到夜间模式">🌙</button><span class="tag auto" id="role-badge">未登录</span><span class="ver" id="version">v${VERSION}</span><button id="export-sql" class="admin-only" type="button" title="导出一份 .sql：建表 + INSERT OR REPLACE，可以直接在 Cloudflare D1 的 Console 里粘贴执行，也能用 wrangler d1 execute 灌回去">导出 SQL</button><button id="logout" type="button">退出登录</button></div></div>
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
@@ -2835,12 +2835,12 @@ body.locked .wrap{display:none}
       });
   };
   /* 导出不能走 api()——它一律按 JSON 解析，SQL 那份是纯文本。这里自己发一次请求。 */
-  function downloadExport(kind) {
-    var btn = $(kind === "sql" ? "export-sql" : "export-json");
+  function downloadExport() {
+    var btn = $("export-sql");
     if (!btn || !TOKEN) return;
     btn.disabled = true;
     setStatus("正在打包全部数据...");
-    var q = kind === "sql" ? "?format=sql" : "";
+    var q = "?format=sql";
     fetch("/api/v1/admin/export" + q, { headers: { Authorization: "Bearer " + TOKEN } })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
@@ -2848,22 +2848,20 @@ body.locked .wrap{display:none}
       })
       .then(function (text) {
         var stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\\..*/, "").replace("T", "-");
-        var name = "sub_merge_" + stamp + (kind === "sql" ? ".sql" : ".json");
+        var name = "sub_merge_" + stamp + ".sql";
         var a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([text], { type: kind === "sql" ? "text/plain" : "application/json" }));
+        a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
         a.download = name;
         a.click();
         var lines = text.split(String.fromCharCode(10)).length;
         setStatus("已导出 " + name + "（" + Math.round(text.length / 1024) + " KB，"
-          + (kind === "sql" ? lines + " 行 SQL" : "JSON") + "）", true);
+          + lines + " 行 SQL" + "）", true);
       })
       .catch(function (e) { setStatus("导出失败：" + e.message, false); })
       .then(function () { btn.disabled = false; });
   }
   var exportSql = $("export-sql");
-  if (exportSql) exportSql.onclick = function () { downloadExport("sql"); };
-  var exportJson = $("export-json");
-  if (exportJson) exportJson.onclick = function () { downloadExport("json"); };
+  if (exportSql) exportSql.onclick = function () { downloadExport(); };
   $("logout").onclick = function () {
     storeToken("");
     ROLE = null;
