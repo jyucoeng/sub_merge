@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.20";
+const VERSION = "2.4.21";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -749,6 +749,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     <button id="pe-none" class="danger" type="button">全不选</button>
     <button id="pe-save" class="primary" type="button">保存档案</button>
     <button id="pe-cancel" type="button">取消</button>
+    <button id="pe-only-picked" type="button">只看已勾选</button>
     <button id="pe-clear-filter" type="button">清除筛选</button>
   </div>
   <div class="row" style="margin-top:8px"><label>按协议</label><span id="pe-proto-chips" class="protocols"></span></div>
@@ -1905,6 +1906,19 @@ vless-cdn  vless-reality  vmess-argo</pre>
       });
     }
     var rows = peRows();
+    /* 只勾了几组的时候，那几条常被埋在十几台机器底下——一眼看不到自己勾了什么。
+       勾过的排到前面；再打开「只看已勾选」就只剩这些。 */
+    if (st.onlyPicked) rows = rows.filter(function (item) { return peHas(identKey(item.machine, item.node)); });
+    else rows = rows.slice().sort(function (a, b) {
+      var pa = peHas(identKey(a.machine, a.node)) ? 0 : 1;
+      var pb = peHas(identKey(b.machine, b.node)) ? 0 : 1;
+      return pa - pb;
+    });
+    var onlyBtn = $("pe-only-picked");
+    if (onlyBtn) {
+      onlyBtn.className = st.onlyPicked ? "primary" : "";
+      onlyBtn.textContent = st.onlyPicked ? "取消只看已勾选" : "只看已勾选";
+    }
     peBadge();
     var shownEl = $("pe-shown");
     if (shownEl) {
@@ -2808,10 +2822,16 @@ vless-cdn  vless-reality  vmess-argo</pre>
     state.presetEdit.picked = [];
     renderPresetEditor();
   };
+  $("pe-only-picked").onclick = function () {
+    if (!state.presetEdit) return;
+    cancelPresetClose();
+    state.presetEdit.onlyPicked = !state.presetEdit.onlyPicked;
+    renderPresetEditor();
+  };
   $("pe-clear-filter").onclick = function () {
     if (!state.presetEdit) return;
     cancelPresetClose();
-    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.sources = []; state.presetEdit.search = "";
+    state.presetEdit.protos = []; state.presetEdit.machines = []; state.presetEdit.tunnel = ""; state.presetEdit.sources = []; state.presetEdit.search = ""; state.presetEdit.onlyPicked = false;
     if ($("pe-search")) $("pe-search").value = "";
     renderPresetEditor();
   };

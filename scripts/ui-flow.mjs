@@ -1546,6 +1546,13 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const machChips = Array.from(el("pe-machine-chips").children).map((c) => c.textContent);
   check("订阅档案：机器胶囊显示「在档案里几个」而不是恒为 0", machChips.some((t) => /1\/\d+/.test(t)), machChips.join(" | "));
   check("订阅档案：筛选不改变已勾选的身份", /已勾选 1 组/.test(el("pe-shown").textContent), el("pe-shown").textContent);
+  const rowsBefore = el("pe-list").children.length;
+  el("pe-only-picked").onclick.call(el("pe-only-picked"));
+  const rowsOnly = el("pe-list").children.length;
+  check("订阅档案：只看已勾选后列表只剩勾过的那些", rowsOnly > 0 && rowsOnly < rowsBefore, rowsOnly + " / " + rowsBefore);
+  el("pe-only-picked").onclick.call(el("pe-only-picked"));
+  el("pe-clear-filter").onclick.call(el("pe-clear-filter"));
+  check("订阅档案：再点一次恢复完整列表", el("pe-list").children.length === rowsBefore, String(el("pe-list").children.length));
   const keep = peRows().filter((r) => r.children[0].checked)[0].children[0];
   keep.checked = false; keep.onchange.call(keep); await idle();
   check("订阅档案：取消勾选后已勾选归零", /已勾选 0 组/.test(el("pe-shown").textContent), el("pe-shown").textContent);
