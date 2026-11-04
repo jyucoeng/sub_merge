@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.5";
+const VERSION = "2.2.6";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -516,7 +516,6 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 /* 描述整行放到末行，不再和链接抢宽度：链接一长，「全部协议 · base64 · 共用主 token · 规则跟随全局」
    就被压成「规则跟随…」，用户看不到后面写了什么。 */
 .preset .pdesc{order:9;flex:1 1 100%;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.7}
-.preset>code{flex:1 1 220px}
 .preset>.row{margin-left:auto}
 .pdetail{margin:-2px 0 6px;padding:2px 10px 8px;border:1px solid var(--line);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:var(--soft);font-size:12.5px}
 .pdhead{padding:8px 0 6px;color:var(--sub)}
@@ -529,7 +528,9 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
-.preset code{font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)}
+/* 档案行的链接跟下面「订阅链接」块里那几行同款：浅底 + 细边 + 圆角 + 正常字色，
+   让人一眼看出「这是一条可复制的地址」，而不是一段被染蓝的代码。 */
+.preset>code{flex:1 1 260px;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .presetwrap{display:flex;flex-direction:column}
 .preset .ptoggle{display:flex;align-items:center;gap:6px;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
 .preset .ptoggle .caret{flex:none;width:11px;font-size:12px;color:var(--acc)}
@@ -548,7 +549,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .sub-group .tag{font-weight:500}
 .subrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
 .subrow .tip{flex:none;width:170px}
-.subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.subrow code{flex:1 1 320px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--ink)}
 .subrow button{flex:none}
 .chipgap{display:inline-block;width:8px}
 .subnode{display:grid;grid-template-columns:20px 112px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 42px}
