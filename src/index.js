@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.1.4";
+const VERSION = "2.1.5";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -416,7 +416,7 @@ button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:gri
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
 textarea:focus{border-color:var(--acc)}
-.bulk{margin-top:12px}.bulk .tip{margin-left:6px}.bulk .tip.err{color:var(--err)}.bulk .tip.ok{color:var(--ok)}
+.bulk{margin-top:12px}.bulk textarea{min-height:128px}.bulk .tip{margin-left:6px}.bulk .tip.err{color:var(--err)}.bulk .tip.ok{color:var(--ok)}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
 .tag.dirty{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.45);color:#dc2626;font-weight:500}
 [data-theme="dark"] .tag.dirty{background:rgba(248,113,113,.16);border-color:rgba(248,113,113,.45);color:#fca5a5}
