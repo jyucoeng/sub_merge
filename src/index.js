@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.0.6";
+const VERSION = "2.1.0";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -657,7 +657,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="nsec">
 <div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip" id="manual-when" title="① 手动层最后一次点「保存配置」的时间">保存于：—</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>
-<div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条；也可以把订阅内容整段贴进来（base64 编码的那种）&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
+<div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条；也可以把订阅内容整段贴进来（base64 编码的那种）&#10;也可以直接贴订阅链接（返回 base64 的那种，链接要长期有效）&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><button id="add" type="button">+ 空节点</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
@@ -1068,6 +1068,37 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (list.length) return list;
     var decoded = base64ToText(text);
     return decoded ? splitLinksOnce(decoded) : [];
+  }
+  /* 订阅链接：贴进来的是 https://…/sub/xxxx，正文只能由后端代拉。
+     浏览器直接 fetch 会被 CORS 挡掉——机场基本不发 Access-Control-Allow-Origin。 */
+  function isSubUrl(line) {
+    return /^https?:\\/\\/[^\\s]+$/i.test(String(line || "").trim());
+  }
+  function hasSubUrl(text) {
+    return String(text || "").split(/\\r?\\n/).some(isSubUrl);
+  }
+  function resolveSubUrls(text) {
+    var lines = String(text || "").split(/\\r?\\n/);
+    var urls = lines.map(function (l) { return l.trim(); }).filter(isSubUrl);
+    var kept = lines.filter(function (l) { return !isSubUrl(l); }).join("\\n");
+    var pulled = [];
+    var chain = Promise.resolve(kept);
+    urls.forEach(function (url) {
+      chain = chain.then(function (acc) {
+        return api("/sub/fetch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url })
+        }).then(function (data) {
+          pulled.push({ ok: true, from: data.from, bytes: data.bytes });
+          return acc + "\\n" + data.content;
+        }).catch(function (e) {
+          pulled.push({ ok: false, error: (e && e.message) || "拉取失败" });
+          return acc;
+        });
+      });
+    });
+    return chain.then(function (merged) { return { text: merged, pulled: pulled }; });
   }
   function addLinks(text) {
     var list = splitLinkText(text);
@@ -2569,11 +2600,26 @@ vless-cdn  vless-reality  vmess-argo</pre>
   $("bulk-add").onclick = function () {
     var box = $("bulk"), tip = $("bulk-status");
     var text = box.value;
-    if (!splitLinkText(text).length) { tip.textContent = "没识别到节点链接"; return; }
-    var r = addLinks(text);
-    box.value = "";
-    if (r.added) markDirty();
-    tip.textContent = (r.b64 ? "从 base64 里解出 " + (r.added + r.dup) + " 条，" : "") + "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
+    if (!String(text || "").trim()) { tip.textContent = "先粘贴节点链接、订阅内容或订阅链接"; return; }
+    var job;
+    if (hasSubUrl(text)) {
+      tip.textContent = "正在拉取订阅…";
+      job = resolveSubUrls(text);
+    } else {
+      job = Promise.resolve({ text: text, pulled: [] });
+    }
+    job.then(function (got) {
+      var notes = (got.pulled || []).map(function (p) { return p.ok ? "订阅已拉回" : "订阅拉取失败：" + p.error; });
+      if (!splitLinkText(got.text).length) {
+        tip.textContent = notes.concat(["没识别到节点链接"]).join("；");
+        return;
+      }
+      var r = addLinks(got.text);
+      box.value = "";
+      if (r.added) markDirty();
+      var msg = (r.b64 ? "从 base64 里解出 " + (r.added + r.dup) + " 条，" : "") + "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
+      tip.textContent = notes.length ? notes.join("；") + "；" + msg : msg;
+    });
   };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);
@@ -3253,6 +3299,106 @@ async function handleRequest(request, env) {
     if (request.method === "GET") return getNodeConfig(env, machine);
     if (request.method === "PUT") return putNodeConfig(request, env, machine);
     return methodNotAllowed("GET, PUT");
+  }
+
+  /* 远端订阅：把订阅链接拉回来、解成明文节点。
+     只做「拉一次、转成文本」，节点怎么存由调用方决定。
+     —— 这是全场唯一的 SSRF 入口 ——
+     Worker 会替用户去访问任意地址，所以：只放行 http/https；回环、私网、
+     链路本地、CGNAT、广播组播一律拒（云环境里这些指向元数据服务）；
+     跳转自己跟、最多 3 跳，每一跳重新过一遍上面两条；10 秒超时、512KB 上限。 */
+  function isPrivateHostname(hostname) {
+    const h = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+    if (!h) return true;
+    if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
+    if (h === "::1" || h === "::") return true;
+    if (/^f[cd][0-9a-f]{2}:/.test(h) || h.startsWith("fe80:")) return true;
+    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    if (!m) return false;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  function plainFromBase64(raw) {
+    const t = String(raw || "").replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (t.length < 16) return "";
+    const pad = t.length % 4;
+    if (pad === 1) return "";
+    const padded = pad ? t + "=".repeat(4 - pad) : t;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(padded)) return "";
+    try {
+      const bin = atob(padded);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 255;
+      return new TextDecoder().decode(bytes);
+    } catch (error) {
+      return "";
+    }
+  }
+  async function fetchSubscriptionText(rawUrl) {
+    let target;
+    try {
+      target = new URL(String(rawUrl || "").trim());
+    } catch (error) {
+      throw new Error("链接格式不对");
+    }
+    if (target.protocol !== "http:" && target.protocol !== "https:") throw new Error("只支持 http/https 链接");
+    if (isPrivateHostname(target.hostname)) throw new Error("这个地址在内网，不拉");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      let res = null;
+      for (let hop = 0; hop <= 3; hop++) {
+        res = await fetch(target.toString(), {
+          redirect: "manual",
+          signal: controller.signal,
+          headers: { "user-agent": "sub-merge/" + VERSION, accept: "*/*" },
+        });
+        if (!res || res.status < 300 || res.status >= 400) break;
+        const location = res.headers.get("location");
+        if (!location) break;
+        const next = new URL(location, target);
+        if (next.protocol !== "http:" && next.protocol !== "https:") throw new Error("跳转到了非 http(s) 地址");
+        if (isPrivateHostname(next.hostname)) throw new Error("跳转到了内网地址");
+        target = next;
+        res = null;
+      }
+      if (!res) throw new Error("跳转次数太多");
+      if (!res.ok) throw new Error("上游返回 " + res.status);
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength > 512 * 1024) throw new Error("内容太大（超过 512KB）");
+      const body = new TextDecoder().decode(buf).trim();
+      const decoded = plainFromBase64(body);
+      const content = decoded && decoded.indexOf("://") > -1 ? decoded : body;
+      if (content.indexOf("://") === -1) throw new Error("拉回来的内容里没有节点链接");
+      return { content, from: content === decoded && decoded ? "base64" : "plain", bytes: buf.byteLength };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  m = path.match(/^\/api\/v1\/sub\/fetch$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (request.method !== "POST") return methodNotAllowed("POST");
+    let body = null;
+    try {
+      body = await request.json();
+    } catch (error) {
+      return json({ ok: false, error: "请求体不是合法 JSON" }, 400);
+    }
+    try {
+      const got = await fetchSubscriptionText(body && body.url);
+      return json({ ok: true, ...got });
+    } catch (error) {
+      return json({ ok: false, error: String((error && error.message) || error) }, 400);
+    }
   }
 
   m = path.match(/^\/api\/v1\/sub\/nodes$/);

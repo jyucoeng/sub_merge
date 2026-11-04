@@ -449,6 +449,15 @@ click("add");
   check("非链接文本：提示没识别到", text("bulk-status").includes("没识别到节点链接"), text("bulk-status"));
 }
 
+// F1e. 订阅链接：后端代拉。内网地址必须在服务端就被拦下，前端把原因说出来
+{
+  el("bulk").value = "http://127.0.0.1:8787/sub/abc";
+  click("bulk-add");
+  await idle();
+  check("订阅链接：内网地址被拒且给出原因", text("bulk-status").includes("内网"), text("bulk-status"));
+  check("订阅链接：拉不到时别清空输入框", el("bulk").value.includes("127.0.0.1"), el("bulk").value);
+}
+
 // F2. 节点序号直接调整
 {
   const rows = nodeRows();

@@ -2550,3 +2550,61 @@ test("a machine with no nodes still shows up in the subscription view", async ()
   assert.deepEqual(view.machines[0].nodes, []);
   assert.equal(view.machines[0].enabled, 0);
 });
+
+test("sub/fetch refuses non-http schemes and private hosts", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const bad = [
+    "file:///etc/passwd",
+    "ftp://example.com/sub",
+    "http://127.0.0.1/sub",
+    "http://localhost:8080/sub",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://10.0.0.1/sub",
+    "http://192.168.1.1/sub",
+    "http://172.16.0.9/sub",
+    "http://[::1]/sub",
+    "not a url",
+  ];
+  for (const url of bad) {
+    const res = await call(env, "POST", "/api/v1/sub/fetch", JSON.stringify({ url }), auth);
+    assert.equal(res.status, 400, url);
+  }
+});
+
+test("sub/fetch pulls a base64 subscription and returns plain links", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const node = "vless://11111111-1111-4111-8111-111111111111@hk.example.com:443?security=tls#香港-A";
+  const encoded = Buffer.from(node + "\n", "utf8").toString("base64");
+  const realFetch = globalThis.fetch;
+  let seen = "";
+  globalThis.fetch = async (url) => {
+    seen = String(url);
+    return new Response(encoded, { status: 200, headers: { "content-type": "text/plain" } });
+  };
+  try {
+    const res = await call(env, "POST", "/api/v1/sub/fetch", JSON.stringify({ url: "https://example.com/sub/abc" }), auth);
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(seen, "https://example.com/sub/abc");
+    assert.equal(body.from, "base64", "解出来的内容要标成 base64，前端好提示");
+    assert.equal(body.content.trim(), node);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("sub/fetch reports an upstream that returns no links", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("<html>nope</html>", { status: 200 });
+  try {
+    const res = await call(env, "POST", "/api/v1/sub/fetch", JSON.stringify({ url: "https://example.com/x" }), auth);
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /没有节点/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
