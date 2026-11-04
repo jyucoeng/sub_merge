@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.14";
+const VERSION = "2.4.15";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1021,14 +1021,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
     else done();
     return out;
   }
-  /* 一次性反馈统一走这里：局部提示照旧留在操作旁边（位置就是上下文），
-     同时往页底 #status 写一份。以前四块各有各的提示位，动作一多就找不到
-     「刚才那句去哪了」。 */
-  function flashStatus(id, text, ok) {
-    var el = id && $(id);
-    if (el) { el.textContent = text; el.className = "status" + (ok === false ? " err" : ok ? " ok" : ""); }
-    if (id !== "status") setStatus(text, ok);
-  }
   /* 行数超过 max 才限高：把「第 max+1 行」的 offsetTop 减掉第一行，得出前
      max 行实际占多高，多一行都不留。行高随内容/字号变，所以不用固定像素。 */
   function limitRows(box, max) {
@@ -1301,7 +1293,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.textContent = text || "";
       box.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
     }
-    if (text) setStatus(text, ok);
   }
   function subRows() {
     var out = [];
@@ -1642,7 +1633,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
       el.textContent = text || "";
       el.className = "status" + (text && ok === true ? " ok" : (text && ok === false ? " err" : ""));
     }
-    if (text) setStatus(text, ok);
   }
   /* 跟「订阅中的节点」同一套胶囊外观，但这里数的「在不在」指的是在不在这个档案里：
    * ✓ 这组全在档案里 / ◐ 部分在 / 无标记 = 都不在；数字 = 在档案 / 共。蓝框 = 正在按它筛 */
