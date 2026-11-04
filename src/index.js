@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.111";
+const VERSION = "1.66.112";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -378,8 +378,8 @@ const UI_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sub-merge 节点聚合管理</title>
 <style>
-:root{--bg:#ffffff;--card:#ffffff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb;--ok:#15803d;--err:#dc2626;--input:#ffffff;--chip:#f1f5f9;--soft:#fbfbfc;--code:#f8fafc;--accbg:#eff6ff;--accline:#bfdbfe;--accink:#1d4ed8;--warnbg:#fffbeb;--warnink:#92400e;--warnline:#fde68a;--manualbg:#fef3c7;--autobg:#ecfeff;--autoline:#a5f3fc;--autoink:#0e7490;--shadow:rgba(15,23,42,.06);--mask:rgba(15,23,42,.5)}
-[data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
+:root{--bg:#ffffff;--card:#ffffff;--line:#dfe6ef;--ink:#1f2937;--sub:#64748b;--acc:#2563eb;--ok:#15803d;--err:#dc2626;--errbg:#fef2f2;--errline:#fecaca;--input:#ffffff;--chip:#f1f5f9;--soft:#fbfbfc;--code:#f8fafc;--accbg:#eff6ff;--accline:#bfdbfe;--accink:#1d4ed8;--warnbg:#fffbeb;--warnink:#92400e;--warnline:#fde68a;--manualbg:#fef3c7;--autobg:#ecfeff;--autoline:#a5f3fc;--autoink:#0e7490;--shadow:rgba(15,23,42,.06);--mask:rgba(15,23,42,.5)}
+[data-theme="dark"]{--bg:#0b1016;--card:#141b24;--line:#2b3644;--ink:#e6edf3;--sub:#9aa7b4;--acc:#60a5fa;--ok:#4ade80;--err:#f87171;--errbg:#2a1618;--errline:#5a2426;--input:#0f151d;--chip:#1b2430;--soft:#111823;--code:#0f151d;--accbg:#16263c;--accline:#2b4a72;--accink:#93c5fd;--warnbg:#2a2415;--warnink:#fbbf24;--warnline:#5a4a1c;--manualbg:#2a2415;--autobg:#0f2a2e;--autoline:#155e63;--autoink:#67e8f9;--shadow:rgba(0,0,0,.5);--mask:rgba(0,0,0,.68);color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif}
 .wrap{max-width:1180px;margin:28px auto 50px;padding:0 18px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
 /* 左边标题+说明很长，会把右边那排控件挤到换行；让说明自己收缩，控件不许折行 */
@@ -444,7 +444,7 @@ textarea:focus{border-color:var(--acc)}
 .fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
 .fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 .fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 58px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
+.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px}
@@ -547,7 +547,9 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlrow .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
-.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-machine{padding:8px 9px;white-space:nowrap}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
+.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-machine{width:44px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--err);background:transparent;border:1px solid var(--line);transition:background .15s,border-color .15s}
+.del-machine:hover{background:var(--errbg);border-color:var(--errline)}
+.del-machine svg{display:block}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
 h1 #gh{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin-left:8px;border-radius:7px;color:var(--sub);vertical-align:-4px;text-decoration:none;border:1px solid transparent}
 h1 #gh:hover{color:var(--ink);background:var(--chip);border-color:var(--line)}
@@ -2106,7 +2108,12 @@ body.locked .wrap{display:none}
       down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
       /* 一个 34px 的「×」紧挨着「编辑节点」，两个都是小按钮、其中一个不可逆，
          误触太容易。换成带文字的「删除」，宽度也放开一点。 */
-      var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger del-machine"; delM.textContent = "删除"; delM.title = "删除该机器：上报内容和手动配置都会一起删掉";
+      var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger del-machine";
+      /* 汉字「删除」在这么窄的一列里怎么看怎么别扭，换成垃圾桶图标；
+         含义靠 title 和 aria-label 兜住，不留纯图形的无字按钮。 */
+      delM.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.6 7V5.3A1.3 1.3 0 0 1 10.9 4h2.2a1.3 1.3 0 0 1 1.3 1.3V7"/><path d="M6.5 7l.86 12a1.5 1.5 0 0 0 1.5 1.4h6.28a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/><path d="M10.3 11v5.3M13.7 11v5.3"/></svg>';
+      delM.title = "删除该机器：上报内容和手动配置都会一起删掉";
+      if (delM.setAttribute) delM.setAttribute("aria-label", "删除机器");
       delM.onclick = function () {
         if (!confirm("删除机器 " + m.machine + "？上报内容和手动配置都会一起删掉。")) return;
         api("/machines/" + encodeURIComponent(m.machine), { method: "DELETE" }).then(function (data) {
