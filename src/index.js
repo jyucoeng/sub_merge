@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.113";
+const VERSION = "1.66.114";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -547,7 +547,12 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlrow .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
-.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-machine{width:44px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--err);background:transparent;border:1px solid var(--line);transition:background .15s,border-color .15s}
+.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-icon{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;transition:background .15s,border-color .15s}
+.del-icon:hover{background:var(--errbg);border-color:var(--errline)}
+.del-icon svg{display:block}
+.shortlink.danger{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border-color:var(--errline);color:var(--err)}
+.shortlink.danger:hover{background:var(--errbg);border-color:var(--errline);color:var(--err)}
+.del-machine{width:44px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--err);background:transparent;border:1px solid var(--line);transition:background .15s,border-color .15s}
 .del-machine:hover{background:var(--errbg);border-color:var(--errline)}
 .del-machine svg{display:block}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
 #login{display:none;position:fixed;inset:0;background:var(--mask);align-items:center;justify-content:center;padding:20px;z-index:50}
@@ -749,11 +754,7 @@ body.locked .wrap{display:none}
     return el;
   }
   function clashDelete(title, onclick) {
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "danger";
-    btn.textContent = "×";
-    btn.title = title;
+    var btn = trashButton(title);
     btn.onclick = onclick;
     return btn;
   }
@@ -925,7 +926,7 @@ body.locked .wrap{display:none}
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
-    var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "×"; del.title = "删除";
+    var del = trashButton("从这个分组里删掉这个节点", "删除节点");
     up.onclick = function () { if (index > 0) { var t = state.nodes[index - 1]; state.nodes[index - 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
     down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
     del.onclick = function () { state.nodes.splice(index, 1); markDirty(); renderManual(); };
@@ -1008,6 +1009,18 @@ body.locked .wrap{display:none}
     if (isNaN(d.getTime())) return "";
     var p = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+  /* 全站删除按钮统一一个图标：汉字「删除」在窄列里太重，而且会和
+     旁边同样字重的普通按钮抢注意力。含义靠 title / aria-label 兜住。 */
+  var TRASH_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.6 7V5.3A1.3 1.3 0 0 1 10.9 4h2.2a1.3 1.3 0 0 1 1.3 1.3V7"/><path d="M6.5 7l.86 12a1.5 1.5 0 0 0 1.5 1.4h6.28a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/><path d="M10.3 11v5.3M13.7 11v5.3"/></svg>';
+  function trashButton(title, aria) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "danger del-icon";
+    b.innerHTML = TRASH_SVG;
+    b.title = title;
+    if (b.setAttribute) b.setAttribute("aria-label", aria || title);
+    return b;
   }
   function agoText(iso) {
     var d = new Date(iso); if (!iso || isNaN(d.getTime())) return "";
@@ -1825,7 +1838,7 @@ body.locked .wrap{display:none}
           .then(function (data) { presetStatus("已换新 token：" + data.preset.name, true); loadPresets(true); })
           .catch(function (err) { presetStatus(err.message, false); });
       };
-      var del = document.createElement("button"); del.type = "button"; del.className = "danger"; del.textContent = "删除";
+      var del = trashButton("删除档案「" + item.name + "」：链接会立刻失效", "删除档案");
       del.onclick = function () {
         if (typeof confirm === "function" && !confirm("删除档案「" + item.name + "」？链接会立刻失效。")) return;
         api("/presets/" + encodeURIComponent(item.name), { method: "DELETE" })
@@ -1841,7 +1854,7 @@ body.locked .wrap{display:none}
          /s/xxxx 是免 token 公开可访问的，以前这里只有「换长链」，想收回只能进 D1。 */
       if (sl) {
         shortBtn.className = "shortlink danger";
-        shortBtn.textContent = "删短链";
+        shortBtn.innerHTML = TRASH_SVG;
         shortBtn.title = "删除 /s/" + sl.code + "：档案本身还在，长链接照旧可用";
         shortBtn.onclick = function () {
           if (!confirm("删除短链 /s/" + sl.code + " ？它对外已经能直接访问，删掉之后这个地址立即失效；档案和长链接都不受影响。")) return;
@@ -2223,7 +2236,7 @@ body.locked .wrap{display:none}
            生成和删除都落在同一个位置，不会多出一排按钮。 */
         btn.style.display = "";
         if (sl) {
-          btn.textContent = "删短链";
+          btn.innerHTML = TRASH_SVG;
           btn.className = "shortlink danger";
           btn.title = "删除这条短链：/s/" + sl.code + " 会立刻 404，长链接不受影响";
           btn.onclick = function () {
