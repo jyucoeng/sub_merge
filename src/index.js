@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.6";
+const VERSION = "2.4.7";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -451,7 +451,7 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
 .sort-help-btn:hover{background:var(--autoline);border-color:var(--autoline);color:var(--ink)}
-@media(max-width:560px){.mrank-note .mn-text{flex:1 1 100%}.sort-help-btn{flex:1 1 100%;justify-content:center;white-space:normal}}
+@media(max-width:560px){.mrank-note .mn-text{flex:1 1 100%}.sort-help-btn{flex:1 1 100%;justify-content:center;white-space:normal}.preset .pname{flex:1 1 100%;max-width:100%}}
 .sort-rules.hidden{display:none}
 .sort-rules{margin-top:9px;padding:12px 14px;background:var(--soft);border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.85;color:var(--fg2)}
 .sort-rules b{color:var(--ink)}
@@ -1479,6 +1479,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var label = document.createElement("div"); label.className = "nlname";
       var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = node.name || node.link;
+      nm.title = nm.textContent;
       var src = document.createElement("span");
       src.className = "srctag " + (node.source === "manual" ? "manual" : "auto");
       src.textContent = node.source === "manual" ? "手动" : "上报";
@@ -1870,6 +1871,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var nm = document.createElement("div"); nm.className = "nlname";
       var nmText = document.createElement("span"); nmText.className = "nm";
       nmText.textContent = hit.node.name || "（无名）";
+      nmText.title = nmText.textContent;
       var src = document.createElement("span");
       src.className = "srctag " + (hit.node.source === "manual" ? "manual" : "auto");
       src.textContent = hit.node.source === "manual" ? "手动" : "上报";
@@ -1992,13 +1994,14 @@ vless-cdn  vless-reality  vmess-argo</pre>
       badge.textContent = n.cls_label || n.label || n.kind || "";
       var meta = document.createElement("div"); meta.className = "nlname";
       var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name || "(未命名)";
+      nm.title = nm.textContent;
       /* 勾选依据（机器::协议类）不占版面——挂在整行的 title 上，鼠标停上去
          才显示。需要校对时一看就有，平时不抢节点名和原串的位置。 */
       var src = document.createElement("span");
       /* 带上 manual/auto 才有底色和描边——只写 srctag 是裸文字，看着像丢了样式 */
       src.className = "srctag " + (n.source === "manual" ? "manual" : "auto");
       src.textContent = n.source === "manual" ? "手动" : "上报";
-      line.title = identKey(hit.machine, n) + "   ← 勾选依据（机器名::协议类）";
+      line.title = (n.name || "") + "\\n" + identKey(hit.machine, n) + "   ← 勾选依据（机器名::协议类）";
       var sub = document.createElement("div"); sub.className = "nllink"; sub.textContent = n.link || "";
       var mid = document.createElement("div"); mid.className = "nlmeta";
       meta.appendChild(nm); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
