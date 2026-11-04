@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.1";
+const VERSION = "2.4.2";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1584,13 +1584,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
     btn.onclick = onClick;
     return btn;
   }
+  /* 档案成员现在是「勾了哪几条」，不再是筛选条件——所以这行只报勾了多少，
+     不再回显协议条件（老档案也照这个口径，编辑保存一次就转成勾选）。 */
   function presetProtoText(item) {
-    if ((item.members || []).length) {
-      var pickedCount = item.members.filter(isIdentKey).length;
-      return pickedCount + " 组身份（机器 + 协议）";
-    }
-    if (!(item.protos || []).length) return "全部协议";
-    return "条件：" + item.protos.join("、");
+    var pickedCount = (item.members || []).filter(isIdentKey).length;
+    if (pickedCount) return "已勾选 " + pickedCount + " 组（机器 + 协议）";
+    return "还没勾选节点";
   }
   /* 编辑面板：列出主订阅的全部节点，档案里已有的提前勾上 */
   function openPresetEditor(item) {
