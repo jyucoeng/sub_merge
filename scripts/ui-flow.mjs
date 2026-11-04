@@ -272,6 +272,9 @@ const names = () => nodeRows().map((r) => r.children[2].value);
 /* ---------------- 流程 ---------------- */
 // A. 空状态
 /* 排序规则面板：默认收起，按钮切展开/收起 */
+/* mock DOM 不跑 CSS，className 上挂着 hidden 也可能照样显示——
+   这里直接查样式表里有没有对应规则，else 线上会一直摊开 */
+check("排序规则：样式表里有隐藏规则", /\.sort-rules\.hidden\{display:none\}/.test(html));
 check("排序规则：默认是收起的", String(el("sort-rules").className).indexOf("hidden") >= 0, String(el("sort-rules").className));
 el("sort-help").onclick();
 check("排序规则：点开后展开", String(el("sort-rules").className).indexOf("hidden") < 0, String(el("sort-rules").className));

@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.118";
+const VERSION = "1.66.119";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -455,6 +455,7 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .sort-help-btn{float:none;margin:10px 0 0;padding:5px 13px;font-size:12.5px}
+.sort-rules.hidden{display:none}
 .sort-rules{margin-top:9px;padding:12px 14px;background:var(--soft);border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.85;color:var(--fg2)}
 .sort-rules b{color:var(--ink)}
 .sort-rules .sr-h{margin-top:12px;font-weight:600;color:var(--ink)}
