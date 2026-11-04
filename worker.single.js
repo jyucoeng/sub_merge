@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.21";
+const VERSION = "2.4.22";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3321,8 +3321,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
   syncSortRules();
   var exportSql = $("export-sql");
   if (exportSql) exportSql.onclick = function () { downloadExport(); };
+  /* 退出登录是可逆的：重新输一次口令就回来了，没必要再挡一道确认。 */
   $("logout").onclick = function () {
-    if (!confirm("退出登录？下次进来要重新输入口令。")) return;
     storeToken("");
     ROLE = null;
     SUB_TOKEN = "";
