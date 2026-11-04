@@ -901,7 +901,6 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅链接：复制反馈有单独样式", String(el("short-url-base").className).indexOf("copied") >= 0, el("short-url-base").className);
   check("订阅链接：别处状态栏没被动过", text("status").indexOf("短链") < 0, text("status"));
   await new Promise((r) => setTimeout(r, 3100));
-  check("订阅链接：短链集中管理里列出这条短链", el("short-manage").style.display !== "none" && el("sm-list").children.length > 0, (el("sm-list").children.length || 0) + " 行");
   check("订阅链接：有短链后按钮变成收回态（断链图标）", String(el("short-url-base").className).includes("unlink") && el("short-url-base").style.display !== "none", `${el("short-url-base").className}|${el("short-url-base").style.display}`);
   check("订阅链接：3 秒后样式复原", String(el("short-url-base").className).indexOf("copied") < 0, el("short-url-base").className);
 
