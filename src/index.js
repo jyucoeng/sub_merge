@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.0";
+const VERSION = "2.4.1";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -5162,6 +5162,34 @@ async function resetMachine(env, machine) {
   return json({ ok: true, machine, manual: false, cleared, restored: cleared, nodes });
 }
 
+/* 机器改名后，把档案身份里的旧机器名换成新名。返回改动的档案数。
+ * members 用 \u0001 分隔存成一条文本，这里只碰「旧名::」开头的那些，其余原样保留。 */
+async function renameIdentityInPresets(env, from, to) {
+  const db = dbEnv(env);
+  if (!db) return 0;
+  const prefix = from + "::";
+  let changed = 0;
+  try {
+    const result = await db.prepare("SELECT name, members FROM presets").all();
+    for (const row of (result && result.results) || []) {
+      const list = String(row.members || "").split("\u0001").filter(Boolean);
+      let hit = false;
+      const next = list.map((key) => {
+        if (key.slice(0, prefix.length) !== prefix) return key;
+        hit = true;
+        return to + "::" + key.slice(prefix.length);
+      });
+      if (!hit) continue;
+      await db.prepare("UPDATE presets SET members = ?1, updated_at = ?2 WHERE name = ?3").bind(next.join("\u0001"), new Date().toISOString(), row.name).run();
+      changed += 1;
+    }
+  } catch (error) {
+    /* 老库可能还没有 presets 表，改名不该因为改档案而失败 */
+    if (!/no such table/i.test(String((error && error.message) || error))) throw error;
+  }
+  return changed;
+}
+
 async function renameMachine(request, env, machine) {
   if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
   let data;
@@ -5194,8 +5222,11 @@ async function renameMachine(request, env, machine) {
   /* 指向旧名的那些链顺下去，一步改成指向新名 */
   await dbEnv(env).prepare("UPDATE machine_former SET target = ?2 WHERE target = ?1").bind(machine, to).run();
   await setFormer(env, machine, to);
+  /* 档案成员存的是「机器::协议类」身份，机器一改名，旧名就对不上了。
+     这里把档案里的旧机器名一起改掉，省得改名之后订阅悄悄变空。 */
+  const presetsRenamed = await renameIdentityInPresets(env, machine, to);
   const moved = await nodesOf(record, await loadAllowedProtocols(env, record.machine), await loadDisabledGlobal(env));
-  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, was_former_of: wasFormerOf, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
+  return json({ ok: true, machine: to, renamed: true, from: machine, nodes: moved.length, presets_renamed: presetsRenamed, was_former_of: wasFormerOf, manual: Boolean(record.manual), manual_nodes: (record.manual_nodes || []).length, auto_nodes: (record.nodes || []).length });
 }
 
 /* 每条上报记录只取机器名和来源名，一次查全表。原来在 for 循环里按机器逐个查，

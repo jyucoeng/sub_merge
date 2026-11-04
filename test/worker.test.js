@@ -84,6 +84,9 @@ class MockStatement {
     if (/^SELECT alias, target FROM machine_former$/i.test(this.sql)) {
       return { results: [...this.db.formers.entries()].map(([alias, target]) => ({ alias, target })), success: true, meta: { changes: 0 } };
     }
+    if (/^SELECT name, members FROM presets$/i.test(this.sql)) {
+      return { results: [...this.db.presets.values()].map((r) => ({ name: r.name, members: r.members || "" })), success: true };
+    }
     if (/^SELECT name, machines, members, mode FROM presets$/i.test(this.sql)) {
       const results = [...this.db.presets.values()].map((r) => ({ name: r.name, machines: r.machines, members: r.members, mode: r.mode }));
       return { results, success: true, meta: { changes: 0 } };
@@ -223,6 +226,11 @@ class MockStatement {
       if (!row) return { success: true, meta: { changes: 0 } };
       this.db.presets.set(args[2], { ...row, machines: args[0], updated_at: args[1] });
       return { success: true, meta: { changes: 1 } };
+    }
+    if (/^UPDATE presets SET members = \?1, updated_at = \?2 WHERE name = \?3$/i.test(this.sql)) {
+      const target = this.db.presets.get(args[2]);
+      if (target) this.db.presets.set(args[2], { ...target, members: args[0], updated_at: args[1] });
+      return { success: true, meta: { changes: target ? 1 : 0 } };
     }
     if (/^UPDATE presets SET skips = \?2, updated_at = \?3 WHERE name = \?1$/i.test(this.sql)) {
       const row = this.db.presets.get(args[0]);
@@ -2674,4 +2682,27 @@ test("an identity preset keeps following a temp tunnel after its domain changes"
   // 机器没了，身份自然命中不到，订阅里就不该再出现这条
   await call(env, "DELETE", "/api/v1/machines/vps-a", null, auth);
   assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), [], "机器删了就不该再有节点");
+});
+
+test("renaming a machine carries identity presets along", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = "vless://11111111-1111-4111-8111-111111111111@1.2.3.8:8443?encryption=none&security=tls&type=ws&host=one-words-1111.trycloudflare.com&path=%2F11111111-vl&sni=one-words-1111.trycloudflare.com#东-vless-argo";
+  const names = async (path) => {
+    const res = await call(env, "GET", path, null, {});
+    assert.equal(res.status, 200);
+    return unb64(await res.text()).split("\n").filter(Boolean)
+      .map((line) => decodeURIComponent((line.split("#")[1] || "").trim()));
+  };
+
+  await call(env, "PUT", "/api/v1/nodes/vps-a", JSON.stringify({ nodes: [{ link }] }), auth);
+  await call(env, "PUT", "/api/v1/presets/ident", JSON.stringify({ mode: "members", members: ["vps-a::vless-argo"] }), auth);
+  assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), ["东-vless-argo"]);
+
+  const res = await call(env, "POST", "/api/v1/machines/vps-a/rename", JSON.stringify({ to: "vps-b" }), auth);
+  const resText = await res.text();
+  assert.equal(res.status, 200, resText);
+  assert.equal(JSON.parse(resText).presets_renamed, 1);
+
+  assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), ["东-vless-argo"], "机器改名后档案不该变空");
 });
