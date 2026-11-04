@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.13";
+const VERSION = "2.4.14";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3462,11 +3462,22 @@ async function handleRequest(request, env) {
     const dump = {};
     const missing = {};
     const threwOn = {};
+    const skippedRuntime = {};
+    const RUNTIME_SETTING_PREFIX = "login-fail:";
     const EXPORT_TABLES = ["machines", "reports", "presets", "links", "settings", "machine_former"];
     for (const table of EXPORT_TABLES) {
       try {
         const res = await env.DB.prepare("SELECT * FROM " + table).all();
-        dump[table] = (res && res.results) || [];
+        let rows = (res && res.results) || [];
+        /* settings 里除了配置还塞着运行期状态（login-fail:<ip> 记着谁试错几次、
+           锁到什么时候）。这种东西导出再灌回去，等于把「正在被锁」的现场搬到
+           新库——换台机器恢复，可能刚登进去就被自己的备份锁 24 小时。 */
+        if (table === "settings") {
+          const before = rows.length;
+          rows = rows.filter((row) => !String(row.key || "").startsWith(RUNTIME_SETTING_PREFIX));
+          if (before !== rows.length) skippedRuntime[table] = before - rows.length;
+        }
+        dump[table] = rows;
       } catch (error) {
         // 老库可能还没建 machine_former，缺一张表不该让整份备份失败
         dump[table] = [];
@@ -3489,6 +3500,11 @@ async function handleRequest(request, env) {
       out.push("-- 建表语句是 IF NOT EXISTS，插数据是 INSERT OR REPLACE，重复执行不会炸；");
       out.push("-- 建表部分覆盖全部六张表，缺表的实例执行完就补齐了；");
       out.push("-- 行数多的库建议走命令行，Console 对单次提交长度有限制。");
+      out.push("-- 不含环境变量：SUB_TOKEN / ADMIN_PASSWORD / REPORT_TOKEN 存在 Worker 变量里，");
+      out.push("--   恢复后要自己重新配；SUB_TOKEN 变了，订阅地址和上报命令都得换。");
+      if (skippedRuntime.settings) {
+        out.push("-- 已跳过 " + skippedRuntime.settings + " 条登录失败计数（login-fail:*），那是运行期状态不是配置。");
+      }
       out.push("");
       for (const stmt of SCHEMA_STATEMENTS) out.push(String(stmt).trim() + ";");
       out.push("");
@@ -6631,7 +6647,15 @@ function sqlValue(value) {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "number" || typeof value === "bigint") return String(value);
   if (typeof value === "boolean") return value ? "1" : "0";
-  return "'" + String(value).replace(/'/g, "''") + "'";
+  const text = String(value);
+  /* 控制字符走 hex 字面量：\r 会被 sqlite3 命令行当成行尾吃掉（字符串里的 CR
+     静默消失，内容跟着变）；\0 更糟，整份文件被当成二进制，后面的语句一条
+     都不执行也不报错——恢复出来的库少一大半还看不出来。 */
+  if (/[\u0000\r]/.test(text)) {
+    const hex = Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, "0")).join("");
+    return "CAST(X'" + hex + "' AS TEXT)";
+  }
+  return "'" + text.replace(/'/g, "''") + "'";
 }
 
 function json(data, status = 200) {
