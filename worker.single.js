@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.106";
+const VERSION = "1.66.107";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2191,22 +2191,39 @@ body.locked .wrap{display:none}
 
       var btn = $("short-" + id);
       if (btn) {
-        btn.style.display = sl ? "none" : "";
-        btn.textContent = "短链";
-        btn.title = "给这个格式生成一条不带 token 的短链";
-        btn.onclick = function () {
-          api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
-            .then(function (data) {
-              copyToClipboard(data.url);
-              // 生成短链就意味着「这一行要看短链」。视图可能还停在 long
-              // （之前点过「换长链」），不清掉的话生成完仍显示长链接，
-              // 还得再点一次「换短链」才看到结果。
-              setLinkView("all:" + fmt, "short");
-              return loadPresets(true);
-            })
-            .then(function () { flashButton(btn, "已生成"); })
-            .catch(function () { flashButton(btn, "失败"); });
-        };
+        /* 短链生成之后，界面上原来只剩「换长链」——那条 /s/<code> 是免 token
+           公开可访问的，想收回来却没有入口，只能去 D1 里删。后端 DELETE
+           一直在，只是前端没接。这里把同一个按钮复用成「删短链」，
+           生成和删除都落在同一个位置，不会多出一排按钮。 */
+        btn.style.display = "";
+        if (sl) {
+          btn.textContent = "删短链";
+          btn.className = "shortlink danger";
+          btn.title = "删除这条短链：/s/" + sl.code + " 会立刻 404，长链接不受影响";
+          btn.onclick = function () {
+            if (!confirm("删除短链 /s/" + sl.code + " ？它对外已经能直接访问，删掉之后这个地址立即失效；订阅本身还在，长链接照旧可用。")) return;
+            api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
+              .then(function () { setLinkView("all:" + fmt, "long"); return loadPresets(true); })
+              .catch(function (e) { setStatus("删除短链失败：" + e.message, false); });
+          };
+        } else {
+          btn.textContent = "短链";
+          btn.className = "shortlink";
+          btn.title = "给这个格式生成一条不带 token 的短链";
+          btn.onclick = function () {
+            api("/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ preset: "", format: fmt }) })
+              .then(function (data) {
+                copyToClipboard(data.url);
+                // 生成短链就意味着「这一行要看短链」。视图可能还停在 long
+                // （之前点过「换长链」），不清掉的话生成完仍显示长链接，
+                // 还得再点一次「换短链」才看到结果。
+                setLinkView("all:" + fmt, "short");
+                return loadPresets(true);
+              })
+              .then(function () { flashButton(btn, "已生成"); })
+              .catch(function () { flashButton(btn, "失败"); });
+          };
+        }
       }
 
       var sw = $("unshort-" + id);
