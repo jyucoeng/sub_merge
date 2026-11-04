@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.1";
+const VERSION = "2.2.2";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -559,7 +559,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .nlrow .ptag{font-size:11px;color:var(--accink);background:var(--accbg);border:1px solid var(--accline);border-radius:6px;padding:2px 5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nlrow .nlname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nlrow .nlsrc{font-size:11px;color:var(--sub);text-align:right;white-space:nowrap}
-.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-icon{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;transition:background .15s,border-color .15s}
+.hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.del-icon{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;transition:background .15s,border-color .15s}
 .del-icon:hover{background:var(--errbg);border-color:var(--errline)}
 .del-icon svg{display:block}
 button.shortlink.unlink{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border-color:var(--warnline);color:var(--warnink)}
@@ -2282,11 +2282,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
         name.appendChild(et);
       }
       var count = document.createElement("div"); count.className = "mcount";
-      /* 只有条数看不出这台机器还活着没有。超过一天没上报的标黄，
-         省得一台早就关掉的机器混在里面看不出问题。 */
+      /* 只有条数看不出这台机器还活着没有，所以后面带上「最近一次内容变化」的时间。
+         不上色：纯手动机器本来就不上报，标红标黄只会一直误报。 */
       var lastUp = m.updated_at ? String(m.updated_at) : "";
       count.textContent = (m.nodes || 0) + " 条进订阅" + (lastUp ? " · " + agoText(lastUp) : "");
-      if (lastUp && Date.now() - Date.parse(lastUp) > 86400000) count.className = "mcount stale";
       count.title = "手动 " + (m.manual_nodes || 0) + " 个 + 上报 " + (m.auto_nodes || 0) + " 个"
         + (((m.manual_nodes || 0) + (m.auto_nodes || 0) > (m.nodes || 0)) ? "，合并时按链接去重" : "")
         + " · 进订阅 " + (m.nodes || 0) + " 条"
