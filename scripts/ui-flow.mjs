@@ -429,6 +429,7 @@ click("add");
   await idle();
   check("整段 base64：解出两条", text("bulk-status").includes("从 base64 里解出 2 条"), text("bulk-status"));
   check("整段 base64：已添加", text("bulk-status").includes("已添加 2 个节点"), text("bulk-status"));
+  check("整段 base64：成功提示走绿色", String(el("bulk-status").className).includes("ok"), el("bulk-status").className);
 }
 
 // F1c. URL-safe、无 padding 的 base64 也认
@@ -455,6 +456,7 @@ click("add");
   click("bulk-add");
   await idle();
   check("订阅链接：内网地址被拒且给出原因", text("bulk-status").includes("内网"), text("bulk-status"));
+  check("订阅链接：失败提示走红色", String(el("bulk-status").className).includes("err"), el("bulk-status").className);
   check("订阅链接：拉不到时别清空输入框", el("bulk").value.includes("127.0.0.1"), el("bulk").value);
 }
 

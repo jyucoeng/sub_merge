@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.1.1";
+const VERSION = "2.1.2";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -416,7 +416,7 @@ button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:gri
 .node input.name{font-size:13px}.node button{padding:6px 8px}
 textarea{width:100%;min-height:66px;background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Consolas,monospace;resize:vertical;outline:none}
 textarea:focus{border-color:var(--acc)}
-.bulk{margin-top:12px}.bulk .tip{margin-left:6px}
+.bulk{margin-top:12px}.bulk .tip{margin-left:6px}.bulk .tip.err{color:var(--err)}.bulk .tip.ok{color:var(--ok)}
 .tag{display:inline-block;font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--line);color:var(--sub);margin-left:7px;vertical-align:1px}
 .tag.dirty{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.45);color:#dc2626;font-weight:500}
 [data-theme="dark"] .tag.dirty{background:rgba(248,113,113,.16);border-color:rgba(248,113,113,.45);color:#fca5a5}
@@ -999,7 +999,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (!link.value.trim()) { state.nodes.splice(index, 1); render(); }
       var r = addLinks(text);
       var tip = $("bulk-status");
-      if (tip) tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "");
+      if (tip) { tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : ""); tip.className = "tip ok"; }
     };
     link.onblur = function () {
       if (String(state.nodes[index].name || "").trim()) return;
@@ -2597,31 +2597,42 @@ vless-cdn  vless-reality  vmess-argo</pre>
   $("sub-only").onclick = function () { applySubBulk("only"); };
   $("sub-none").onclick = function () { applySubBulk("none"); };
   $("add").onclick = function () { state.nodes.push({ link: "", name: "" }); markDirty(); render(); $("nodes").lastChild && $("nodes").lastChild.querySelector && $("nodes").lastChild.querySelector("input.link").focus(); };
+  // 提示分两色：绿=成了，红=没成。这三种失败原因都要能一眼看出是失败：
+  // 解析不到有效节点 / 这个地址在内网，不拉 / 没识别到节点链接。
+  function bulkTip(tip, text, kind) {
+    if (!tip) return;
+    tip.textContent = text;
+    tip.className = "tip" + (kind ? " " + kind : "");
+  }
   $("bulk-add").onclick = function () {
     var box = $("bulk"), tip = $("bulk-status");
     var text = box.value;
-    if (!String(text || "").trim()) { tip.textContent = "先粘贴节点链接、订阅内容或订阅链接"; return; }
+    if (!String(text || "").trim()) { bulkTip(tip, "先粘贴节点链接、订阅内容或订阅链接", "err"); return; }
     var job;
     if (hasSubUrl(text)) {
-      tip.textContent = "正在拉取订阅…";
+      bulkTip(tip, "正在拉取订阅…", "");
       job = resolveSubUrls(text);
     } else {
       job = Promise.resolve({ text: text, pulled: [] });
     }
     job.then(function (got) {
-      var notes = (got.pulled || []).map(function (p) { return p.ok ? "订阅已拉回" : "订阅拉取失败：" + p.error; });
+      var pulled = got.pulled || [];
+      var bad = pulled.filter(function (p) { return !p.ok; });
       if (!splitLinkText(got.text).length) {
-        var bad = (got.pulled || []).filter(function (p) { return !p.ok; });
-        var gotAny = (got.pulled || []).some(function (p) { return p.ok; });
-        tip.textContent = bad.length ? bad.map(function (p) { return p.error; }).join("；")
-          : (gotAny ? "解析不到有效节点" : "没识别到节点链接");
+        var gotAny = pulled.some(function (p) { return p.ok; });
+        bulkTip(tip, bad.length ? bad.map(function (p) { return p.error; }).join("；")
+          : (gotAny ? "解析不到有效节点" : "没识别到节点链接"), "err");
         return;
       }
       var r = addLinks(got.text);
       box.value = "";
       if (r.added) markDirty();
       var msg = (r.b64 ? "从 base64 里解出 " + (r.added + r.dup) + " 条，" : "") + "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
-      tip.textContent = notes.length ? notes.join("；") + "；" + msg : msg;
+      if (bad.length) {
+        bulkTip(tip, bad.map(function (p) { return p.error; }).join("；") + "；" + msg, "err");
+      } else {
+        bulkTip(tip, pulled.length ? "订阅已拉回；" + msg : msg, "ok");
+      }
     });
   };
   $("save").onclick = function () {
