@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.16";
+const VERSION = "2.4.17";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2794,7 +2794,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
   $("preset-new").onclick = function () { openPresetEditor(null); };
   $("preset-search").oninput = function () { state.presetSearch = this.value || ""; renderPresets(); };
   $("pe-save").onclick = function () { busy(this, function () { return savePresetEdit(); }); };
-  $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("已取消", true); };
+  /* 取消不需要留痕：面板收起来本身就是反馈，再挂一句「已取消」既占位置，
+     又会和刚点过的保存/失败提示抢同一个位置。 */
+  $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("", null); };
   $("pe-search").oninput = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.search = this.value || ""; renderPresetEditor(); } };
   $("pe-all").onclick = function () {
     if (!state.presetEdit) return;
