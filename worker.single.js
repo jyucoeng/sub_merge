@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.109";
+const VERSION = "1.66.110";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -3035,13 +3035,16 @@ async function handleRequest(request, env) {
     if (!dbEnv(env)) return missingConfig("DB");
     const dump = {};
     const missing = {};
-    for (const table of ["machines", "reports", "presets", "links", "settings", "machine_former"]) {
+    const threwOn = {};
+    const EXPORT_TABLES = ["machines", "reports", "presets", "links", "settings", "machine_former"];
+    for (const table of EXPORT_TABLES) {
       try {
         const res = await env.DB.prepare("SELECT * FROM " + table).all();
         dump[table] = (res && res.results) || [];
       } catch (error) {
         // 老库可能还没建 machine_former，缺一张表不该让整份备份失败
         dump[table] = [];
+        threwOn[table] = true;
         missing[table] = String((error && error.message) || error);
       }
     }
@@ -3049,7 +3052,7 @@ async function handleRequest(request, env) {
     /* JSON 是给程序看的；SQL 是给人「直接丢进 D1 Console 跑」的。
        两种都给，因为恢复现场时最省事的是后者：不用先装 wrangler、不用写脚本。 */
     if (String(url.searchParams.get("format") || "").toLowerCase() === "sql") {
-      const tables = ["machines", "reports", "presets", "links", "settings", "machine_former"];
+      const tables = EXPORT_TABLES;
       const out = [];
       out.push("-- sub-merge 数据库导出");
       out.push("-- 版本 " + VERSION + " · " + stamp);
@@ -3058,13 +3061,21 @@ async function handleRequest(request, env) {
       out.push("--   1) Cloudflare Dashboard → D1 → 选库 → Console，整段粘进去执行");
       out.push("--   2) 或者命令行：wrangler d1 execute <库名> --remote --file=backup.sql");
       out.push("-- 建表语句是 IF NOT EXISTS，插数据是 INSERT OR REPLACE，重复执行不会炸；");
+      out.push("-- 建表部分覆盖全部六张表，缺表的实例执行完就补齐了；");
       out.push("-- 行数多的库建议走命令行，Console 对单次提交长度有限制。");
       out.push("");
       for (const stmt of SCHEMA_STATEMENTS) out.push(String(stmt).trim() + ";");
       out.push("");
       for (const table of tables) {
         const rows = dump[table] || [];
-        if (!rows.length) { out.push("-- " + table + "：没有数据"); continue; }
+        if (!rows.length) {
+          /* 「表在但空」和「这张表压根没建」导出时长得一样，恢复的时候差别很大：
+             后者要靠上面的建表语句补，前者补不补都行。注释里写清楚，别让人猜。 */
+          out.push(!threwOn[table]
+            ? "-- " + table + "：表在，没有数据"
+            : "-- " + table + "：这台实例还没建这张表，上面的 CREATE TABLE 会补上");
+          continue;
+        }
         out.push("-- " + table + "：" + rows.length + " 行");
         for (const row of rows) {
           const cols = Object.keys(row);

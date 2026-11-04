@@ -1810,6 +1810,10 @@ test("admin export?format=sql gives SQL that actually runs", async () => {
   const sql = await res.text();
   assert.ok(sql.includes("CREATE TABLE IF NOT EXISTS machines"), "必须带建表语句，空库也能恢复");
   assert.ok(/INSERT OR REPLACE INTO machines \(/.test(sql), "必须是 INSERT OR REPLACE，重复执行不炸");
+  // 建表语句要覆盖全部六张表：老实例可能从没建过 machine_former
+  for (const t of ["machines", "reports", "presets", "links", "settings", "machine_former"]) {
+    assert.ok(sql.includes("CREATE TABLE IF NOT EXISTS " + t + " ("), "建表语句缺了 " + t);
+  }
   assert.ok(sql.includes("'hk-1'"));
   assert.ok(sql.includes("it''s"), "值里的单引号要写成两个，否则整份 SQL 语法错误");
 
