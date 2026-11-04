@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.15";
+const VERSION = "2.4.16";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -536,6 +536,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
+.ptag.grp{background:var(--warnbg);color:var(--warnink);border-color:var(--warnline);margin-left:4px}
 /* 长列表统一规则：超过 20 条才出滚动条，高度由 limitRows() 按真实行高算，
    不再用 vh 拍脑袋——行少的块铺开就好，别平白多一条滚动条。 */
 .can-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
@@ -1654,9 +1655,13 @@ vless-cdn  vless-reality  vmess-argo</pre>
   /* 档案成员现在是「勾了哪几条」，不再是筛选条件——所以这行只报勾了多少，
      不再回显协议条件（老档案也照这个口径，编辑保存一次就转成勾选）。 */
   function presetProtoText(item) {
-    var pickedCount = (item.members || []).filter(isIdentKey).length;
-    if (pickedCount) return "已勾选 " + pickedCount + " 个节点";
-    return "还没勾选节点";
+    var picked = (item.members || []).filter(isIdentKey);
+    if (!picked.length) return "还没勾选节点";
+    /* 一条身份（机器 + 协议类）可能对应好几条节点：同一台机器上两条 vless（比如
+       一条走 CDN、一条直连）都算「vless」，勾一条就等于勾了这两条。所以这里
+       必须同时报「勾了几组」和「实际覆盖几条」，只报前者会跟详情对不上。 */
+    var covered = presetMatchRows(item).length;
+    return "已勾选 " + picked.length + " 组 · 覆盖 " + covered + " 个节点";
   }
   /* 编辑面板：列出主订阅的全部节点，档案里已有的提前勾上 */
   function openPresetEditor(item) {
@@ -1819,6 +1824,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
       (m.nodes || []).forEach(function (n) { all.push({ machine: m.machine, node: n }); });
     });
     var visible = peRows();
+    /* 身份 → 这台机器上同类节点有几条。勾一条身份会连带勾中同组全部，
+       不标出来的话，编辑时看到「勾一条、亮三条」会以为是 bug。 */
+    var groupCount = {};
+    all.forEach(function (item) { var k = identKey(item.machine, item.node); groupCount[k] = (groupCount[k] || 0) + 1; });
     var shownSet = {};
     var rowKey = function (item) { return item.machine + "|" + item.node.id; };
     visible.forEach(function (item) { shownSet[rowKey(item)] = 1; });
@@ -1909,7 +1918,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (st.machines.length) bits.push("机器 " + st.machines.join("、"));
       if (st.tunnel) bits.push("隧道 " + (st.tunnel === "fixed" ? "固定" : "临时"));
       if (String(st.search || "").trim()) bits.push("搜「" + String(st.search).trim() + "」");
-      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选") + "）；已勾选 " + st.picked.length + " 组（机器 + 协议）";
+      var covered = st.picked.reduce(function (acc, k) { return acc + (groupCount[k] || 0); }, 0);
+      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选")
+        + "）；已勾选 " + st.picked.length + " 组（机器 + 协议），实际覆盖 " + covered + " 个节点";
     }
     list.innerHTML = "";
     if (!rows.length) {
@@ -1933,6 +1944,14 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.onchange = function () { peToggle(ikey, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
+      var grp = null;
+      if (groupCount[ikey] > 1) {
+        grp = document.createElement("span");
+        grp.className = "ptag grp";
+        grp.textContent = "同组 " + groupCount[ikey];
+        grp.title = "这台机器上「" + (hit.node.cls || hit.node.kind) + "」共 " + groupCount[ikey]
+          + " 条，身份相同，勾这一条等于把这几条都勾上；要分开得让它们协议类不同（比如一条走 argo、一条直连）";
+      }
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var nm = document.createElement("div"); nm.className = "nlname";
       var nmText = document.createElement("span"); nmText.className = "nm";
@@ -1947,7 +1966,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       raw.textContent = hit.node.link || "";
       raw.title = hit.node.link || "";
       meta.appendChild(nm); meta.appendChild(raw);
-      row.appendChild(box); row.appendChild(tag); row.appendChild(meta);
+      row.appendChild(box); row.appendChild(tag); if (grp) row.appendChild(grp); row.appendChild(meta);
       /* 第四列二选一：在订阅里的给复制按钮，不在的给「没在订阅里」提示。
          两者同时出现会把这一列撑得很宽，而且停用的节点本来也不该进档案。 */
       if (!inMaster) {
