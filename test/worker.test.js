@@ -2098,9 +2098,10 @@ test("subscription node list spans every machine in machine order and toggles gl
   assert.equal((await call(env, "PUT", "/api/v1/sub/disabled", JSON.stringify({ disabled: "x" }), auth)).status, 400);
 });
 
-test("nodes inside one machine come out in protocol order, not paste order", async () => {
-  /* 同一台机器里五种协议故意倒着粘贴，输出的顺序要是协议 rank：
-     vless-reality → anytls → vmess → hy2 → tuic。 */
+test("manual nodes keep the order the user arranged, not the protocol name", async () => {
+  /* 手动节点的 order 就是 ↑↓ 拖动后存下来的数组下标，输出必须原样照搬。
+     以前这里是按协议名字母序排的，结果用户把 vmess 拖到 hysteria2 前面，
+     订阅里还是 hysteria2 在前——那个 ↑↓ 等于白点。 */
   const env = makeEnv();
   const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
   const s = (id) => `00000000-0000-4000-8000-${String(id).padStart(12, "0")}`;
@@ -2112,11 +2113,20 @@ test("nodes inside one machine come out in protocol order, not paste order", asy
 
   await call(env, "PUT", "/api/v1/nodes/order-mix", JSON.stringify({ nodes: [{ link: tuic }, { link: hy2 }, { link: vmess }, { link: anytls }, { link: reality }] }), auth);
   const view = await (await call(env, "GET", "/api/v1/nodes/order-mix", null, { authorization: `Bearer ${TOKEN}` })).json();
-  assert.deepEqual(view.nodes.map((n) => n.protocol), ["anytls", "hy2", "tuic", "vless", "vmess"]);
+  assert.deepEqual(view.nodes.map((n) => n.protocol), ["tuic", "hy2", "vmess", "anytls", "vless"],
+    "粘贴顺序就是输出顺序");
 
-  /* 订阅走的是同一个 nodesOf，顺序跟着节点视图走；这里再确认一次条数没丢 */
+  /* 模拟在 ① 里点 ↑ 把 reality 拖到最前面，再保存：订阅跟着变 */
+  await call(env, "PUT", "/api/v1/nodes/order-mix", JSON.stringify({ nodes: [{ link: reality }, { link: tuic }, { link: hy2 }, { link: vmess }, { link: anytls }] }), auth);
+  const after = await (await call(env, "GET", "/api/v1/nodes/order-mix", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(after.nodes.map((n) => n.protocol), ["vless", "tuic", "hy2", "vmess", "anytls"],
+    "拖动之后的顺序要生效");
+
   const sub = await call(env, "GET", `/sub/order-mix/${TOKEN}`);
   assert.equal(sub.headers.get("x-nodes"), "5");
+  const lines = unb64(await sub.text()).split("\n").filter(Boolean);
+  const kinds = lines.map((line) => line.split("://")[0]);
+  assert.deepEqual(kinds, ["vless", "tuic", "hysteria2", "vmess", "anytls"], "订阅里的顺序和 UI 里一致");
 });
 
 test("machines sharing a rank stay grouped instead of interleaving their nodes", async () => {
@@ -2138,8 +2148,8 @@ test("machines sharing a rank stay grouped instead of interleaving their nodes",
     const hash = line.indexOf("#");
     return hash >= 0 ? decodeURIComponent(line.slice(hash + 1)) : line.slice(0, 30);
   });
-  assert.deepEqual(names, ["东京A-hy2", "东京A-vless", "东京B-hy2", "东京B-vless"],
-    "同一 rank 的两台机器必须各自成组，不能按节点下标交错");
+  assert.deepEqual(names, ["东京A-vless", "东京A-hy2", "东京B-vless", "东京B-hy2"],
+    "同一 rank 的两台机器必须各自成组，不能按节点下标交错；组内顺序照手动节点的 order");
 });
 
 test("shadowsocks links work in both the old base64 form and the SIP002 form", async () => {

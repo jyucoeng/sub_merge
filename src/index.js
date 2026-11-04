@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.114";
+const VERSION = "1.66.115";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -5082,6 +5082,17 @@ function linkIdentity(link) {
  * 同协议内再按粘贴顺序、最后按名字。以前用的是一套自定义优先级（reality 优先等），
  * 那是按「好用程度」排的，跟「看得懂、找得到」是两回事——列表里跳跃着看不舒服。
  * useRank = false 时完全不排序，保持数组原样（给调用方显式要求场景用）。 */
+/* 手动节点的顺序是用户用 ↑↓ 亲手排的（存的是 order = 数组下标），必须原样输出：
+   一旦掺进协议名当首要关键字，你把手里的 vmess 拖到 hysteria2 前面，订阅里还是
+   hysteria2 在前，那个 ↑↓ 就等于白点。只有上报段才按协议字母序——那边的顺序
+   是脚本给的，没有人工意图可尊重。 */
+function sortManualNodes(nodes) {
+  return nodes
+    .map((node, i) => ({ node, order: Number(node.order) || 0, i }))
+    .sort((a, b) => a.order - b.order || a.i - b.i)
+    .map((item) => item.node);
+}
+
 function sortNodes(nodes, useRank) {
   if (!useRank) return nodes.slice();
   const decorated = nodes.map((node) => ({
@@ -5127,7 +5138,7 @@ async function nodesOf(record, allowed, disabled) {
      两段各自按协议字母升序。手动节点是你亲手写的，它不是「和上报混在一起的
      同类项」——把它打散进上报里，那条人工改过的配置就找不到位置了。
      所以这里是两段各排各的再拼，不是合并后统一排。 */
-  const merged = [...sortNodes(manualPart, true), ...sortNodes(autoPart, true)]
+  const merged = [...sortManualNodes(manualPart), ...sortNodes(autoPart, true)]
     .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
