@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.10";
+const VERSION = "2.4.11";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -529,6 +529,15 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
+/* 三块都会越堆越长（机器、节点、分组/规则来源）：各自限高 + 独立纵向滚动，
+   页面本身不被撑到几屏长，标题和按钮也不会被推出视野。
+   min() 让矮屏按视口比例缩，不会出现「高度上限比屏幕还高」。 */
+#machine-list{max-height:min(56vh,520px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
+#sub-list{max-height:min(56vh,560px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
+#clash-groups,#clash-rulesets{max-height:min(46vh,420px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
+#machine-list::-webkit-scrollbar,#sub-list::-webkit-scrollbar,#clash-groups::-webkit-scrollbar,#clash-rulesets::-webkit-scrollbar{width:8px}
+#machine-list::-webkit-scrollbar-thumb,#sub-list::-webkit-scrollbar-thumb,#clash-groups::-webkit-scrollbar-thumb,#clash-rulesets::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
+#machine-list::-webkit-scrollbar-thumb:hover,#sub-list::-webkit-scrollbar-thumb:hover,#clash-groups::-webkit-scrollbar-thumb:hover,#clash-rulesets::-webkit-scrollbar-thumb:hover{background:var(--sub)}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
