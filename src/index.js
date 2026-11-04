@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.23";
+const VERSION = "2.4.24";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -531,6 +531,14 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
 /* 长列表统一规则：超过 20 条才出滚动条，高度由 limitRows() 按真实行高算，
    不再用 vh 拍脑袋——行少的块铺开就好，别平白多一条滚动条。 */
+/* 兜底：行数超了却没有 .can-scroll（量不到行高、卡片刚显示等），
+   靠 :has() 直接按行数出滚动条，不让「没滚动条」这种事再出现一次 */
+#sub-list:has(> :nth-child(21)):not(.can-scroll),
+#machine-list:has(> :nth-child(13)):not(.can-scroll){max-height:min(72vh,760px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+#sub-list:has(> :nth-child(21)):not(.can-scroll)::-webkit-scrollbar,
+#machine-list:has(> :nth-child(13)):not(.can-scroll)::-webkit-scrollbar{width:8px}
+#sub-list:has(> :nth-child(21)):not(.can-scroll)::-webkit-scrollbar-thumb,
+#machine-list:has(> :nth-child(13)):not(.can-scroll)::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 .can-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
 .can-scroll::-webkit-scrollbar{width:8px}
 .can-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
@@ -1044,7 +1052,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     window.addEventListener("resize", function () {
       clearTimeout(limitTimer);
       limitTimer = setTimeout(function () {
-        limitRows($("machine-list"), 20);
+        limitRows($("machine-list"), 12);
         limitRows($("sub-list"), 20);
         limitRows($("clash-groups"), 20);
         limitRows($("clash-rulesets"), 20);
@@ -2526,7 +2534,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.appendChild(row);
     });
     paintSortHead();
-    limitRows(box, 20);
+    limitRows(box, 12);
   }
   /* 从机器列表跳到下面的节点配置。滚到「① 手动节点」那一段的开头，
      不滚到整个 card 顶部——顶部还有一排按钮，滚过去也看不到节点。 */
