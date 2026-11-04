@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.17";
+const VERSION = "2.4.18";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -529,7 +529,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
-.ptag.grp{background:var(--warnbg);color:var(--warnink);border-color:var(--warnline);margin-left:4px}
+.ptag.grp{flex:0 0 auto;background:var(--warnbg);color:var(--warnink);border-color:var(--warnline);margin-left:6px}
 /* 长列表统一规则：超过 20 条才出滚动条，高度由 limitRows() 按真实行高算，
    不再用 vh 拍脑袋——行少的块铺开就好，别平白多一条滚动条。 */
 .can-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
@@ -1955,11 +1955,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
       src.textContent = hit.node.source === "manual" ? "手动" : "上报";
       src.title = hit.node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
       nm.appendChild(nmText); nm.appendChild(src);
+      if (grp) nm.appendChild(grp);
       var raw = document.createElement("div"); raw.className = "nllink";
       raw.textContent = hit.node.link || "";
       raw.title = hit.node.link || "";
       meta.appendChild(nm); meta.appendChild(raw);
-      row.appendChild(box); row.appendChild(tag); if (grp) row.appendChild(grp); row.appendChild(meta);
+      row.appendChild(box); row.appendChild(tag); row.appendChild(meta);
       /* 第四列二选一：在订阅里的给复制按钮，不在的给「没在订阅里」提示。
          两者同时出现会把这一列撑得很宽，而且停用的节点本来也不该进档案。 */
       if (!inMaster) {

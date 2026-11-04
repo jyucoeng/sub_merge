@@ -1517,6 +1517,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const peSrcChips = el("pe-source-chips").children.map((c) => c.textContent);
   check("订阅档案：按来源筛选（手动 / 上报）", peSrcChips.length === 2 && peSrcChips[0].indexOf("手动") !== -1 && peSrcChips[1].indexOf("上报") !== -1, peSrcChips.join(" | "));
   const peCopy = checkedRow.children[3];
+  check("订阅档案：编辑行保持 4 格布局（勾选框/协议/内容/复制）", peRows().length > 0 && peRows()[0].children.length === 4, String(peRows()[0] && peRows()[0].children.length));
   check("订阅档案：在订阅里的节点有复制按钮", Boolean(peCopy) && peCopy.className === "nlcopy" && peCopy.textContent === "复制", peCopy && (peCopy.textContent + " / " + peCopy.className));
   let peBubbled = false;
   peCopy.onclick.call(peCopy, { stopPropagation: function () { peBubbled = true; } });
