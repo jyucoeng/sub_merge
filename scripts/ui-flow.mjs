@@ -547,7 +547,7 @@ check("保存排序：按钮恢复常态", !el("save-machine-order").className.i
   /* 表头排序：点列名直接重排，省得一条条按 ↑↓ */
   const head = el("mlist-head");
   const btn = (k) => { for (let i = 0; i < head.children.length; i += 1) if (head.children[i].getAttribute && head.children[i].getAttribute("data-k") === k) return head.children[i]; return null; };
-  check("表头：有机器名/地区/节点数三列", ["name", "region", "nodes"].every((k) => btn(k)), head.children.map((c) => c.textContent).join("|"));
+  check("表头：有机器名/地区/节点数/更新时间四列", ["name", "region", "nodes", "updated"].every((k) => btn(k)), head.children.map((c) => c.textContent).join("|"));
   check("表头：初始没有高亮列", !["name", "region", "nodes"].some((k) => btn(k).className === "on"), [btn("name").className, btn("region").className, btn("nodes").className].join(","));
 
   btn("name").onclick.call(btn("name"));
@@ -577,6 +577,20 @@ check("保存排序：按钮恢复常态", !el("save-machine-order").className.i
   const saved = (await api("/machines/order")).data.machine_order;
   check("表头：排序后保存写回服务端", Array.isArray(saved) && saved.length === 2, JSON.stringify(saved));
   check("表头：保存后按钮恢复", !el("save-machine-order").className.includes("dirty"), el("save-machine-order").className);
+
+  /* 更新时间排序：给两台机器塞不同时间，点一下应该最新的在最上面 */
+  db.prepare("UPDATE machines SET updated_at = ? WHERE machine LIKE ?").run("2026-11-04T10:00:00.000Z", "%洛杉矶%");
+  db.prepare("UPDATE machines SET updated_at = ? WHERE machine LIKE ?").run("2026-11-04T20:00:00.000Z", "%香港%");
+  el("reload").onclick();      /* 前端缓存里还是旧时间，点刷新重新拉一遍 */
+  await idle();
+  btn("updated").onclick.call(btn("updated"));
+  await idle();
+  check("表头：按更新时间点第一次是降序，最新的在最上面", btn("updated").textContent === "更新时间 ↓" && machineRows()[0].children[1].textContent.indexOf("香港") === 0, `${btn("updated").textContent} / ${machineRows().map((r) => r.children[1].textContent).join(" | ")}`);
+  btn("updated").onclick.call(btn("updated"));
+  await idle();
+  check("表头：再点一次升序，最旧的在上", btn("updated").textContent === "更新时间 ↑" && machineRows()[0].children[1].textContent.indexOf("洛杉矶") === 0, `${btn("updated").textContent} / ${machineRows().map((r) => r.children[1].textContent).join(" | ")}`);
+  el("reset-machine-order").onclick();   /* 时间排序只是看，别把未保存状态带给下一段 */
+  await idle();
 }
 {
   /* 撤销改动：排乱了不想一个个调回去，一键回到上次保存的顺序 */

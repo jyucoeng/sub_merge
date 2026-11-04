@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.0";
+const VERSION = "2.2.1";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2518,11 +2518,13 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (key === "name") r = String(a.machine).localeCompare(String(b.machine));
       else if (key === "region") r = String(a.country || "\uffff").localeCompare(String(b.country || "\uffff"));
       else if (key === "nodes") r = (Number(a.nodes) || 0) - (Number(b.nodes) || 0);
+      /* 更新时间按「最近上报」排：没时间的当 0，点第一次是降序（最新的在最上面） */
+      else if (key === "updated") r = (Date.parse(a.updated_at || "") || 0) - (Date.parse(b.updated_at || "") || 0);
       if (!r) r = String(a.machine).localeCompare(String(b.machine));
       return r * dir;
     });
   }
-  var SORT_FIELDS = [["name", "机器名"], ["region", "地区"], ["nodes", "节点数"]];
+  var SORT_FIELDS = [["name", "机器名"], ["region", "地区"], ["nodes", "节点数"], ["updated", "更新时间"]];
   function paintSortHead() {
     var box = $("mlist-head");
     if (!box) return;
@@ -2536,7 +2538,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         b.onclick = function () {
           var k = this.getAttribute("data-k");
           if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
-          else { state.sortKey = k; state.sortDir = 1; }
+          else { state.sortKey = k; state.sortDir = k === "updated" ? -1 : 1; }
           applyMachineSort();
           paintSortHead();
           renderMachineList();
@@ -2544,14 +2546,15 @@ vless-cdn  vless-reality  vmess-argo</pre>
         };
         box.appendChild(b);
       }
-      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "点一次升序，再点降序";
+      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "点一次切换升降序";
       box.appendChild(tip);
     }
     var kids = box.children;
     for (var i = 0; i < kids.length; i += 1) {
       var el = kids[i], kk = el.getAttribute && el.getAttribute("data-k");
       if (!kk) continue;
-      var base = kk === "name" ? "机器名" : (kk === "region" ? "地区" : "节点数");
+      var base = "";
+      for (var q = 0; q < SORT_FIELDS.length; q += 1) { if (SORT_FIELDS[q][0] === kk) base = SORT_FIELDS[q][1]; }
       var on = !!state.sortKey && kk === state.sortKey;
       el.className = on ? "on" : "";
       el.textContent = base + (on ? (state.sortDir === 1 ? " \u2191" : " \u2193") : "");
