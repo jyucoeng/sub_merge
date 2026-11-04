@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.3";
+const VERSION = "2.2.4";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -517,9 +517,18 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 #pe-badge{font-weight:600}
 #pe-badge.warn{color:var(--warnink)}
 .sub-list-narrow{max-height:320px;overflow:auto}
-.preset{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
-.preset .pname{min-width:0;display:flex;flex-direction:column;gap:2px}
+.preset{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
+.preset .pname{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 描述整行放到末行，不再和链接抢宽度：链接一长，「全部协议 · base64 · 共用主 token · 规则跟随全局」
+   就被压成「规则跟随…」，用户看不到后面写了什么。 */
+.preset .pdesc{order:9;flex:1 1 100%;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.7}
+.preset>code{flex:1 1 220px}
+.preset>.row{margin-left:auto}
+.pdetail{margin:-2px 0 6px;padding:2px 10px 8px;border:1px solid var(--line);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:var(--soft);font-size:12.5px}
+.pdhead{padding:8px 0 6px;color:var(--sub)}
+.pditem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed var(--line)}
+.pdmeta{min-width:0}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
@@ -1930,6 +1939,55 @@ vless-cdn  vless-reality  vmess-argo</pre>
       + (sl ? sl.code + " " + sl.path + " " + location.origin + sl.path + " " + sl.url : "")).toLowerCase();
     return hay.indexOf(q) >= 0;
   }
+  /* 档案「详情」：把这条档案的条件（协议/机器/接入方式/来源）在订阅节点表上跑一遍。
+     判定维度和后端 matchesFilter 一致，所以看到的就等于客户端拉下来会拿到的。 */
+  function presetMatchRows(item) {
+    var out = [];
+    var protos = item.protos || [], machines = item.machines || [];
+    var sources = item.sources || [], tunnel = item.tunnel || "";
+    var ms = (state.sub && state.sub.machines) || [];
+    ms.forEach(function (m) {
+      if (machines.length && machines.indexOf(m.machine) < 0) return;
+      (m.nodes || []).forEach(function (n) {
+        if (tunnel && n.tunnel !== tunnel) return;
+        if (sources.length && sources.indexOf(n.source || "auto") < 0) return;
+        if (protos.length) {
+          var cls = n.cls || n.kind;
+          if (protos.indexOf(cls) < 0 && protos.indexOf(n.kind) < 0) return;
+        }
+        out.push({ machine: m.machine, n: n });
+      });
+    });
+    return out;
+  }
+  function buildPresetDetail(item) {
+    var wrap = document.createElement("div"); wrap.className = "pdetail";
+    var rows = presetMatchRows(item);
+    var head = document.createElement("div"); head.className = "pdhead";
+    head.textContent = rows.length
+      ? "这条档案当前包含 " + rows.length + " 个节点（按条件实时算，机器增删、隧道换域名都会自动跟上）"
+      : "当前没有节点满足这些条件——去「编辑」里放宽条件，或等机器上报。";
+    wrap.appendChild(head);
+    rows.forEach(function (hit) {
+      var n = hit.n;
+      var line = document.createElement("div"); line.className = "pditem";
+      var badge = document.createElement("span"); badge.className = "proto";
+      badge.textContent = n.cls_label || n.label || n.kind || "";
+      var meta = document.createElement("div"); meta.className = "nlname";
+      var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name || "(未命名)";
+      var src = document.createElement("span"); src.className = "srctag";
+      src.textContent = n.source === "manual" ? "手动" : "上报";
+      var sub = document.createElement("div"); sub.className = "nllink"; sub.textContent = n.link || "";
+      var mid = document.createElement("div"); mid.className = "pdmeta";
+      meta.appendChild(nm); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
+      var cp = document.createElement("button"); cp.type = "button"; cp.textContent = "复制";
+      cp.title = "复制这条节点原串";
+      cp.onclick = function () { copyToClipboard(n.link); flashButton(cp, "已复制"); };
+      line.appendChild(badge); line.appendChild(mid); line.appendChild(cp);
+      wrap.appendChild(line);
+    });
+    return wrap;
+  }
   function renderPresets() {
     var box = $("presets"); if (!box) return;
     box.innerHTML = "";
@@ -1962,7 +2020,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       desc.appendChild(tk);
       desc.appendChild(document.createTextNode(" · 规则跟随全局"));
       desc.title = desc.textContent;
-      name.appendChild(title); name.appendChild(desc);
+      name.appendChild(title);   /* desc 不再挂在 pname 里：它是整行的第二行 */
 
       var sl = presetLink(item.name);
       var view = linkViewOf("p:" + item.name);
@@ -2040,8 +2098,24 @@ vless-cdn  vless-reality  vmess-argo</pre>
         right.appendChild(sw);
       }
       right.appendChild(del); right.appendChild(shortBtn);
-      row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
+      var detailOpen = state.presetOpen === item.name;
+      var detail = document.createElement("button"); detail.type = "button";
+      detail.textContent = detailOpen ? "收起" : "详情";
+      detail.className = detailOpen ? "editing" : "";
+      detail.title = "只看不改：列出这条档案当前会包含哪些节点（按条件实时算出来的）";
+      detail.onclick = function () {
+        state.presetOpen = detailOpen ? "" : item.name;
+        // 条件是在完整节点表上算的，没加载过订阅节点时先拉一次，否则详情块会空着
+        if (!detailOpen && !(state.sub && state.sub.machines && state.sub.machines.length)) {
+          loadSubNodes(true).then(renderPresets).catch(renderPresets);
+          return;
+        }
+        renderPresets();
+      };
+      row.appendChild(name); row.appendChild(link); row.appendChild(desc);
+      row.appendChild(detail); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
+      if (detailOpen) box.appendChild(buildPresetDetail(item));
     });
   }
   function loadPresets(quiet) {

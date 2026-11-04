@@ -1457,10 +1457,25 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("pe-cancel");
   await idle();
   check("订阅档案：列表里出现这个档案", presets().length === 1, String(presets().length));
+  // 详情：只读列出这条档案当前会包含哪些节点（按条件实时算）
+  const inRow = (t) => Array.from(presets()[0].children).filter((c) => c.textContent === t)[0];
+  const detailBtn = inRow("详情");
+  check("订阅档案：行内有「详情」按钮", !!detailBtn, presets()[0].children.map((c) => c.textContent).join("|"));
+  detailBtn.onclick.call(detailBtn);
+  await idle();
+  const detailBox = () => el("presets").children.filter((c) => String(c.className).indexOf("pdetail") >= 0)[0];
+  const detailItems = () => (detailBox() ? detailBox().children.filter((c) => String(c.className).indexOf("pditem") >= 0) : []);
+  check("订阅档案：点开详情后列出匹配的节点", !!detailBox() && detailItems().length === 1, detailItems().length + " | " + (detailBox() ? detailBox().children[0].textContent : "没有详情块"));
+  check("订阅档案：详情里的节点带名字和原串", detailItems().length > 0 && detailItems()[0].children[1].children[1].textContent.indexOf("://") > 0, detailItems().length ? detailItems()[0].children[1].children[1].textContent.slice(0, 28) : "");
+  const closeBtn = inRow("收起");
+  check("订阅档案：点开详情后按钮变「收起」", !!closeBtn, "");
+  closeBtn.onclick.call(closeBtn);
+  await idle();
+  check("订阅档案：收起后详情块消失", !detailBox(), String(el("presets").children.length));
   const url = presets()[0].children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
   check("订阅档案：链接被截断时悬停能看到全串", presets()[0].children[1].title === url, String(presets()[0].children[1].title));
-  check("订阅档案：描述写的是收集条件", /^条件：hy2/.test(presets()[0].children[0].children[1].textContent), presets()[0].children[0].children[1].textContent);
+  check("订阅档案：描述写的是收集条件", /^条件：hy2/.test(presets()[0].children[2].textContent), presets()[0].children[2].textContent);
 
   const pubNames = async (u) => {
     const res = await netFetch(u.replace(/^https?:\/\/[^/]+/, BASE));
@@ -1480,12 +1495,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   setInput("preset-search", "");
 
   // 编辑：把档案里已有的节点提前勾好；取消不保存
-  presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
+  presets()[0].children[5].children[0].onclick.call(presets()[0].children[5].children[0]);
   await idle();
   check("订阅档案：编辑打开面板并锁住档案名", String(el("preset-editor").className).indexOf("hidden") < 0 && el("pe-name").value === "hy2" && el("pe-name").readOnly === true && String(el("pe-name").className).indexOf("locked") >= 0, el("pe-name").value + "/" + el("pe-name").readOnly);
   check("订阅档案：编辑时把已有节点提前勾好", peRows().filter((r) => r.children[0].checked).length === 1, String(peRows().filter((r) => r.children[0].checked).length));
-  check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[3].children[0].textContent === "编辑中" && String(presets()[0].children[3].children[0].className).indexOf("editing") >= 0, presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
-  check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[3].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[3].children[0].textContent).join(","));
+  check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[5].children[0].textContent === "编辑中" && String(presets()[0].children[5].children[0].className).indexOf("editing") >= 0, presets()[0].children[5].children[0].textContent + "/" + presets()[0].children[5].children[0].className);
+  check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[5].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[5].children[0].textContent).join(","));
   const checkedRow = peRows().filter((r) => r.children[0].checked)[0];
   const peName = checkedRow.children[2].children[0].children[0];
   const peSrc = checkedRow.children[2].children[0].children[1];
@@ -1508,12 +1523,12 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("pe-cancel");
   await idle();
   check("订阅档案：取消后不保存", (await pubNames(url)).names.join(",") === "档案-hy2", "档案内容被改了");
-  check("订阅档案：取消后按钮从「编辑中」恢复", presets()[0].children[3].children[0].textContent === "编辑" && String(presets()[0].children[3].children[0].className) === "", presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
+  check("订阅档案：取消后按钮从「编辑中」恢复", presets()[0].children[5].children[0].textContent === "编辑" && String(presets()[0].children[5].children[0].className) === "", presets()[0].children[5].children[0].textContent + "/" + presets()[0].children[5].children[0].className);
 
   // 编辑：取消勾选后保存，只影响这个档案
   const masterBefore = await netFetch(`${BASE}/sub/all/${TOKEN}`);
   const masterNames = Buffer.from(await masterBefore.text(), "base64").toString("utf8");
-  presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
+  presets()[0].children[5].children[0].onclick.call(presets()[0].children[5].children[0]);
   await idle();
   /* 把条件去掉 = 不限协议，档案范围跟着变宽 */
   clickChip("pe-proto-chips", "Hysteria2");
@@ -1528,11 +1543,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 换独立 token：链接变了，旧链接立刻失效
   // 订阅档案行的「复制」也是同一套就地反馈
-  const presetCopy = presets()[0].children[2];
+  const presetCopy = presets()[0].children[4];
   presetCopy.onclick.call(presetCopy);
   check("订阅档案：复制按钮同样是就地反馈", presetCopy.textContent === "已复制" && String(presetCopy.className).includes("copied"), `${presetCopy.textContent}|${presetCopy.className}`);
 
-  const rowButtons = () => Array.from(presets()[0].children[3].children);
+  const rowButtons = () => Array.from(presets()[0].children[5].children);
   const byText = (t) => rowButtons().filter((b) => b.textContent === t)[0];
   const rotate = byText("发独立 token");
   check("订阅档案：有换 token 按钮", rotate && rotate.textContent === "发独立 token", rotate && rotate.textContent);
@@ -1576,21 +1591,21 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 长短链接切换：不删短链，只换显示（按链接内容找行，列表已按创建时间倒序）
   const slRow = () => presets().filter((r) => /hy2/.test(r.children[0].children[0].textContent))[0];
-  const slBtn = (t) => Array.from((slRow() || { children: [{ children: [] }, { children: [] }] }).children[3].children).filter((b) => b.textContent === t)[0];
+  const slBtn = (t) => Array.from((slRow() || { children: [{ children: [] }, { children: [] }] }).children[5].children).filter((b) => b.textContent === t)[0];
   const swBtn = slBtn("换长链");
-  check("订阅档案：有短链时出现换长链", !!swBtn, (slRow() ? Array.from(slRow().children[3].children).map((b) => b.textContent).join(",") : "没有带短链的行"));
+  check("订阅档案：有短链时出现换长链", !!swBtn, (slRow() ? Array.from(slRow().children[5].children).map((b) => b.textContent).join(",") : "没有带短链的行"));
   const shortShown = slRow().children[1].textContent;
   swBtn.onclick.call(swBtn);
   await idle();
   const longShown = slRow().children[1].textContent;
   check("订阅档案：换长链后显示 /sub/p/", longShown !== shortShown && longShown.includes("/sub/p/"), longShown);
-  check("订阅档案：切换按钮变成换短链", !!slBtn("换短链"), Array.from(slRow().children[3].children).map((b) => b.textContent).join(","));
+  check("订阅档案：切换按钮变成换短链", !!slBtn("换短链"), Array.from(slRow().children[5].children).map((b) => b.textContent).join(","));
   check("订阅档案：换长链后短链还能用", (await netFetch(shortShown)).status === 200, shortShown);
   slBtn("换短链").onclick.call(slBtn("换短链"));
   await idle();
   check("订阅档案：换回短链", slRow().children[1].textContent === shortShown, slRow().children[1].textContent);
-  const delShortBtn = Array.from(slRow().children[3].children).filter((b) => String(b.className).includes("shortlink") && String(b.className).includes("unlink"))[0];
-  check("订阅档案：有短链后按钮变成删除态（红底图标）", !!delShortBtn, Array.from(slRow().children[3].children).map((b) => b.className).join(","));
+  const delShortBtn = Array.from(slRow().children[5].children).filter((b) => String(b.className).includes("shortlink") && String(b.className).includes("unlink"))[0];
+  check("订阅档案：有短链后按钮变成删除态（红底图标）", !!delShortBtn, Array.from(slRow().children[5].children).map((b) => b.className).join(","));
   check("订阅档案：列表按创建时间倒序", presets().length < 2 || presets()[0].children[1].textContent !== "" , "行数 " + presets().length);
 
   // 搜短链也要能搜到这条档案
@@ -1601,7 +1616,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 删除（按名字找行：列表现在是创建时间倒序）
   const delRow = presets().filter((r) => /hy2/.test(r.children[0].children[0].textContent))[0];
-  const del = Array.from(delRow.children[3].children).filter((b) => String(b.className).includes("del-icon"))[0];
+  const del = Array.from(delRow.children[5].children).filter((b) => String(b.className).includes("del-icon"))[0];
   del.onclick.call(del);
   await idle();
   check("订阅档案：删除后列表里没有它", !presets().some((r) => /hy2/.test(r.children[0].children[0].textContent)), String(presets().length));
