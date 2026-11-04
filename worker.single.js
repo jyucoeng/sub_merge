@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.117";
+const VERSION = "1.66.118";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -454,9 +454,7 @@ textarea:focus{border-color:var(--acc)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
-.sort-help-btn{margin-top:10px;background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--sub);cursor:pointer}
-.sort-help-btn:hover{border-color:var(--acc);color:var(--acc)}
-.sort-help-btn.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+.sort-help-btn{float:none;margin:10px 0 0;padding:5px 13px;font-size:12.5px}
 .sort-rules{margin-top:9px;padding:12px 14px;background:var(--soft);border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.85;color:var(--fg2)}
 .sort-rules b{color:var(--ink)}
 .sort-rules .sr-h{margin-top:12px;font-weight:600;color:var(--ink)}
@@ -598,7 +596,7 @@ body.locked .wrap{display:none}
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
 <div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来">没保存顺序时按机器名里的地区排：香港 10 · 韩国 20 · 日本 30 · 新加坡 40 · 亚洲其他 50 · 美国 60 · 德国 70 · 欧洲其他 80 · 美洲其他 90 · 认不出 100（数字小的在前）。保存过之后只按你排的来，没排进去的排在最后。</div>
 <div class="mlist-head" id="mlist-head"></div>
-<button id="sort-help" class="sort-help-btn" type="button" title="展开看看节点是按什么规则排出来的">排序规则</button>
+<button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看节点是按什么规则排出来的">排序规则 展开 +</button>
 <div id="sort-rules" class="sort-rules hidden">
 <div class="sr-h">节点是怎么排出来的</div>
 <div>分两层，互不干扰：</div>
@@ -2935,8 +2933,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
   function syncSortRules() {
     if (!sortHelp || !sortRules) return;
     sortRules.className = sortOpen ? "sort-rules" : "sort-rules hidden";
-    sortHelp.className = "sort-help-btn" + (sortOpen ? " on" : "");
-    sortHelp.textContent = sortOpen ? "收起规则" : "排序规则";
+    sortHelp.textContent = sortOpen ? "排序规则 收起 -" : "排序规则 展开 +";
+    sortHelp.title = sortOpen ? "收起排序规则" : "展开看看节点是按什么规则排出来的";
   }
   if (sortHelp) sortHelp.onclick = function () { sortOpen = !sortOpen; syncSortRules(); };
   syncSortRules();

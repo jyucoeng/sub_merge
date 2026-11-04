@@ -275,14 +275,14 @@ const names = () => nodeRows().map((r) => r.children[2].value);
 check("排序规则：默认是收起的", String(el("sort-rules").className).indexOf("hidden") >= 0, String(el("sort-rules").className));
 el("sort-help").onclick();
 check("排序规则：点开后展开", String(el("sort-rules").className).indexOf("hidden") < 0, String(el("sort-rules").className));
-check("排序规则：按钮变成收起", String(el("sort-help").textContent) === "收起规则", String(el("sort-help").textContent));
+check("排序规则：按钮变成「排序规则 收起 -」", String(el("sort-help").textContent) === "排序规则 收起 -", String(el("sort-help").textContent));
 /* 规则正文是静态 HTML，mock DOM 不解析页面，直接查源码字符串 */
 check("排序规则：写了分组顺序", html.includes("Argo → CDN → Reality → 普通"));
 check("排序规则：写了协议升序", html.includes("anytls → hysteria2 → trojan → tuic → vless → vmess"));
 check("排序规则：给了排完的例子", html.includes("[Argo]") && html.includes("[Reality]"));
 check("排序规则：说明手动层不参与分组", html.includes("手动节点<b>不参与</b>"));
 el("sort-help").onclick();
-check("排序规则：再点收起", String(el("sort-rules").className).indexOf("hidden") >= 0 && String(el("sort-help").textContent) === "排序规则");
+check("排序规则：再点收起", String(el("sort-rules").className).indexOf("hidden") >= 0 && String(el("sort-help").textContent) === "排序规则 展开 +");
 
 check("空状态：机器列表给出上报引导",
   text("machine-list").includes("还没有机器上报过") && text("machine-list").includes("REPORT_MACHINE"),
