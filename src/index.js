@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.22";
+const VERSION = "2.4.23";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1017,16 +1017,24 @@ vless-cdn  vless-reality  vmess-argo</pre>
   }
   /* 行数超过 max 才限高：把「第 max+1 行」的 offsetTop 减掉第一行，得出前
      max 行实际占多高，多一行都不留。行高随内容/字号变，所以不用固定像素。 */
-  function limitRows(box, max) {
+  function limitRows(box, max, tries) {
     if (!box || !box.children) return;
     box.classList.remove("can-scroll");
     box.style.maxHeight = "";
     if (box.children.length <= max) return;
     var first = box.children[0], cut = box.children[max];
     if (!first || !cut) return;
-    if (typeof first.offsetTop !== "number" || typeof cut.offsetTop !== "number") return;
-    var h = cut.offsetTop - first.offsetTop;
-    if (!(h > 0)) return;
+    var topA = typeof first.offsetTop === "number" ? first.offsetTop : 0;
+    var topB = typeof cut.offsetTop === "number" ? cut.offsetTop : 0;
+    var h = topB - topA;
+    if (!(h > 0)) {
+      /* 刚插进 DOM、或所在的卡片还没显示时量不到高度（offsetTop 全是 0）。
+         过一帧再量一次，否则这一屏永远不出滚动条。重试有上限——量不到就是量不到，
+         无限重试会把定时器堆成死循环。 */
+      if ((tries || 0) >= 2) return;
+      setTimeout(function () { limitRows(box, max, (tries || 0) + 1); }, 60);
+      return;
+    }
     box.style.maxHeight = h + "px";
     box.classList.add("can-scroll");
   }
