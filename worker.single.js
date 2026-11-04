@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.126";
+const VERSION = "1.66.127";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -569,6 +569,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .del-icon svg{display:block}
 button.shortlink.unlink{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border-color:var(--warnline);color:var(--warnink)}
 button.shortlink.unlink:hover{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}
+button.shortlink.unlink.copied{width:auto;min-width:76px;padding:0 10px;white-space:nowrap}
 /* 深色主题那条 [data-theme="dark"] button.shortlink 权重更高，得显式压回去 */
 [data-theme="dark"] button.shortlink.unlink{background:transparent;border-color:var(--warnline);color:var(--warnink)}
 [data-theme="dark"] button.shortlink.unlink:hover{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}
@@ -1968,12 +1969,14 @@ vless-cdn  vless-reality  vmess-argo</pre>
   var COPY_FLASH_MS = 3000;
   function flashButton(btn, text) {
     if (!btn) return;
-    var oldText = btn.textContent;
+    // 必须存 innerHTML 而不是 textContent：图标按钮的 textContent 是空串，
+    // 按 textContent 还原会把按钮清成一个空框（短链生成后就是这个表现）。
+    var oldHTML = btn.innerHTML;
     var oldClass = String(btn.className || "");
     btn.textContent = text;
     btn.className = (oldClass ? oldClass.trim() + " " : "") + "copied";
     setTimeout(function () {
-      btn.textContent = oldText;
+      btn.innerHTML = oldHTML;
       btn.className = oldClass;
     }, COPY_FLASH_MS);
   }
