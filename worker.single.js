@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.1.0";
+const VERSION = "2.1.1";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2618,7 +2618,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
     job.then(function (got) {
       var notes = (got.pulled || []).map(function (p) { return p.ok ? "订阅已拉回" : "订阅拉取失败：" + p.error; });
       if (!splitLinkText(got.text).length) {
-        tip.textContent = notes.concat(["没识别到节点链接"]).join("；");
+        var bad = (got.pulled || []).filter(function (p) { return !p.ok; });
+        var gotAny = (got.pulled || []).some(function (p) { return p.ok; });
+        tip.textContent = bad.length ? bad.map(function (p) { return p.error; }).join("；")
+          : (gotAny ? "解析不到有效节点" : "没识别到节点链接");
         return;
       }
       var r = addLinks(got.text);
@@ -3383,7 +3386,7 @@ async function handleRequest(request, env) {
       const body = new TextDecoder().decode(buf).trim();
       const decoded = plainFromBase64(body);
       const content = decoded && decoded.indexOf("://") > -1 ? decoded : body;
-      if (content.indexOf("://") === -1) throw new Error("拉回来的内容里没有节点链接");
+      if (content.indexOf("://") === -1) throw new Error("解析不到有效节点");
       return { content, from: content === decoded && decoded ? "base64" : "plain", bytes: buf.byteLength };
     } finally {
       clearTimeout(timer);

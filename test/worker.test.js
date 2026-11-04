@@ -2603,7 +2603,7 @@ test("sub/fetch reports an upstream that returns no links", async () => {
   try {
     const res = await call(env, "POST", "/api/v1/sub/fetch", JSON.stringify({ url: "https://example.com/x" }), auth);
     assert.equal(res.status, 400);
-    assert.match((await res.json()).error, /没有节点/);
+    assert.match((await res.json()).error, /解析不到有效节点/);
   } finally {
     globalThis.fetch = realFetch;
   }
