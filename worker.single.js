@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.18";
+const VERSION = "2.4.19";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1840,7 +1840,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
         var hit = map.filter(function (x) { return x.key === key; })[0];
         if (!hit) { hit = { key: key, total: 0, inSub: 0, shown: 0, label: labelOf ? labelOf(item) : key }; map.push(hit); }
         hit.total += 1;
-        if (peHas(item.node.id)) hit.inSub += 1;
+        /* 档案里存的是身份（机器::协议类），不是节点 id。这里拿 id 去问，
+           结果永远是「没勾」——胶囊上的 ✓ / ◐ 和「在档案 / 共」的数字全是 0，
+           看着像什么都没勾。 */
+        if (peHas(identKey(item.machine, item.node))) hit.inSub += 1;
         if (shownSet[rowKey(item)]) hit.shown += 1;
       });
       return map;

@@ -1543,6 +1543,8 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   click("pe-clear-filter");
   await idle();
   check("订阅档案：清掉筛选后列表列出全部节点", peRows().length > 1, String(peRows().length));
+  const machChips = Array.from(el("pe-machine-chips").children).map((c) => c.textContent);
+  check("订阅档案：机器胶囊显示「在档案里几个」而不是恒为 0", machChips.some((t) => /1\/\d+/.test(t)), machChips.join(" | "));
   check("订阅档案：筛选不改变已勾选的身份", /已勾选 1 组/.test(el("pe-shown").textContent), el("pe-shown").textContent);
   const keep = peRows().filter((r) => r.children[0].checked)[0].children[0];
   keep.checked = false; keep.onchange.call(keep); await idle();
