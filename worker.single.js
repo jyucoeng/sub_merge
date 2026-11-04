@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.7";
+const VERSION = "2.4.8";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -535,6 +535,13 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .subnode+.subnode{margin-top:6px}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
+.short-manage{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.sm-head{display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:6px}
+.sm-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+.sm-row:last-child{border-bottom:0}
+.sm-row code{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.sm-row .sm-tag{flex:0 0 auto;color:var(--fg3)}
+@media(max-width:560px){.sm-row{flex-wrap:wrap}.sm-row code{flex:1 1 100%}}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
@@ -786,6 +793,11 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="subrow"><span class="tip">Clash / Mihomo 完整配置</span><code id="url-clash"></code><button data-copy="url-clash" type="button">复制</button><button data-shortfmt="clash" id="short-url-clash" class="shortlink" type="button">短链</button><button data-linkview="clash" id="unshort-url-clash" class="linkview" type="button" style="display:none">换长链</button></div>
 <div class="subrow"><span class="tip">Clash 节点片段</span><code id="url-proxies"></code><button data-copy="url-proxies" type="button">复制</button><button data-shortfmt="proxies" id="short-url-proxies" class="shortlink" type="button">短链</button><button data-linkview="proxies" id="unshort-url-proxies" class="linkview" type="button" style="display:none">换长链</button></div>
 <div class="subrow"><span class="tip">sing-box</span><code id="url-singbox"></code><button data-copy="url-singbox" type="button">复制</button><button data-shortfmt="singbox" id="short-url-singbox" class="shortlink" type="button">短链</button><button data-linkview="singbox" id="unshort-url-singbox" class="linkview" type="button" style="display:none">换长链</button></div>
+<div id="short-manage" class="short-manage" style="display:none">
+<div class="sm-head"><b>已生成的短链</b><span class="tip" id="sm-count"></span></div>
+<div id="sm-list" class="sm-list"></div>
+<div class="hint">收回只是让 <code>/s/xxxx</code> 失效，订阅本身和长链接都不受影响，随时能再生成一条。</div>
+</div>
 <div class="hint" style="margin-top:12px">要按协议 / 机器挑节点，就用下面的「订阅档案」（存成一条固定短链接）；只想临时筛一次，也可以自己往上面的链接后面拼 <code>?proto=hy2,vless-reality</code>（<code>vless</code> 会命中全部细分）、<code>?tunnel=fixed|temp</code>。</div>
 <div class="hint">也可以显式使用 <code>?format=clash</code>（完整配置：ACL4SSR 分组 + rule-providers）、<code>?format=proxies</code>（只有 nodes 片段，给 proxy-provider 用）、<code>?format=singbox</code>、<code>?format=base64</code>。</div>
 </section>
@@ -998,6 +1010,28 @@ vless-cdn  vless-reality  vmess-argo</pre>
       });
   }
 
+  /* 请求在路上时把按钮锁住。登录最要紧：失败会累加失败次数，
+     连点几下可能把自己锁 24 小时。fn 返回 Promise 时自动解锁。 */
+  function busy(btn, fn) {
+    if (!btn) return fn(function () {});
+    if (btn._busy) return;
+    btn._busy = 1;
+    btn.disabled = true;
+    var done = function () { btn._busy = 0; btn.disabled = false; };
+    var out;
+    try { out = fn(done); } catch (e) { done(); throw e; }
+    if (out && typeof out.then === "function") out.then(done, done);
+    else done();
+    return out;
+  }
+  /* 一次性反馈统一走这里：局部提示照旧留在操作旁边（位置就是上下文），
+     同时往页底 #status 写一份。以前四块各有各的提示位，动作一多就找不到
+     「刚才那句去哪了」。 */
+  function flashStatus(id, text, ok) {
+    var el = id && $(id);
+    if (el) { el.textContent = text; el.className = "status" + (ok === false ? " err" : ok ? " ok" : ""); }
+    if (id !== "status") setStatus(text, ok);
+  }
   function setStatus(text, ok) {
     var el = $("status"); el.textContent = text || ""; el.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
   }
@@ -1234,9 +1268,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
   }
   /* ---------- 订阅中的节点：全站清单，按机器顺序排列 ---------- */
   function subStatusText(text, ok) {
-    var box = $("sub-status"); if (!box) return;
-    box.textContent = text || "";
-    box.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+    var box = $("sub-status");
+    if (box) {
+      box.textContent = text || "";
+      box.className = "status" + (ok === true ? " ok" : ok === false ? " err" : "");
+    }
+    if (text) setStatus(text, ok);
   }
   function subRows() {
     var out = [];
@@ -1571,9 +1608,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
   }
   /* ---------------- 订阅档案 ---------------- */
   function presetStatus(text, ok) {
-    var el = (state.presetEdit && $("pe-status")) || $("preset-status"); if (!el) return;
-    el.textContent = text || "";
-    el.className = "status" + (text && ok === true ? " ok" : (text && ok === false ? " err" : ""));
+    var el = (state.presetEdit && $("pe-status")) || $("preset-status");
+    if (el) {
+      el.textContent = text || "";
+      el.className = "status" + (text && ok === true ? " ok" : (text && ok === false ? " err" : ""));
+    }
+    if (text) setStatus(text, ok);
   }
   /* 跟「订阅中的节点」同一套胶囊外观，但这里数的「在不在」指的是在不在这个档案里：
    * ✓ 这组全在档案里 / ◐ 部分在 / 无标记 = 都不在；数字 = 在档案 / 共。蓝框 = 正在按它筛 */
@@ -1946,7 +1986,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       create: st.mode === "new",
     };
     presetStatus("正在保存…", null);
-    api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    return api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (data) {
         var msg = "已保存 " + data.preset.name + "：绑定 " + st.picked.length + " 组（机器 + 协议），隧道换域名也认";
         presetStatus(msg, true);
@@ -2098,6 +2138,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         shortBtn.className = "shortlink unlink";
         shortBtn.innerHTML = UNLINK_SVG;
         shortBtn.title = "收回短链 /s/" + sl.code + "：地址立即失效，档案与长链接不受影响";
+        if (shortBtn.setAttribute) shortBtn.setAttribute("aria-label", "收回档案短链 /s/" + sl.code);
         shortBtn.onclick = function () {
           if (!confirm("收回短链 /s/" + sl.code + " ？这个地址马上失效；档案和长链接都不受影响，随时可以再生成一条。")) return;
           api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
@@ -2151,6 +2192,46 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (detailOpen) box.appendChild(buildPresetDetail(item));
     });
   }
+  /* 短链列表：以前只能一行一行去「收回短链」，生成多了根本不知道自己
+     造过哪些、哪些还在生效。这里把 state.links 摊开，只读 + 收回两件事。 */
+  function renderShortManage() {
+    var box = $("short-manage"), list = $("sm-list"), cnt = $("sm-count");
+    if (!box || !list) return;
+    if (ROLE !== "admin") { box.style.display = "none"; return; }
+    var links = (state.links || []).slice().sort(function (a, b) {
+      return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+    });
+    box.style.display = "";
+    if (cnt) cnt.textContent = links.length ? links.length + " 条，点「收回」让它失效" : "还没有短链";
+    list.textContent = "";
+    links.forEach(function (l) {
+      var row = document.createElement("div"); row.className = "sm-row";
+      var code = document.createElement("code");
+      code.textContent = location.origin + "/s/" + l.code;
+      code.title = code.textContent;
+      var tag = document.createElement("span"); tag.className = "sm-tag";
+      tag.textContent = l.preset ? "档案：" + l.preset : "格式：" + (l.format || "auto");
+      var hits = document.createElement("span"); hits.className = "sm-tag";
+      hits.textContent = (l.hits || 0) + " 次";
+      hits.title = "这条短链被请求过多少次";
+      var cp = document.createElement("button"); cp.type = "button"; cp.textContent = "复制";
+      cp.onclick = function () { copyToClipboard(code.textContent); flashButton(cp, "已复制"); };
+      var del = document.createElement("button"); del.type = "button"; del.className = "shortlink unlink";
+      del.innerHTML = UNLINK_SVG;
+      del.title = "收回这条短链";
+      del.setAttribute && del.setAttribute("aria-label", "收回短链 /s/" + l.code);
+      del.onclick = function () {
+        if (!confirm("收回短链 /s/" + l.code + " ？这个地址马上失效；订阅本身还在，长链接照旧可用。")) return;
+        busy(del, function () {
+          return api("/links/" + encodeURIComponent(l.code), { method: "DELETE" })
+            .then(function () { return loadPresets(true); })
+            .catch(function (e) { setStatus("删除短链失败：" + e.message, false); });
+        });
+      };
+      row.appendChild(code); row.appendChild(tag); row.appendChild(hits); row.appendChild(cp); row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
   function loadPresets(quiet) {
     return Promise.all([api("/presets"), api("/links").catch(function () { return null; })]).then(function (out) {
       state.presets = out[0].presets || [];
@@ -2160,6 +2241,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       renderPresets();
       renderPresetEditor();
       renderUrls();
+      renderShortManage();
       if (!quiet) presetStatus("已加载 " + state.presets.length + " 个档案、" + state.links.length + " 条短链", true);
     }).catch(function (err) { presetStatus(err.message, false); });
   }
@@ -2476,7 +2558,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     return hit;
   }
   function renderUrls() {
-    if (!SUB_TOKEN) return;
+    if (!SUB_TOKEN) { renderShortManage(); return; }
     var base = location.origin + "/sub/all/" + encodeURIComponent(SUB_TOKEN);
     var rows = { "url-base": "base64", "url-clash": "clash", "url-proxies": "proxies", "url-singbox": "singbox" };
     Object.keys(rows).forEach(function (id) {
@@ -2500,6 +2582,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
           btn.innerHTML = UNLINK_SVG;
           btn.className = "shortlink unlink";
           btn.title = "收回短链 /s/" + sl.code + "：地址立刻 404，长链接不受影响";
+          if (btn.setAttribute) btn.setAttribute("aria-label", "收回 " + fmt + " 格式的短链 /s/" + sl.code);
           btn.onclick = function () {
             if (!confirm("收回短链 /s/" + sl.code + " ？这个地址马上失效；订阅本身还在，长链接照旧可用，随时可以再生成一条。")) return;
             api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
@@ -2700,7 +2783,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   $("sub-reload").onclick = function () { loadSubNodes(); };
   $("preset-new").onclick = function () { openPresetEditor(null); };
   $("preset-search").oninput = function () { state.presetSearch = this.value || ""; renderPresets(); };
-  $("pe-save").onclick = function () { savePresetEdit(); };
+  $("pe-save").onclick = function () { busy(this, function () { return savePresetEdit(); }); };
   $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("已取消", true); };
   $("pe-search").oninput = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.search = this.value || ""; renderPresetEditor(); } };
   $("pe-all").onclick = function () {
@@ -2750,9 +2833,17 @@ vless-cdn  vless-reality  vmess-argo</pre>
     tip.className = "tip" + (kind ? " " + kind : "");
   }
   $("bulk-add").onclick = function () {
+    var self = this;
+    busy(self, function () {
     var box = $("bulk"), tip = $("bulk-status");
     var text = box.value;
     if (!String(text || "").trim()) { bulkTip(tip, "先粘贴节点链接、订阅内容或订阅链接", "err"); return; }
+    /* 前端解析 + 渲染都是同步的，贴几千行会把页面卡死几秒；
+       分批贴反而更快看清结果，所以这里先拦一道。 */
+    if (String(text).split(/\\r?\\n/).length > 2000) {
+      bulkTip(tip, "一次最多 2000 行，分两次贴吧（贴完点「保存配置」再贴下一批）", "err");
+      return;
+    }
     var job;
     if (hasSubUrl(text)) {
       bulkTip(tip, "正在拉取订阅…", "");
@@ -2760,7 +2851,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     } else {
       job = Promise.resolve({ text: text, pulled: [] });
     }
-    job.then(function (got) {
+    return job.then(function (got) {
       var pulled = got.pulled || [];
       var bad = pulled.filter(function (p) { return !p.ok; });
       if (!splitLinkText(got.text).length) {
@@ -2779,6 +2870,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         bulkTip(tip, pulled.length ? "订阅已拉回；" + msg : msg, "ok");
       }
     });
+    });
   };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);
@@ -2787,14 +2879,14 @@ vless-cdn  vless-reality  vmess-argo</pre>
       return { link: String(n.link).trim(), name: String(n.name || "").trim(), order: i };
     });
     setStatus("保存中...");
-    api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
+    return busy(this, function () { return api("/nodes/" + encodeURIComponent(state.current), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nodes: nodes }) })
       .then(function (data) {
         markClean(); endMachineEditing();
         setStatus("已保存 ① 的 " + data.nodes.length + " 个手动节点（② 不受影响）", true);
         // 手动节点变了，下面的「订阅中的节点」也要跟着变，否则看起来像没保存
         return loadMachines(true).then(function () { return loadSubNodes(true); });
       })
-      .catch(function (e) { setStatus("保存失败：" + e.message, false); });
+      .catch(function (e) { setStatus("保存失败：" + e.message, false); }); });
   };
   var MACHINE_RE_UI = /^[\\p{L}\\p{N}][\\p{L}\\p{N} _.-]{0,63}$/u;
   var MACHINE_HINT = "机器名可用中文、字母、数字、空格和 _ . -，首字符得是中文/字母/数字";
@@ -3131,13 +3223,15 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (pw) pw.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); $("login-submit").click(); } };
   })();
   $("login-submit").onclick = function () {
+    var self = this;
+    busy(self, function () {
     var password = String($("login-password").value || "").trim();
     var userEl = $("login-username");
     var username = userEl && userEl.style.display !== "none" ? String(userEl.value || "").trim() : "";
     if (!password) return loginStatus("请输入口令", false);
     if (userEl && userEl.style.display !== "none" && !username) return loginStatus("请输入用户名", false);
     loginStatus("登录中…");
-    fetch("/api/v1/auth/login", {
+    return fetch("/api/v1/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: username, password: password }),
@@ -3160,6 +3254,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         if (lock) msg = "失败次数太多，这台机器被锁了 24 小时（还剩约 " + Math.ceil(Number(lock[1]) / 3600) + " 小时）";
         loginStatus(msg, false);
       });
+    });
   };
   /* 导出不能走 api()——它一律按 JSON 解析，SQL 那份是纯文本。这里自己发一次请求。 */
   function downloadExport() {
@@ -3201,6 +3296,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   var exportSql = $("export-sql");
   if (exportSql) exportSql.onclick = function () { downloadExport(); };
   $("logout").onclick = function () {
+    if (!confirm("退出登录？下次进来要重新输入口令。")) return;
     storeToken("");
     ROLE = null;
     SUB_TOKEN = "";
