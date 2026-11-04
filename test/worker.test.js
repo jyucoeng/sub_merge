@@ -1791,6 +1791,41 @@ test("admin env report lists known variables and flags leftovers", async () => {
   assert.equal(anon.status, 401);
 });
 
+test("admin export?format=sql gives SQL that actually runs", async () => {
+  const env = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "sub-token-abc" });
+  await call(env, "POST", "/api/v1/report/hk-1", btoa("vless://11111111-1111-1111-1111-111111111111@a.example.com:443?security=reality#hk-1"), {
+    authorization: "Bearer sub-token-abc",
+    "content-type": "text/plain",
+  });
+  // 机器名有字符白名单塞不了引号，但节点名可以（link 的 # 后面）
+  await call(env, "POST", "/api/v1/report/aq-1", btoa("vless://33333333-3333-3333-3333-333333333333@c.example.com:443?security=reality#it's"), {
+    authorization: "Bearer sub-token-abc",
+    "content-type": "text/plain",
+  });
+
+  const res = await call(env, "GET", "/api/v1/admin/export?format=sql", null, { authorization: "Bearer sub-token-abc" });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") || "", /text\/plain/);
+  assert.match(res.headers.get("content-disposition") || "", /\.sql"/);
+  const sql = await res.text();
+  assert.ok(sql.includes("CREATE TABLE IF NOT EXISTS machines"), "必须带建表语句，空库也能恢复");
+  assert.ok(/INSERT OR REPLACE INTO machines \(/.test(sql), "必须是 INSERT OR REPLACE，重复执行不炸");
+  assert.ok(sql.includes("'hk-1'"));
+  assert.ok(sql.includes("it''s"), "值里的单引号要写成两个，否则整份 SQL 语法错误");
+
+  // MockD1 没有 exec，跑不了多语句回放；这里退一步做结构校验：
+  // 每行 INSERT 必须以分号结束、列数与值数一致，别把整份 SQL 写坏
+  const inserts = sql.split("\n").filter((line) => line.startsWith("INSERT OR REPLACE INTO "));
+  assert.equal(inserts.length, 2 + 0, "两台机器各一行 INSERT（settings 为空时不写）");
+  for (const line of inserts) {
+    assert.ok(line.endsWith(");"), "每条 INSERT 都要以分号收尾：" + line.slice(0, 60));
+    const cols = (line.match(/^INSERT OR REPLACE INTO \w+ \(([^)]*)\) VALUES/) || [])[1];
+    assert.ok(cols, "列名要显式列出：" + line.slice(0, 60));
+    assert.equal(cols.split(",").length, (line.match(/VALUES \((.*)\);$/)[1].match(/'(?:[^']|'')*'|-?\d+|NULL/g) || []).length,
+      "列数和值数必须一致：" + line.slice(0, 60));
+  }
+});
+
 test("admin export dumps every table and needs a token", async () => {
   const env = makeEnv({ ADMIN_PASSWORD: "pw", SUB_TOKEN: "sub-token-abc" });
   // 先制造一点数据，导出来不该是空的
