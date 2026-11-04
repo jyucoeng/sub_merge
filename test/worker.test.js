@@ -2539,3 +2539,14 @@ test("presets give short live links that can carry their own token", async () =>
   assert.equal((await call(env, "PUT", "/api/v1/presets/x", "{}", { "content-type": "application/json" })).status, 401);
   assert.equal((await call(env, "PUT", "/api/v1/presets/bad name", "{}", auth)).status, 400);
 });
+
+test("a machine with no nodes still shows up in the subscription view", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  await call(env, "PUT", "/api/v1/nodes/empty-mach", JSON.stringify({ nodes: [] }), auth);
+  const view = await (await call(env, "GET", "/api/v1/sub/nodes", null, { authorization: `Bearer ${TOKEN}` })).json();
+  assert.deepEqual(view.machines.map((m) => m.machine), ["empty-mach"], "空机器也要出现在按机器筛选里");
+  assert.equal(view.machines[0].total, 0);
+  assert.deepEqual(view.machines[0].nodes, []);
+  assert.equal(view.machines[0].enabled, 0);
+});
