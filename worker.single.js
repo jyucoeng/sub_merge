@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.4";
+const VERSION = "2.2.5";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -527,8 +527,12 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .preset>.row{margin-left:auto}
 .pdetail{margin:-2px 0 6px;padding:2px 10px 8px;border:1px solid var(--line);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:var(--soft);font-size:12.5px}
 .pdhead{padding:8px 0 6px;color:var(--sub)}
-.pditem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed var(--line)}
-.pdmeta{min-width:0}
+/* 详情块里的节点行直接复用订阅节点行的 .subnode（同字体、同徽章、同省略规则），
+   只把四列减成三列——少的就是那个勾选框。 */
+.pdhead+.subnode{margin-top:6px}
+.subnode+.subnode{margin-top:6px}
+.pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
+.pdetail .subnode:hover{border-color:var(--line)}
 .preset .pdesc .tk{display:inline-block;padding:0 6px;border-radius:999px;border:1px solid var(--line);font-size:11px;line-height:1.5;vertical-align:1px}
 .preset .pdesc .tk.shared{color:var(--sub);background:var(--chip)}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
@@ -1970,17 +1974,17 @@ vless-cdn  vless-reality  vmess-argo</pre>
     wrap.appendChild(head);
     rows.forEach(function (hit) {
       var n = hit.n;
-      var line = document.createElement("div"); line.className = "pditem";
-      var badge = document.createElement("span"); badge.className = "proto";
+      var line = document.createElement("div"); line.className = "subnode";
+      var badge = document.createElement("span"); badge.className = "ptag";
       badge.textContent = n.cls_label || n.label || n.kind || "";
       var meta = document.createElement("div"); meta.className = "nlname";
       var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name || "(未命名)";
       var src = document.createElement("span"); src.className = "srctag";
       src.textContent = n.source === "manual" ? "手动" : "上报";
       var sub = document.createElement("div"); sub.className = "nllink"; sub.textContent = n.link || "";
-      var mid = document.createElement("div"); mid.className = "pdmeta";
+      var mid = document.createElement("div"); mid.className = "nlmeta";
       meta.appendChild(nm); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
-      var cp = document.createElement("button"); cp.type = "button"; cp.textContent = "复制";
+      var cp = document.createElement("button"); cp.type = "button"; cp.className = "nlcopy"; cp.textContent = "复制";
       cp.title = "复制这条节点原串";
       cp.onclick = function () { copyToClipboard(n.link); flashButton(cp, "已复制"); };
       line.appendChild(badge); line.appendChild(mid); line.appendChild(cp);

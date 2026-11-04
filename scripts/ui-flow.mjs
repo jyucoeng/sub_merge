@@ -1464,7 +1464,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   detailBtn.onclick.call(detailBtn);
   await idle();
   const detailBox = () => el("presets").children.filter((c) => String(c.className).indexOf("pdetail") >= 0)[0];
-  const detailItems = () => (detailBox() ? detailBox().children.filter((c) => String(c.className).indexOf("pditem") >= 0) : []);
+  const detailItems = () => (detailBox() ? detailBox().children.filter((c) => String(c.className).indexOf("subnode") >= 0) : []);
   check("订阅档案：点开详情后列出匹配的节点", !!detailBox() && detailItems().length === 1, detailItems().length + " | " + (detailBox() ? detailBox().children[0].textContent : "没有详情块"));
   check("订阅档案：详情里的节点带名字和原串", detailItems().length > 0 && detailItems()[0].children[1].children[1].textContent.indexOf("://") > 0, detailItems().length ? detailItems()[0].children[1].children[1].textContent.slice(0, 28) : "");
   const closeBtn = inRow("收起");
