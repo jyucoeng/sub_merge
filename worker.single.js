@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.7";
+const VERSION = "2.2.8";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -519,7 +519,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .sub-list-narrow{max-height:320px;overflow:auto}
 .preset{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px}
 .preset .pname{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:2px}
-.preset .pname b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preset .pname b{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .preset .pdesc{font-size:12px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 描述整行放到末行，不再和链接抢宽度：链接一长，「全部协议 · base64 · 共用主 token · 规则跟随全局」
    就被压成「规则跟随…」，用户看不到后面写了什么。 */
@@ -538,7 +538,9 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .preset .pdesc .tk.own{color:var(--acc);background:var(--accbg);border-color:transparent;font-weight:500}
 /* 档案行的链接跟下面「订阅链接」块里那几行同款：浅底 + 细边 + 圆角 + 正常字色，
    让人一眼看出「这是一条可复制的地址」，而不是一段被染蓝的代码。 */
-.preset>code{order:10;flex:1 1 100%;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+/* 链接按内容宽度走（短链就一小条），只有长链顶到容器宽度才出现省略号；
+   flex-basis:auto + max-width:100% 就是「该多长多长，别硬撑满一行」。 */
+.preset>code{order:10;flex:0 1 auto;align-self:flex-start;max-width:100%;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);background:var(--code);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 .presetwrap{display:flex;flex-direction:column}
 .preset .ptoggle{display:flex;align-items:center;gap:6px;min-width:0;text-align:left;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
 .preset .ptoggle .caret{flex:none;width:11px;font-size:12px;color:var(--acc)}
