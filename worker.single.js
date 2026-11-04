@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.19";
+const VERSION = "2.4.20";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -536,7 +536,6 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode{grid-template-columns:112px minmax(0,1fr) auto;cursor:default}
 .pdetail .subnode:hover{border-color:var(--line)}
 .pdesc .pick-empty{color:var(--err);font-weight:600}
-.ptag.grp{flex:0 0 auto;background:var(--warnbg);color:var(--warnink);border-color:var(--warnline);margin-left:6px}
 /* 长列表统一规则：超过 20 条才出滚动条，高度由 limitRows() 按真实行高算，
    不再用 vh 拍脑袋——行少的块铺开就好，别平白多一条滚动条。 */
 .can-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-right:4px}
@@ -1947,14 +1946,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.onchange = function () { peToggle(ikey, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
-      var grp = null;
-      if (groupCount[ikey] > 1) {
-        grp = document.createElement("span");
-        grp.className = "ptag grp";
-        grp.textContent = "同组 " + groupCount[ikey];
-        grp.title = "这台机器上「" + (hit.node.cls || hit.node.kind) + "」共 " + groupCount[ikey]
-          + " 条，身份相同，勾这一条等于把这几条都勾上；要分开得让它们协议类不同（比如一条走 argo、一条直连）";
-      }
       var meta = document.createElement("div"); meta.className = "nlmeta";
       var nm = document.createElement("div"); nm.className = "nlname";
       var nmText = document.createElement("span"); nmText.className = "nm";
@@ -1965,7 +1956,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
       src.textContent = hit.node.source === "manual" ? "手动" : "上报";
       src.title = hit.node.source === "manual" ? "手动粘贴/编辑的节点" : "客户端上报的节点";
       nm.appendChild(nmText); nm.appendChild(src);
-      if (grp) nm.appendChild(grp);
       var raw = document.createElement("div"); raw.className = "nllink";
       raw.textContent = hit.node.link || "";
       raw.title = hit.node.link || "";
