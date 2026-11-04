@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.116";
+const VERSION = "1.66.117";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4621,7 +4621,9 @@ async function getNodeConfig(env, machine) {
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
     nodes: await nodesOf(record, allowed, disabled),
     manual_nodes: record.manual_nodes || [],
-    auto_nodes: autoNodes,
+    /* ② 的列表按订阅里的实际顺序显示：用户看到的这段，就是客户端里那段。
+       上报顺序是脚本给的，没有语义，照原样铺开反而看不出排序规则。 */
+    auto_nodes: sortNodes(autoNodes, true),
     sources: reports.map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
     protocols: allowed,

@@ -623,6 +623,28 @@ click("create-machine");
 await idle();
 check("同名：不新建而是切换并说明", text("status").includes("机器已存在，已切换到 香港-备用"), text("status"));
 
+// K0. ② 列表自己按订阅的排序规则显示，不照搬上报顺序
+{
+  const argo = "vless://99999999-9999-4999-8999-999999999999@5.5.5.5:443?security=tls&type=ws&host=x.trycloudflare.com&path=%2Fargo&sni=x.trycloudflare.com#order-argo";
+  const reality = "vless://88888888-8888-4888-8888-888888888888@6.6.6.6:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#order-reality";
+  const plain = "hysteria2://pw@7.7.7.7:443?sni=a.com#order-plain";
+  await netFetch(BASE + "/api/v1/report/" + encodeURIComponent("order-view"), {
+    method: "POST", headers: { Authorization: "Bearer " + TOKEN },
+    body: Buffer.from([plain, reality, argo].join("\n")).toString("base64"),
+  });
+  click("reload");
+  await idle();
+  findMachineRow("order-view").children[5].onclick();
+  await idle();
+  const kindOf = (v) => (String(v).includes("path=%2Fargo") ? "argo" : String(v).includes("security=reality") ? "reality" : "plain");
+  const got = autoRows().map((r) => kindOf(r.children[0].value)).join(",");
+  check("② 列表按排序规则显示（argo → reality → 普通）", got === "argo,reality,plain", got);
+  /* 这台是临时造的，后面的订阅清单用例按节点总数算胶囊，留着会把计数全带偏 */
+  await api("/machines/" + encodeURIComponent("order-view"), { method: "DELETE" });
+  click("reload");
+  await idle();
+}
+
 // K. 上报机器出现在 UI（徽章区分来源）
 {
   const body = Buffer.from(TUIC + "\n" + HY2).toString("base64");
