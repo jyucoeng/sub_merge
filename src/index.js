@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.120";
+const VERSION = "1.66.122";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -447,14 +447,16 @@ textarea:focus{border-color:var(--acc)}
 .machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
-.sort-help-btn{float:none;margin:10px 0 0;padding:5px 13px;font-size:12.5px}
+.sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto}
+@media(max-width:560px){.mrank-note .mn-text{flex:1 1 100%}.sort-help-btn{flex:1 1 100%;justify-content:center;white-space:normal}}
 .sort-rules.hidden{display:none}
 .sort-rules{margin-top:9px;padding:12px 14px;background:var(--soft);border:1px solid var(--line);border-radius:10px;font-size:12.5px;line-height:1.85;color:var(--fg2)}
 .sort-rules b{color:var(--ink)}
 .sort-rules .sr-h{margin-top:12px;font-weight:600;color:var(--ink)}
 .sort-rules .sr-h:first-child{margin-top:0}
 .sort-rules pre{margin:7px 0 0;padding:9px 11px;background:var(--code);border:1px solid var(--line);border-radius:8px;font:12px/1.8 ui-monospace,Consolas,monospace;color:var(--ink);overflow-x:auto}
-.mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px}
+.mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.mrank-note .mn-text{flex:1 1 0;min-width:0}
 .mlist-head button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--sub);cursor:pointer}
 .mlist-head button:hover{border-color:var(--acc);color:var(--acc)}
 .mlist-head button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
@@ -588,9 +590,8 @@ body.locked .wrap{display:none}
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
-<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来">没保存顺序时按机器名里的地区排（香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底）；保存过之后只按你排的来。完整权重表和地区是怎么认的，点上面「展开」看。</div>
+<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
 <div class="mlist-head" id="mlist-head"></div>
-<button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看节点是按什么规则排出来的">排序规则 展开 +</button>
 <div id="sort-rules" class="sort-rules hidden">
 <div class="sr-h">节点是怎么排出来的</div>
 <div>先排机器，再排机器里的节点。两层互不干扰。</div>
