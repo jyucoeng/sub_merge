@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.0.1";
+const VERSION = "2.0.2";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -600,6 +600,10 @@ body.locked .wrap{display:none}
 <div id="sort-rules" class="sort-rules hidden">
 <div class="sr-h">节点是怎么排出来的</div>
 <div>先排机器，再排机器里的节点。两层互不干扰。</div>
+<div class="sr-h">先说清「手动」和「上报」是什么</div>
+<div>· <b>① 手动节点</b>　你自己粘贴或编辑的，存在这台机器的「手动」层。只有点「保存配置」才写进库，之后一直有效，脚本上报<b>不会</b>覆盖它。</div>
+<div>· <b>② 上报节点</b>　上报脚本 POST 上来的快照，每次上报整体替换。界面上只读 —— 链接、名字都改不了，想改只能先转成手动。</div>
+<div>两层按链接去重，<b>手动优先</b>：同一条链接两边都有时，只用手动那条，上报那条自动让位。</div>
 <div class="sr-h">第一层 · 机器之间</div>
 <div>· <b>保存过</b>「保存机器顺序」→ 完全按你排的来，序号 1 在最前；之后才上报进来的新机器，排在最后。</div>
 <div>· <b>从没保存过</b> → 按机器名里认出的地区排，数字小的在前：</div>
@@ -632,6 +636,13 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div>· 手动节点<b>不参与</b>这套分组：你把 hysteria2 拖到 vless-reality 前面，它就一直在前面</div>
 <div>· 同一台机器里认不出地区的，机器名照样参与排序，只是落在 100 那一档</div>
 <div>· 只放了手动节点、从没上报过的机器，照样按地区 / 序号排，不会因为「没上报」被挪到后面</div>
+<div class="sr-h">把上报节点「转 ① 手动」之后会怎样</div>
+<div>1. 等于把这条<b>复制</b>一份进手动层，从此名字可以改。原上报那条不会消失、脚本照旧上报，但订阅里按链接去重只留手动这条，不会出现两遍。</div>
+<div>2. 位置跟着变：从「上报段按 Argo / CDN / Reality 分组」跳进「手动段」，整段排在最前面 —— 不再受下面那两条上报规则管。</div>
+<div>3. <b>不再跟随上报更新</b>。机器换了端口、域名、uuid 之后再上报，变的是上报段；手动这条还是转过去时的旧参数，会连不上。到时要么在 ① 里改，要么删掉重新转一次。</div>
+<div>4. 换过地址的机器，旧手动条目和新的上报条目链接已经不同，<b>会同时出现在订阅里</b>，看着像两个节点 —— 旧那条其实连不上了，记得删。</div>
+<div>5. 转完只是加进编辑区，还得点 ① 的「保存配置」才写库；不保存刷新就没了。想撤销就在 ① 里删掉那条再保存。</div>
+
 </div>
 <div id="machine-list" class="machine-list"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button><button id="reset-machine-order" type="button" disabled title="放弃这次改动，回到上次保存的顺序">撤销改动</button></div>
@@ -2009,7 +2020,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         tag.title = "这条已经复制进 ① 手动节点了，要改就去上面 ① 改（这里仍然只读）";
         row.appendChild(tag);
       } else {
-        var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转 ① 手动"; keep.title = "把这条复制进 ① 手动节点（还要点 ① 的保存）";
+        var keep = document.createElement("button"); keep.type = "button"; keep.className = "edit"; keep.textContent = "转 ① 手动"; keep.title = "复制进 ① 手动节点（还要点 ① 的保存）。转过去就不再跟随上报更新，机器换端口/域名后要自己改，或删掉重新转";
         keep.onclick = function () {
           state.nodes.push({ link: n.link, name: n.name || "" });
           markDirty(); renderManual();
