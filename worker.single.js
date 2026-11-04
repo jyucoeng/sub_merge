@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.9";
+const VERSION = "2.3.0";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -524,7 +524,9 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 /* 描述整行放到末行，不再和链接抢宽度：链接一长，「全部协议 · base64 · 共用主 token · 规则跟随全局」
    就被压成「规则跟随…」，用户看不到后面写了什么。 */
 .preset .pdesc{order:9;flex:1 1 100%;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.7}
-.preset>.row{margin-left:auto}
+/* 按钮整组靠右：留白只留在最左边那颗「详情」上，后面几颗紧跟成一组，
+   否则 row 自己再吃一次 auto，两组按钮中间会空出一块，看着像没对齐。 */
+.preset>.preset-detail{margin-left:auto}
 .pdetail{margin:-2px 0 6px;padding:2px 10px 8px;border:1px solid var(--line);border-bottom-left-radius:9px;border-bottom-right-radius:9px;background:var(--soft);font-size:12.5px}
 .pdhead{padding:8px 0 6px;color:var(--sub)}
 /* 详情块里的节点行直接复用订阅节点行的 .subnode（同字体、同徽章、同省略规则），
@@ -2110,7 +2112,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var detailOpen = state.presetOpen === item.name;
       var detail = document.createElement("button"); detail.type = "button";
       detail.textContent = detailOpen ? "收起" : "详情";
-      detail.className = detailOpen ? "editing" : "";
+      detail.className = detailOpen ? "preset-detail editing" : "preset-detail";
       detail.title = "只看不改：列出这条档案当前会包含哪些节点（按条件实时算出来的）";
       detail.onclick = function () {
         state.presetOpen = detailOpen ? "" : item.name;
