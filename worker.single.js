@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.3.0";
+const VERSION = "2.4.0";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1592,7 +1592,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
     return btn;
   }
   function presetProtoText(item) {
-    if ((item.members || []).length) return "绑定 " + item.members.length + " 条节点";
+    if ((item.members || []).length) {
+      var pickedCount = item.members.filter(isIdentKey).length;
+      return pickedCount + " 组身份（机器 + 协议）";
+    }
     if (!(item.protos || []).length) return "全部协议";
     return "条件：" + item.protos.join("、");
   }
@@ -1618,8 +1621,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
       machines: item ? (item.machines || []).slice() : [],
       sources: item ? (item.sources || []).slice() : [],
       search: "",
-      picked: item ? (item.members || []).slice() : [],
-      orig: item ? (item.members || []).slice() : [],
+      picked: item ? (item.members || []).filter(isIdentKey) : [],
+      orig: item ? (item.members || []).filter(isIdentKey) : [],
       origLabel: item ? (item.label === item.name ? "" : item.label) : "",
       origFormat: item ? (item.format || "") : "",
     };
@@ -1680,6 +1683,15 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var wrap = $("pe-name-wrap"); if (wrap) { wrap.className = "lockwrap"; wrap.title = ""; }
     if (typeof renderPresets === "function" && state.presets) renderPresets();
   }
+  /* 档案成员存的是身份，不是链接：一条节点里会变的东西（UUID、端口、trycloudflare 域名、
+     path、sni）全在链接里，而不变的是「哪台机器 + 什么协议」。所以勾一条节点 = 记下
+     「机器::协议类」，隧道换域名、端口调整之后这条身份照样能认出来。
+     老档案存的是整条链接（含 "://"），继续按链接精确匹配，不迁移不打断。 */
+  function identKey(machine, node) {
+    var cls = String((node && (node.cls || node.kind)) || "");
+    return String(machine || "") + "::" + cls;
+  }
+  function isIdentKey(key) { return String(key || "").indexOf("://") < 0; }
   function peHas(id) { return (state.presetEdit && state.presetEdit.picked.indexOf(id) >= 0); }
   function peToggle(id, on) {
     var st = state.presetEdit; if (!st) return;
@@ -1698,6 +1710,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   function peDirty() {
     var st = state.presetEdit; if (!st) return 0;
     var n = peCondSig(st) === st.origCond ? 0 : 1;
+    if ((st.picked || []).join("\u0001") !== (st.orig || []).join("\u0001")) n += 1;
     var lbl = String(($("pe-label") && $("pe-label").value) || "").trim();
     var fmt = ($("pe-format") && $("pe-format").value) || "";
     if (lbl !== (st.origLabel || "")) n += 1;
@@ -1837,7 +1850,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (st.machines.length) bits.push("机器 " + st.machines.join("、"));
       if (st.tunnel) bits.push("隧道 " + (st.tunnel === "fixed" ? "固定" : "临时"));
       if (String(st.search || "").trim()) bits.push("搜「" + String(st.search).trim() + "」");
-      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选") + "）；已勾选 " + st.picked.length + " 条";
+      shownEl.textContent = "当前显示 " + rows.length + " / " + all.length + " 个节点（" + (bits.length ? bits.join(" · ") : "没有筛选") + "）；已勾选 " + st.picked.length + " 组（机器 + 协议）";
     }
     list.innerHTML = "";
     if (!rows.length) {
@@ -1848,15 +1861,17 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }
     rows.forEach(function (hit) {
       var inMaster = hit.node.in_sub !== false;
+      var ikey = identKey(hit.machine, hit.node);
       var row = document.createElement("div"); row.className = "subnode pe-node" + (inMaster ? "" : " off");
       var box = document.createElement("input"); box.type = "checkbox";
-      /* 档案只按条件收集，节点行不用单独勾：符合条件就进，勾选框只作展示 */
-      box.checked = inMaster;
-      box.disabled = true;
+      /* 勾的是「这台机器的这个协议」，不是这条链接：以后域名变了还认得。
+         上面那几排胶囊只用来把列表缩小，勾不勾跟它们无关。 */
+      box.checked = peHas(ikey);
+      box.disabled = !inMaster;
       box.title = inMaster
-        ? "按条件收集：这一条符合当前条件就会进档案，不用单独勾"
+        ? "勾上 = 记下「" + hit.machine + " + " + (hit.node.cls || hit.node.kind) + "」这个身份，以后隧道换域名、端口改了也照样认得它"
         : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
-      box.onchange = function () { peToggle(hit.node.id, box.checked); };
+      box.onchange = function () { peToggle(ikey, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
       var meta = document.createElement("div"); meta.className = "nlmeta";
@@ -1906,6 +1921,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }
     if (!name) { presetStatus("先给它起个显示名，或者手填一个标识", false); return; }
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) { presetStatus("标识只能用字母、数字、下划线、横线（1–32 位）", false); return; }
+    if (!(st.picked || []).length) {
+      presetStatus("先在上面勾至少一条节点——档案记的是「哪台机器的哪个协议」，不跟着筛选条件走", false);
+      return;
+    }
     var isNew = st.mode === "new";
     if (isNew && (state.presets || []).some(function (p) { return p.name === name; })) {
       presetStatus("标识「" + name + "」已经被别的档案用了，换一个（留空就自动生成）", false);
@@ -1914,19 +1933,21 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var body = {
       label: String($("pe-label").value || "").trim(),
       format: $("pe-format").value || "",
-      mode: "rules",
-      members: [],
-      protos: (st.protos || []).slice(),
-      tunnel: st.tunnel || "",
-      machines: (st.machines || []).slice(),
-      sources: (st.sources || []).slice(),
+      /* 只存勾出来的身份；上面那几排胶囊是视图筛选器，不入库——胶囊可以重叠、
+         可以互斥、可以空着，这些语义放到「档案里到底有哪些节点」上都说不通。 */
+      mode: "members",
+      members: (st.picked || []).slice(),
+      protos: [],
+      tunnel: "",
+      machines: [],
+      sources: [],
       skips: [],
       create: st.mode === "new",
     };
     presetStatus("正在保存…", null);
     api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (data) {
-        var msg = "已保存 " + data.preset.name + "：当前匹配 " + peRows().length + " 条节点，以后自动跟随";
+        var msg = "已保存 " + data.preset.name + "：绑定 " + st.picked.length + " 组（机器 + 协议），隧道换域名也认";
         presetStatus(msg, true);
         /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
         st.orig = st.picked.slice();
@@ -1953,19 +1974,13 @@ vless-cdn  vless-reality  vmess-argo</pre>
      判定维度和后端 matchesFilter 一致，所以看到的就等于客户端拉下来会拿到的。 */
   function presetMatchRows(item) {
     var out = [];
-    var protos = item.protos || [], machines = item.machines || [];
-    var sources = item.sources || [], tunnel = item.tunnel || "";
+    var keys = (item.members || []).filter(isIdentKey);
+    var links = (item.members || []).filter(function (key) { return !isIdentKey(key); });
     var ms = (state.sub && state.sub.machines) || [];
     ms.forEach(function (m) {
-      if (machines.length && machines.indexOf(m.machine) < 0) return;
       (m.nodes || []).forEach(function (n) {
-        if (tunnel && n.tunnel !== tunnel) return;
-        if (sources.length && sources.indexOf(n.source || "auto") < 0) return;
-        if (protos.length) {
-          var cls = n.cls || n.kind;
-          if (protos.indexOf(cls) < 0 && protos.indexOf(n.kind) < 0) return;
-        }
-        out.push({ machine: m.machine, n: n });
+        if (keys.indexOf(identKey(m.machine, n)) >= 0) out.push({ machine: m.machine, n: n });
+        else if (!keys.length && links.indexOf(n.id) >= 0) out.push({ machine: m.machine, n: n });
       });
     });
     return out;
@@ -1975,8 +1990,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var rows = presetMatchRows(item);
     var head = document.createElement("div"); head.className = "pdhead";
     head.textContent = rows.length
-      ? "这条档案当前包含 " + rows.length + " 个节点（按条件实时算，机器增删、隧道换域名都会自动跟上）"
-      : "当前没有节点满足这些条件——去「编辑」里放宽条件，或等机器上报。";
+      ? "这条档案当前包含 " + rows.length + " 个节点（按勾的身份实时算，隧道换域名、端口改了也照样算进来）"
+      : "当前一个节点都没命中——勾的那台机器可能还没上报，或者那个协议已经不在订阅里了。";
     wrap.appendChild(head);
     rows.forEach(function (hit) {
       var n = hit.n;
@@ -2684,13 +2699,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
   $("pe-all").onclick = function () {
     if (!state.presetEdit) return;
     cancelPresetClose();
-    peRows().forEach(function (hit) { if (hit.node.in_sub !== false && !peHas(hit.node.id)) state.presetEdit.picked.push(hit.node.id); });
+    peRows().forEach(function (hit) {
+      if (hit.node.in_sub === false) return;
+      var key = identKey(hit.machine, hit.node);
+      if (!peHas(key)) state.presetEdit.picked.push(key);
+    });
     renderPresetEditor();
   };
   $("pe-only").onclick = function () {
     if (!state.presetEdit) return;
     cancelPresetClose();
-    state.presetEdit.picked = peRows().filter(function (hit) { return hit.node.in_sub !== false; }).map(function (hit) { return hit.node.id; });
+    var keys = peRows().filter(function (hit) { return hit.node.in_sub !== false; }).map(function (hit) { return identKey(hit.machine, hit.node); });
+    state.presetEdit.picked = keys.filter(function (key, i) { return keys.indexOf(key) === i; });
     renderPresetEditor();
   };
   $("pe-none").onclick = function () {
@@ -4865,9 +4885,21 @@ async function servePreset(env, name, token, request, opts) {
      一旦按节点下标 i 排序就会这样交错。改成 rk 相同时先按机器名分组，i 只做组内次要键。 */
   items.sort((a, b) => a.rk - b.rk || String(a.m).localeCompare(String(b.m)) || a.i - b.i);
   const skipSet = new Set(preset.skips);
-  const memberSet = new Set(preset.members);
-  const nodes = items.map((item) => item.node)
-    .filter((node) => (byMember ? memberSet.has(linkIdentity(node.link)) : matchesFilter(node, filter)))
+  /* 成员两种格式：新的是「机器::协议类」身份，老的是节点链接。
+     身份能扛住隧道换域名、端口/UUID 变化；协议类对不上时退回基础协议名，
+     这样一台机器从 argo 换成固定隧道，勾的那条也不会凭空消失。 */
+  const memberIdents = preset.members
+    .filter((key) => key.indexOf("://") < 0)
+    .map((key) => {
+      const at = key.indexOf("::");
+      return at > 0 ? { machine: key.slice(0, at), cls: key.slice(at + 2) } : null;
+    })
+    .filter(Boolean);
+  const memberLinks = new Set(preset.members.filter((key) => key.indexOf("://") >= 0));
+  const byIdent = (item) => memberIdents.some((ident) => ident.machine === item.m && (ident.cls === nodeClassOf(item.node) || ident.cls === nodeKind(item.node)));
+  const nodes = items
+    .filter((item) => (byMember ? memberLinks.has(linkIdentity(item.node.link)) || byIdent(item) : matchesFilter(item.node, filter)))
+    .map((item) => item.node)
     .filter((node) => !skipSet.has(linkIdentity(node.link)));
   const rendered = subCachePut(key, { ...subBody(nodes, format, rules), nodes: nodes.length });
   return cachedSubResponse(rendered, {

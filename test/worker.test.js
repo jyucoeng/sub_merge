@@ -2647,3 +2647,31 @@ test("saving a preset with mode=rules does not fall back to members", async () =
   assert.equal(body.preset.mode, "rules", "显式 rules 不能被 members 覆盖");
   assert.deepEqual(body.preset.protos, ["hy2"]);
 });
+
+test("an identity preset keeps following a temp tunnel after its domain changes", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = (host) => `vless://11111111-1111-4111-8111-111111111111@1.2.3.8:8443?encryption=none&security=tls&type=ws&host=${host}&path=%2F11111111-vl&sni=${host}#东-vless-argo`;
+  const names = async (path) => {
+    const res = await call(env, "GET", path, null, {});
+    assert.equal(res.status, 200);
+    return unb64(await res.text()).split("\n").filter(Boolean)
+      .map((line) => decodeURIComponent((line.split("#")[1] || "").trim()));
+  };
+
+  await call(env, "PUT", "/api/v1/nodes/vps-a", JSON.stringify({ nodes: [{ link: link("old-words-1111.trycloudflare.com") }] }), auth);
+  /* 档案存的是「机器::协议类」这个身份，不是那条链接 */
+  await call(env, "PUT", "/api/v1/presets/ident", JSON.stringify({ mode: "members", members: ["vps-a::vless-argo"] }), auth);
+  await call(env, "PUT", "/api/v1/presets/loose", JSON.stringify({ mode: "members", members: ["vps-a::vless"] }), auth);
+  assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), ["东-vless-argo"]);
+  assert.deepEqual(await names(`/sub/p/loose/${TOKEN}`), ["东-vless-argo"]);
+
+  // 隧道重启换了域名，链接整条变了，身份没变
+  await call(env, "PUT", "/api/v1/nodes/vps-a", JSON.stringify({ nodes: [{ link: link("new-words-2222.trycloudflare.com") }] }), auth);
+  assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), ["东-vless-argo"], "存身份的档案应该自动跟上新域名");
+  assert.deepEqual(await names(`/sub/p/loose/${TOKEN}`), ["东-vless-argo"], "只存协议名的身份也该认得出");
+
+  // 机器没了，身份自然命中不到，订阅里就不该再出现这条
+  await call(env, "DELETE", "/api/v1/machines/vps-a", null, auth);
+  assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), [], "机器删了就不该再有节点");
+});
