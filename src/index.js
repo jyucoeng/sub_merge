@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.124";
+const VERSION = "1.66.125";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -560,8 +560,11 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .hint{color:var(--sub);font-size:12px;line-height:1.7}.empty{color:var(--sub);padding:20px 0;text-align:center}.mcount.stale{color:var(--warnink)}.del-icon{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:transparent;transition:background .15s,border-color .15s}
 .del-icon:hover{background:var(--errbg);border-color:var(--errline)}
 .del-icon svg{display:block}
-.shortlink.danger{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border-color:var(--errline);color:var(--err)}
-.shortlink.danger:hover{background:var(--errbg);border-color:var(--errline);color:var(--err)}
+button.shortlink.unlink{width:38px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;background:transparent;border-color:var(--warnline);color:var(--warnink)}
+button.shortlink.unlink:hover{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}
+/* 深色主题那条 [data-theme="dark"] button.shortlink 权重更高，得显式压回去 */
+[data-theme="dark"] button.shortlink.unlink{background:transparent;border-color:var(--warnline);color:var(--warnink)}
+[data-theme="dark"] button.shortlink.unlink:hover{background:var(--warnbg);border-color:var(--warnline);color:var(--warnink)}
 .del-machine{width:44px;height:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--err);background:transparent;border:1px solid var(--line);transition:background .15s,border-color .15s}
 .del-machine:hover{background:var(--errbg);border-color:var(--errline)}
 .del-machine svg{display:block}.mlist-empty{padding:22px 16px;text-align:left;line-height:1.8}.mlist-empty .me-title{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:2px}.mlist-empty .me-desc{font-size:12.5px;color:var(--sub)}.mlist-empty .me-cmd{display:block;margin:9px 0 7px;padding:10px 12px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--fg2)}
@@ -1056,6 +1059,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
   /* 全站删除按钮统一一个图标：汉字「删除」在窄列里太重，而且会和
      旁边同样字重的普通按钮抢注意力。含义靠 title / aria-label 兜住。 */
   var TRASH_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.6 7V5.3A1.3 1.3 0 0 1 10.9 4h2.2a1.3 1.3 0 0 1 1.3 1.3V7"/><path d="M6.5 7l.86 12a1.5 1.5 0 0 0 1.5 1.4h6.28a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/><path d="M10.3 11v5.3M13.7 11v5.3"/></svg>';
+  /* 短链「收回」不是删数据，用断链图标 + 警告色，跟旁边真正删档案的垃圾桶分开 */
+  var UNLINK_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.84 12.25l1.72-1.71a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71"/><path d="M5.17 11.75l-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71"/><path d="M8 2v3"/><path d="M2 8h3"/><path d="M16 19v3"/><path d="M19 16h3"/></svg>';
   function trashButton(title, aria) {
     var b = document.createElement("button");
     b.type = "button";
@@ -1896,11 +1901,11 @@ vless-cdn  vless-reality  vmess-argo</pre>
       /* 和上面的主订阅链接保持一致：没有短链是「短链」（生成），有了就是「删短链」。
          /s/xxxx 是免 token 公开可访问的，以前这里只有「换长链」，想收回只能进 D1。 */
       if (sl) {
-        shortBtn.className = "shortlink danger";
-        shortBtn.innerHTML = TRASH_SVG;
-        shortBtn.title = "删除 /s/" + sl.code + "：档案本身还在，长链接照旧可用";
+        shortBtn.className = "shortlink unlink";
+        shortBtn.innerHTML = UNLINK_SVG;
+        shortBtn.title = "收回短链 /s/" + sl.code + "：地址立即失效，档案与长链接不受影响";
         shortBtn.onclick = function () {
-          if (!confirm("删除短链 /s/" + sl.code + " ？它对外已经能直接访问，删掉之后这个地址立即失效；档案和长链接都不受影响。")) return;
+          if (!confirm("收回短链 /s/" + sl.code + " ？这个地址马上失效；档案和长链接都不受影响，随时可以再生成一条。")) return;
           api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
             .then(function () { setLinkView("p:" + item.name, "long"); loadPresets(true); })
             .catch(function (err) { presetStatus(err.message, false); });
@@ -2279,11 +2284,11 @@ vless-cdn  vless-reality  vmess-argo</pre>
            生成和删除都落在同一个位置，不会多出一排按钮。 */
         btn.style.display = "";
         if (sl) {
-          btn.innerHTML = TRASH_SVG;
-          btn.className = "shortlink danger";
-          btn.title = "删除这条短链：/s/" + sl.code + " 会立刻 404，长链接不受影响";
+          btn.innerHTML = UNLINK_SVG;
+          btn.className = "shortlink unlink";
+          btn.title = "收回短链 /s/" + sl.code + "：地址立刻 404，长链接不受影响";
           btn.onclick = function () {
-            if (!confirm("删除短链 /s/" + sl.code + " ？它对外已经能直接访问，删掉之后这个地址立即失效；订阅本身还在，长链接照旧可用。")) return;
+            if (!confirm("收回短链 /s/" + sl.code + " ？这个地址马上失效；订阅本身还在，长链接照旧可用，随时可以再生成一条。")) return;
             api("/links/" + encodeURIComponent(sl.code), { method: "DELETE" })
               .then(function () { setLinkView("all:" + fmt, "long"); return loadPresets(true); })
               .catch(function (e) { setStatus("删除短链失败：" + e.message, false); });

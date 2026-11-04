@@ -848,7 +848,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅链接：复制反馈有单独样式", String(el("short-url-base").className).indexOf("copied") >= 0, el("short-url-base").className);
   check("订阅链接：别处状态栏没被动过", text("status").indexOf("短链") < 0, text("status"));
   await new Promise((r) => setTimeout(r, 3100));
-  check("订阅链接：有短链后按钮变成删除态（红底图标）", String(el("short-url-base").className).includes("danger") && el("short-url-base").style.display !== "none", `${el("short-url-base").className}|${el("short-url-base").style.display}`);
+  check("订阅链接：有短链后按钮变成收回态（断链图标）", String(el("short-url-base").className).includes("unlink") && el("short-url-base").style.display !== "none", `${el("short-url-base").className}|${el("short-url-base").style.display}`);
   check("订阅链接：3 秒后样式复原", String(el("short-url-base").className).indexOf("copied") < 0, el("short-url-base").className);
 
   // 长短链接切换：不删短链，只是换个显示
@@ -871,11 +871,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
 
   // 回归：短链接口（GET /api/v1/links）失败时，不能把 state.links 覆盖成空，
   // 否则每一行都会误以为「还没生成过短链」而重新亮出「短链」按钮。
-  check("订阅链接：此时 base64 行有短链，按钮变成删除态", String(el("short-url-base").className).includes("danger"), String(el("short-url-base").className));
+  check("订阅链接：此时 base64 行有短链，按钮变成收回态", String(el("short-url-base").className).includes("unlink"), String(el("short-url-base").className));
   failRules = [{ path: "/api/v1/links", method: "GET", status: 500 }];
   shortBaseBtn.onclick.call(shortBaseBtn);
   await idle();
-  check("订阅链接：短链列表拉取失败时，仍按已有短链显示删除态", String(el("short-url-base").className).includes("danger"), String(el("short-url-base").className));
+  check("订阅链接：短链列表拉取失败时，仍按已有短链显示收回态", String(el("short-url-base").className).includes("unlink"), String(el("short-url-base").className));
   failRules = [];
   clipboard.length = 0;
   const btn = { textContent: "复制", getAttribute: (k) => (k === "data-copy" ? "url-base" : null) };
@@ -1537,7 +1537,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   slBtn("换短链").onclick.call(slBtn("换短链"));
   await idle();
   check("订阅档案：换回短链", slRow().children[1].textContent === shortShown, slRow().children[1].textContent);
-  const delShortBtn = Array.from(slRow().children[3].children).filter((b) => String(b.className).includes("shortlink") && String(b.className).includes("danger"))[0];
+  const delShortBtn = Array.from(slRow().children[3].children).filter((b) => String(b.className).includes("shortlink") && String(b.className).includes("unlink"))[0];
   check("订阅档案：有短链后按钮变成删除态（红底图标）", !!delShortBtn, Array.from(slRow().children[3].children).map((b) => b.className).join(","));
   check("订阅档案：列表按创建时间倒序", presets().length < 2 || presets()[0].children[1].textContent !== "" , "行数 " + presets().length);
 
