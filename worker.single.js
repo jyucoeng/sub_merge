@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.0.0";
+const VERSION = "2.0.1";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -614,7 +614,9 @@ body.locked .wrap{display:none}
 美国 60   德国 70   欧洲其他 80  美洲其他 90  认不出 100</pre>
 <div>· 点表头「机器名 / 地区 / 节点数」只是临时换个看法，点完就变成「未保存」，要么「保存机器顺序」，要么「撤销改动」。</div>
 <div>· 地区是从<b>机器名</b>里认出来的，按命中强度取最高分：中文地名（香港/东京/圣何塞）&gt; 城市三字码（SJC/NRT/ICN）&gt; 机场三字码（PHX/FRA）和两字码在中间 &gt; 两字码在开头。</div>
+<div>· <b>跟手动 / 上报无关</b>：一台机器排第几，只看上面的序号和地区。它自己有没有手动节点、上报进来几条，都不影响它的位置 —— 手动和上报只决定机器<b>内部</b>节点的先后（见第二层）。</div>
 <div class="sr-h">第二层 · 机器里的节点</div>
+<div>同一台机器里也分两层：<b>① 手动段整段在前，② 上报段在后</b>，两段各自排各自的，永远不会混在一起。</div>
 <div><b>① 手动节点</b>　完全按你在「① 手动节点」里排的顺序 —— 粘贴的先后，加上 <b>↑↓</b> 拖动。这一层永远在最前面，任何规则都不会动它。</div>
 <div><b>② 上报节点</b>　脚本给的，顺序由下面两条规则决定。</div>
 <div class="sr-h">上报段的规则</div>
@@ -636,6 +638,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div>· 一个节点只会落进一个组，不会重复出现</div>
 <div>· 手动节点<b>不参与</b>这套分组：你把 hysteria2 拖到 vless-reality 前面，它就一直在前面</div>
 <div>· 同一台机器里认不出地区的，机器名照样参与排序，只是落在 100 那一档</div>
+<div>· 只放了手动节点、从没上报过的机器，照样按地区 / 序号排，不会因为「没上报」被挪到后面</div>
 </div>
 <div id="machine-list" class="machine-list"></div>
 <div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button><button id="reset-machine-order" type="button" disabled title="放弃这次改动，回到上次保存的顺序">撤销改动</button></div>
