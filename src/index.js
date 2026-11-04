@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.3";
+const VERSION = "2.4.4";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1588,7 +1588,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
      不再回显协议条件（老档案也照这个口径，编辑保存一次就转成勾选）。 */
   function presetProtoText(item) {
     var pickedCount = (item.members || []).filter(isIdentKey).length;
-    if (pickedCount) return "已勾选 " + pickedCount + " 组（机器 + 协议）";
+    if (pickedCount) return "已勾选 " + pickedCount + " 个节点";
     return "还没勾选节点";
   }
   /* 编辑面板：列出主订阅的全部节点，档案里已有的提前勾上 */
@@ -2032,7 +2032,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
       title.title = title.textContent;   /* 名字被截断时，悬停能看全 */
       var desc = document.createElement("span"); desc.className = "pdesc";
-      desc.appendChild(document.createTextNode(presetProtoText(item) + (item.format ? " · " + item.format : " · 格式自动") + " · "));
+      desc.appendChild(document.createTextNode(presetProtoText(item) + " · "));
       var tk = document.createElement("span");
       tk.className = "tk " + (item.token ? "own" : "shared");
       tk.textContent = item.token ? "独立 token" : "共用主 token";

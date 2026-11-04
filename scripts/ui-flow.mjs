@@ -1482,7 +1482,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const url = presets()[0].children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
   check("订阅档案：链接被截断时悬停能看到全串", presets()[0].children[1].title === url, String(presets()[0].children[1].title));
-  check("订阅档案：描述写的是勾了几组", /^已勾选 \d+ 组/.test(presets()[0].children[2].textContent), presets()[0].children[2].textContent);
+  check("订阅档案：描述写的是勾了几个节点", /^已勾选 \d+ 个节点/.test(presets()[0].children[2].textContent), presets()[0].children[2].textContent);
 
   const pubNames = async (u) => {
     const res = await netFetch(u.replace(/^https?:\/\/[^/]+/, BASE));
