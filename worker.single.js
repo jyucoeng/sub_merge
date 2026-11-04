@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "1.66.125";
+const VERSION = "1.66.126";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1933,7 +1933,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
             .catch(function (err) { presetStatus(err.message, false); });
         };
       }
-      right.appendChild(edit); right.appendChild(rotate); right.appendChild(shortBtn);
+      /* 顺序：文字按钮 → 删除（红）→ 短链（绿/断链）。
+         两个纯图标按钮都靠右收尾，读起来是一组，不会夹在文字按钮中间分不清哪个是哪个。 */
+      right.appendChild(edit); right.appendChild(rotate);
       if (sl) {
         var sw = document.createElement("button"); sw.type = "button"; sw.className = "linkview";
         sw.textContent = view === "short" ? "换长链" : "换短链";
@@ -1941,7 +1943,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         sw.onclick = function () { setLinkView("p:" + item.name, view === "short" ? "long" : "short"); renderPresets(); };
         right.appendChild(sw);
       }
-      right.appendChild(del);
+      right.appendChild(del); right.appendChild(shortBtn);
       row.appendChild(name); row.appendChild(link); row.appendChild(copy); row.appendChild(right);
       box.appendChild(row);
     });
