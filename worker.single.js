@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.0.2";
+const VERSION = "2.0.3";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -664,7 +664,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only" style="margin-top:10px"><label>新建机器</label><input id="new-machine" spellcheck="false" placeholder="机器名（可中文，留空自动命名）" style="min-width:260px"><button id="create-machine" type="button">创建并编辑</button><span class="tip">机器只是分组名：把分属不同机器的节点分别放进去，或者全丢进一台也行</span></div>
 <div class="nsec">
 <div class="nsec-head"><span class="nstep">①</span><b>手动节点</b><span class="tag auto" id="manual-count">0 个</span><span class="tag warn" id="dirty-badge" style="display:none">有未保存的修改</span><span class="tip" id="manual-when" title="① 手动层最后一次点「保存配置」的时间">保存于：—</span><span class="tip">你手写或粘贴的，点「保存配置」才写进库；合并订阅时排在这台机器最前面，自动上报永远不会覆盖它</span></div>
-<div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条，也可以整段订阅直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
+<div class="bulk admin-only"><textarea id="bulk" spellcheck="false" placeholder="批量粘贴节点链接：一行一条；也可以整段订阅、或整段 base64 串直接贴进来&#10;vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...&#10;显示名称会自动取链接 # 后面那段，留空则保存时按协议+服务器生成"></textarea>
 <div class="row" style="margin-top:8px"><button id="bulk-add" class="primary" type="button">解析并添加</button><button id="add" type="button">+ 空节点</button><span class="tip" id="bulk-status"></span></div></div>
 <div id="nodes" class="nodes"></div>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
@@ -1045,14 +1045,40 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var m = s.match(/^([a-z0-9+.-]+):\\/\\/(?:[^@\\/]*@)?([^\\/?#:]+)/i);
     return m ? (m[1].toUpperCase() + "-" + m[2]) : "";
   }
-  function splitLinkText(text) {
+  /* 订阅链接经常是整段 base64（一行里塞十几条协议），按行拆只会得到一堆
+     看不懂的字符。所以「拆不出链接」时再补一次：去空白 → 还原 URL-safe 的
+     -_ → 补齐 padding → 按 UTF-8 解码。解出来不含 :// 就当它不是 base64。 */
+  function base64ToText(raw) {
+    var t = String(raw || "").replace(/\\s+/g, "");
+    if (t.length < 16) return "";
+    t = t.replace(/-/g, "+").replace(/_/g, "/");
+    var pad = t.length % 4;
+    if (pad === 1) return "";
+    if (pad) t += new Array(5 - pad).join("=");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(t)) return "";
+    var bin;
+    try { bin = atob(t); } catch (e) { return ""; }
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 255;
+    var text;
+    try { text = new TextDecoder("utf-8").decode(bytes); } catch (e2) { text = bin; }
+    return text.indexOf("://") > -1 ? text : "";
+  }
+  function splitLinksOnce(text) {
     return String(text || "")
       .split(/\\r?\\n|\\s+(?=[a-z0-9+.-]+:\\/\\/)/i)
       .map(function (x) { return x.trim(); })
       .filter(function (x) { return x.indexOf("://") > 0; });
   }
+  function splitLinkText(text) {
+    var list = splitLinksOnce(text);
+    if (list.length) return list;
+    var decoded = base64ToText(text);
+    return decoded ? splitLinksOnce(decoded) : [];
+  }
   function addLinks(text) {
     var list = splitLinkText(text);
+    var fromBase64 = !splitLinksOnce(text).length && list.length > 0;
     var have = {};
     state.nodes.forEach(function (n) { if (n.link) have[n.link] = 1; });
     var added = 0, dup = 0;
@@ -1063,7 +1089,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       added++;
     });
     if (added) render();
-    return { added: added, dup: dup };
+    return { added: added, dup: dup, b64: fromBase64 };
   }
   function moveItem(list, from, to) {
     if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return false;
@@ -2554,7 +2580,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var r = addLinks(text);
     box.value = "";
     if (r.added) markDirty();
-    tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
+    tip.textContent = (r.b64 ? "从 base64 里解出 " + (r.added + r.dup) + " 条，" : "") + "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : "") + "，记得点 ① 的「保存配置」";
   };
   $("save").onclick = function () {
     if (!state.current) return setStatus("没有可保存的机器", false);

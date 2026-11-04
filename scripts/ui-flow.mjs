@@ -421,6 +421,34 @@ click("add");
   check("行内粘贴：提示已添加", text("bulk-status").includes("已添加 2 个节点"), text("bulk-status"));
 }
 
+// F1b. 整段 base64 订阅直接贴
+{
+  const raw = `${HY2.split("#")[0]}#b64-a\n${TUIC.split("#")[0]}#b64-b`;
+  el("bulk").value = Buffer.from(raw, "utf8").toString("base64");
+  click("bulk-add");
+  await idle();
+  check("整段 base64：解出两条", text("bulk-status").includes("从 base64 里解出 2 条"), text("bulk-status"));
+  check("整段 base64：已添加", text("bulk-status").includes("已添加 2 个节点"), text("bulk-status"));
+}
+
+// F1c. URL-safe、无 padding 的 base64 也认
+{
+  const raw = `${HY2.split("#")[0]}#urlsafe\n${TUIC.split("#")[0]}#urlsafe2`;
+  const b64 = Buffer.from(raw, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  el("bulk").value = b64;
+  click("bulk-add");
+  await idle();
+  check("URL-safe base64：同样解出两条", text("bulk-status").includes("已添加 2 个节点"), text("bulk-status"));
+}
+
+// F1d. 普通文本不会被误当 base64
+{
+  el("bulk").value = "这不是订阅，也不是链接";
+  click("bulk-add");
+  await idle();
+  check("非链接文本：提示没识别到", text("bulk-status").includes("没识别到节点链接"), text("bulk-status"));
+}
+
 // F2. 节点序号直接调整
 {
   const rows = nodeRows();
