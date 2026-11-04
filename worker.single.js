@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.2.2";
+const VERSION = "2.2.3";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -396,7 +396,7 @@ const UI_HTML = `<!doctype html>
 .top>.row{flex:0 0 auto;flex-wrap:nowrap}
 h1{font-size:25px;margin:0}.ver{color:var(--acc);font:12px ui-monospace,Consolas,monospace;border:1px solid var(--line);padding:3px 8px;border-radius:8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:18px;box-shadow:0 1px 4px var(--shadow)}.card.card-flash{animation:cardFlash 4s ease-in-out 1}@keyframes cardFlash{0%,100%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}10%,42%{border-color:var(--acc);box-shadow:0 0 0 3px rgba(37,99,235,.45),0 0 30px 6px rgba(37,99,235,.38)}26%,58%{border-color:var(--line);box-shadow:0 1px 4px var(--shadow)}74%{border-color:var(--acc);box-shadow:0 0 0 2px rgba(37,99,235,.30),0 0 18px 2px rgba(37,99,235,.22)}}
-.card h2{font-size:17px;margin:0 0 12px}.tip{font-size:12px;color:var(--sub);font-weight:400}
+.card h2{font-size:17px;margin:0 0 12px}.tip{font-size:12px;color:var(--sub);font-weight:400}.tip.warn{color:var(--warnink)}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.row label{color:var(--sub);font-size:13px}
 select,input,button{font:14px inherit}select,input{background:var(--input);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none}
 select:focus,input:focus{border-color:var(--acc)}button{cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:var(--chip);color:var(--ink)}
@@ -723,7 +723,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
     <select id="pe-format" title="这个档案以后固定输出什么格式。留「格式自动」= 按客户端的 User-Agent 猜，跟普通订阅链接一样"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
     <span id="pe-clash" class="tag auto" title="这个档案的 clash 输出用的分流规则来源。inherit = 跟随「分流规则」卡片里那一份全局规则，改一次全部档案一起变">分流规则：跟随全局</span>
   </div>
-  <div class="row" style="margin-top:10px"><label>收集方式</label><span id="pe-collect-chips" class="protocols"></span><span class="tip" id="pe-collect-hint"></span></div>
   <div class="row" style="margin-top:8px">
     <input id="pe-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px" title="在下面这个列表里按节点名、协议、机器名搜；只是筛列表，不影响已勾选的内容">
     <button id="pe-all" type="button">全选</button>
@@ -1590,9 +1589,11 @@ vless-cdn  vless-reality  vmess-argo</pre>
       name: item ? item.name : "",
       label: item ? (item.label === item.name ? "" : item.label) : "",
       format: item ? (item.format || "") : "",
-      /* collect：rules = 按条件收集（机器/协议/接入方式/来源），members = 按清单（点名节点链接）。
-         老档案 mode 是 members 就按清单打开，其余（含空）都当条件；新建默认条件——用户要的就是这个。 */
-      collect: item && item.mode === "members" ? "members" : "rules",
+      /* 档案只按条件收集（机器/协议/接入方式/来源），不再提供「按清单点名节点」的模式：
+         临时隧道一换域名链接就变，清单永远追不上。老档案如果是 mode=members，
+         条件通常是空的，直接保存会变成「全部节点都进来」，所以这里记一笔 legacy 用来提示。 */
+      collect: "rules",
+      legacy: !!(item && item.mode === "members"),
       protos: item ? (item.protos || []).slice() : [],
       tunnel: item ? (item.tunnel || "") : "",
       machines: item ? (item.machines || []).slice() : [],
@@ -1603,6 +1604,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
       origLabel: item ? (item.label === item.name ? "" : item.label) : "",
       origFormat: item ? (item.format || "") : "",
     };
+    /* 一进来就把当前条件记成基准，否则新建/未保存过的档案会把「每次算出来的签名」当成基准，永远算不出「改过了」 */
+    state.presetEdit.origCond = peCondSig(state.presetEdit);
     if (typeof renderPresets === "function" && state.presets) renderPresets();
     var box = $("preset-editor"); if (box) box.className = item ? "peditor" : "peditor pe-new";
     if ($("pe-title")) $("pe-title").textContent = item ? "编辑档案：" + item.name : "新建档案（跟已有档案无关）";
@@ -1670,25 +1673,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
   /* 条件签名的字符串形式，用来判断「条件改没改」 */
   function peCondSig(st) {
     var j = function (a) { return (a || []).slice().sort().join("\u0001"); };
-    return [st.collect || "rules", j(st.protos), j(st.machines), j(st.sources), st.tunnel || ""].join("\u0002");
+    return [j(st.protos), j(st.machines), j(st.sources), st.tunnel || ""].join("\u0002");
   }
+  /* 档案只有条件一种收集方式，所以「改没改」比的是条件签名 + 名称 + 格式 */
   function peDirty() {
     var st = state.presetEdit; if (!st) return 0;
-    if ((st.collect || "rules") === "rules") {
-      var n2 = peCondSig(st) === (st.origCond === undefined ? peCondSig(st) : st.origCond) ? 0 : 1;
-      var lbl2 = String(($("pe-label") && $("pe-label").value) || "").trim();
-      var fmt2 = ($("pe-format") && $("pe-format").value) || "";
-      if (lbl2 !== (st.origLabel || "")) n2 += 1;
-      if (fmt2 !== (st.origFormat || "")) n2 += 1;
-      return n2;
-    }
-    var before = {};
-    (st.orig || []).forEach(function (id) { before[id] = 1; });
-    var after = {};
-    st.picked.forEach(function (id) { after[id] = 1; });
-    var n = 0;
-    Object.keys(after).forEach(function (id) { if (!before[id]) n += 1; });
-    Object.keys(before).forEach(function (id) { if (!after[id]) n += 1; });
+    var n = peCondSig(st) === st.origCond ? 0 : 1;
     var lbl = String(($("pe-label") && $("pe-label").value) || "").trim();
     var fmt = ($("pe-format") && $("pe-format").value) || "";
     if (lbl !== (st.origLabel || "")) n += 1;
@@ -1755,28 +1745,15 @@ vless-cdn  vless-reality  vmess-argo</pre>
       });
       return map;
     }
-    var collect = st.collect || "rules";
-    var cbox = $("pe-collect-chips");
-    if (cbox) {
-      cbox.innerHTML = "";
-      [["rules", "按条件 · 自动跟随"], ["members", "按清单 · 手动勾选"]].forEach(function (opt) {
-        var on = collect === opt[0];
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "proto" + (on ? " picked" : "");
-        b.textContent = opt[1];
-        b.title = opt[0] === "rules"
-          ? "把机器 / 协议 / 接入方式 / 来源写进档案当条件：以后新上报的节点、临时隧道换了域名，都会自动进这条订阅，不用回来重新勾"
-          : "只认你勾的这几条节点链接：隧道换域名、节点换参数后链接变了就匹配不上，那条会从订阅里消失，得回来重新勾";
-        b.onclick = function () { st.collect = opt[0]; renderPresetEditor(); };
-        cbox.appendChild(b);
-      });
-    }
     var chint = $("pe-collect-hint");
     if (chint) {
-      chint.textContent = collect === "rules"
-        ? "下面勾的胶囊就是条件本身，符合条件的 " + visible.length + " 条会全部进这个档案"
-        : "下面是可勾的清单，只有勾上的才进这个档案";
+      if (st.legacy) {
+        chint.className = "tip warn";
+        chint.textContent = "这个档案原来是按清单点的名，清单不能直接变成条件——先在上面勾好机器 / 协议 / 接入方式，再保存，否则会变成全部 " + visible.length + " 个节点都进来";
+      } else {
+        chint.className = "tip";
+        chint.textContent = "下面勾的胶囊就是条件本身，符合条件的 " + visible.length + " 条会全部进这个档案；以后新上报的、隧道换域名后的节点都会自动跟上";
+      }
     }
     var protoBox = $("pe-proto-chips");
     if (protoBox) {
@@ -1854,12 +1831,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var inMaster = hit.node.in_sub !== false;
       var row = document.createElement("div"); row.className = "subnode pe-node" + (inMaster ? "" : " off");
       var box = document.createElement("input"); box.type = "checkbox";
-      var byCond = (st.collect || "rules") === "rules";
-      box.checked = inMaster && (byCond ? true : peHas(hit.node.id));
-      box.disabled = !inMaster || byCond;
-      box.title = byCond
+      /* 档案只按条件收集，节点行不用单独勾：符合条件就进，勾选框只作展示 */
+      box.checked = inMaster;
+      box.disabled = true;
+      box.title = inMaster
         ? "按条件收集：这一条符合当前条件就会进档案，不用单独勾"
-        : inMaster ? "勾上 = 这条进档案" : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
+        : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
       box.onchange = function () { peToggle(hit.node.id, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
@@ -1915,25 +1892,22 @@ vless-cdn  vless-reality  vmess-argo</pre>
       presetStatus("标识「" + name + "」已经被别的档案用了，换一个（留空就自动生成）", false);
       return;
     }
-    var collect = st.collect || "rules";
     var body = {
       label: String($("pe-label").value || "").trim(),
       format: $("pe-format").value || "",
-      mode: collect,
-      members: collect === "members" ? st.picked.slice() : [],
-      protos: collect === "rules" ? (st.protos || []).slice() : [],
-      tunnel: collect === "rules" ? (st.tunnel || "") : "",
-      machines: collect === "rules" ? (st.machines || []).slice() : [],
-      sources: collect === "rules" ? (st.sources || []).slice() : [],
+      mode: "rules",
+      members: [],
+      protos: (st.protos || []).slice(),
+      tunnel: st.tunnel || "",
+      machines: (st.machines || []).slice(),
+      sources: (st.sources || []).slice(),
       skips: [],
       create: st.mode === "new",
     };
     presetStatus("正在保存…", null);
     api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (data) {
-        var msg = collect === "members"
-          ? "已保存 " + data.preset.name + "：绑定 " + (data.preset.members || []).length + " 条节点"
-          : "已保存 " + data.preset.name + "：按条件收集，当前匹配 " + peRows().length + " 条节点，以后自动跟随";
+        var msg = "已保存 " + data.preset.name + "：当前匹配 " + peRows().length + " 条节点，以后自动跟随";
         presetStatus(msg, true);
         /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
         st.orig = st.picked.slice();

@@ -1430,24 +1430,16 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：面板写明分流规则来源", html.includes('id="pe-clash"') && html.includes("分流规则：跟随全局"), "pe-clash 标签");
   check("订阅档案：面板列出主订阅的全部节点", peRows().length >= 2, String(peRows().length));
   check("订阅档案：条件胶囊就在面板里", el("pe-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2") > -1), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
-  const cChips = el("pe-collect-chips").children.map((c) => c.textContent);
-  check("订阅档案：收集方式默认是按条件", cChips.length === 2 && cChips[0].indexOf("按条件") === 0 && String(el("pe-collect-chips").children[0].className).indexOf("picked") !== -1, cChips.join(" | "));
-  check("订阅档案：按条件时提示说明胶囊就是条件", /胶囊就是条件/.test(el("pe-collect-hint").textContent), el("pe-collect-hint").textContent);
-  check("订阅档案：按条件时节点行不用单独勾", peRows().every((r) => r.children[0].disabled === true), String(peRows().map((r) => r.children[0].disabled).join(",")));
+  check("订阅档案：没有「按清单/按条件」的切换了", !html.includes("pe-collect-chips"), "收集方式胶囊还在");
+  check("订阅档案：提示说明胶囊就是条件", /胶囊就是条件/.test(el("pe-collect-hint").textContent), el("pe-collect-hint").textContent);
+  check("订阅档案：节点行不用单独勾", peRows().every((r) => r.children[0].disabled === true), String(peRows().map((r) => r.children[0].disabled).join(",")));
   check("订阅档案：胶囊带 ✓/◐ 和「在订阅/共」计数", el("pe-proto-chips").children.every((c) => /^(✓ |◐ )?.+ · \d+\/\d+$/.test(c.textContent)), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
 
   el("pe-name").value = "hy2";
   el("pe-label").value = "只要 Hy2";
   clickChip("pe-proto-chips", "Hysteria2");
   check("订阅档案：按协议筛完只剩 hy2", peRows().length === 1 && peRows()[0].children[1].textContent === "Hysteria2", String(peRows().length));
-  /* 新建默认是「按条件」，这几段测的是「按清单」的勾选行为，先切过去 */
-  const toMembers = () => { const c = el("pe-collect-chips"); c.children[1].onclick.call(c.children[1]); };
-  toMembers();
-  check("订阅档案：切到按清单后提示改成可勾清单", /只有勾上的才进/.test(el("pe-collect-hint").textContent), el("pe-collect-hint").textContent);
-  check("订阅档案：按清单时节点行可以勾", peRows().every((r) => r.children[0].disabled === false), String(peRows().map((r) => r.children[0].disabled).join(",")));
-  click("pe-all");
-  check("订阅档案：全选筛出来的 = 已勾选 1 条", /已勾选 1 条/.test(el("pe-shown").textContent), el("pe-shown").textContent);
-  check("订阅档案：勾选的是这一行", peRows()[0].children[0].checked === true, String(peRows()[0].children[0].checked));
+  check("订阅档案：按条件下那一条自动勾上", peRows()[0].children[0].checked === true, String(peRows()[0].children[0].checked));
   click("pe-save");
   await idle();
   check("订阅档案：保存后先留着面板并显示已保存", String(el("preset-editor").className).indexOf("hidden") < 0 && /已保存 hy2/.test(el("pe-status").textContent), String(el("preset-editor").className) + " | " + el("pe-status").textContent);
@@ -1468,7 +1460,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const url = presets()[0].children[1].textContent;
   check("订阅档案：链接是 /sub/p/<名字>/<token>", /\/sub\/p\/hy2\/[^/]+$/.test(url), url);
   check("订阅档案：链接被截断时悬停能看到全串", presets()[0].children[1].title === url, String(presets()[0].children[1].title));
-  check("订阅档案：描述写绑定几条", /绑定 1 条节点/.test(presets()[0].children[0].children[1].textContent), presets()[0].children[0].children[1].textContent);
+  check("订阅档案：描述写的是收集条件", /^条件：hy2/.test(presets()[0].children[0].children[1].textContent), presets()[0].children[0].children[1].textContent);
 
   const pubNames = async (u) => {
     const res = await netFetch(u.replace(/^https?:\/\/[^/]+/, BASE));
@@ -1491,7 +1483,6 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
   check("订阅档案：编辑打开面板并锁住档案名", String(el("preset-editor").className).indexOf("hidden") < 0 && el("pe-name").value === "hy2" && el("pe-name").readOnly === true && String(el("pe-name").className).indexOf("locked") >= 0, el("pe-name").value + "/" + el("pe-name").readOnly);
-  toMembers();
   check("订阅档案：编辑时把已有节点提前勾好", peRows().filter((r) => r.children[0].checked).length === 1, String(peRows().filter((r) => r.children[0].checked).length));
   check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[3].children[0].textContent === "编辑中" && String(presets()[0].children[3].children[0].className).indexOf("editing") >= 0, presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
   check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[3].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[3].children[0].textContent).join(","));
@@ -1509,12 +1500,11 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：复制后变已复制", peCopy.textContent === "已复制" && peCopy.className.indexOf("copied") !== -1 && peBubbled, peCopy.textContent + " / " + peCopy.className);
   check("订阅档案：没改动时未保存标签隐藏", el("pe-badge").style.display === "none", el("pe-badge").style.display + "/" + el("pe-badge").textContent);
   const firstBox = peRows().filter((r) => r.children[0].checked)[0].children[0];
-  firstBox.checked = false;
-  firstBox.onchange.call(firstBox);
-  check("订阅档案：取消勾选后出现「未保存 1 处」", el("pe-badge").textContent === "未保存 1 处" && el("pe-badge").style.display === "", el("pe-badge").textContent);
-  firstBox.checked = true;
-  firstBox.onchange.call(firstBox);
-  check("订阅档案：勾回来就隐藏未保存标签", el("pe-badge").style.display === "none", el("pe-badge").textContent);
+  /* 条件模式下勾选没意义，改条件才算改动 */
+  clickChip("pe-proto-chips", "Hysteria2");
+  check("订阅档案：改条件后出现「未保存 1 处」", el("pe-badge").textContent === "未保存 1 处" && el("pe-badge").style.display === "", el("pe-badge").textContent);
+  clickChip("pe-proto-chips", "Hysteria2");
+  check("订阅档案：条件改回来就隐藏未保存标签", el("pe-badge").style.display === "none", el("pe-badge").textContent);
   click("pe-cancel");
   await idle();
   check("订阅档案：取消后不保存", (await pubNames(url)).names.join(",") === "档案-hy2", "档案内容被改了");
@@ -1525,15 +1515,13 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const masterNames = Buffer.from(await masterBefore.text(), "base64").toString("utf8");
   presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
-  toMembers();
-  const box = peRows().filter((r) => r.children[0].checked)[0].children[0];
-  box.checked = false;
-  box.onchange.call(box);
-  check("订阅档案：取消勾选后已勾选变 0", /已勾选 0 条/.test(el("pe-shown").textContent), el("pe-shown").textContent);
+  /* 把条件去掉 = 不限协议，档案范围跟着变宽 */
+  clickChip("pe-proto-chips", "Hysteria2");
+  check("订阅档案：去掉协议条件后列出全部节点", peRows().length > 1, String(peRows().length));
   click("pe-save");
   await idle();
-  const emptied = await pubNames(url);
-  check("订阅档案：保存后档案里没有节点了", emptied.status === 200 && emptied.names.length === 0, `${emptied.status} ${emptied.names.join(",")}`);
+  const widened = await pubNames(url);
+  check("订阅档案：保存后档案跟着条件变宽", widened.status === 200 && widened.names.length > 1, `${widened.status} ${widened.names.join(",")}`);
   const masterAfter = await netFetch(`${BASE}/sub/all/${TOKEN}`);
   const masterAfterBody = Buffer.from(await masterAfter.text(), "base64").toString("utf8");
   check("订阅档案：总订阅完全没变", masterAfterBody.trim() === masterNames.trim(), "总订阅被影响了");
