@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.8";
+const VERSION = "2.4.9";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -537,6 +537,7 @@ input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
 .pdetail .subnode:hover{border-color:var(--line)}
 .short-manage{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
 .sm-head{display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:6px}
+.pdesc .pick-empty{color:var(--err);font-weight:600}
 .sm-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
 .sm-row:last-child{border-bottom:0}
 .sm-row code{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -2085,7 +2086,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var title = document.createElement("b"); title.textContent = item.label + "（" + item.name + "）";
       title.title = title.textContent;   /* 名字被截断时，悬停能看全 */
       var desc = document.createElement("span"); desc.className = "pdesc";
-      desc.appendChild(document.createTextNode(presetProtoText(item) + " · "));
+      /* 「还没勾选节点」是坏消息：这条档案现在订阅出去是空的。以前和别的一样
+         是灰字，扫过去根本看不出来，得点进去才发现。单独上色。 */
+      var pickText = presetProtoText(item);
+      var pickEmpty = !(item.members || []).filter(isIdentKey).length;
+      var pick = document.createElement("span");
+      if (pickEmpty) {
+        pick.className = "pick-empty";
+        pick.title = "这条档案还没勾节点，订阅出来是空的；点「编辑」进去勾几条";
+      }
+      pick.textContent = pickText;
+      desc.appendChild(pick);
+      desc.appendChild(document.createTextNode(" · "));
       var tk = document.createElement("span");
       tk.className = "tk " + (item.token ? "own" : "shared");
       tk.textContent = item.token ? "独立 token" : "共用主 token";
