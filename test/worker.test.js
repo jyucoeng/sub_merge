@@ -61,7 +61,7 @@ class MockStatement {
       const value = this.db.settings.get(this.args[0]);
       return value === undefined ? null : { value };
     }
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)?(, sources)? FROM presets WHERE name = \?1$/i.test(this.sql)) {
       return this.db.presets.get(this.args[0]) || null;
     }
     if (/^SELECT code, preset, format, note, created_at, hits, last_at FROM links WHERE code = \?1$/i.test(this.sql)) {
@@ -96,7 +96,7 @@ class MockStatement {
       const rows = [...this.db.links.values()].filter((row) => row.preset === this.args[0]);
       return { results: rows, success: true, meta: { changes: 0 } };
     }
-    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)? FROM presets ORDER BY created_at DESC, name ASC$/i.test(this.sql)) {
+    if (/^SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at(, skips)?(, members)?(, mode)?(, clash_mode)?(, sources)? FROM presets ORDER BY created_at DESC, name ASC$/i.test(this.sql)) {
       const rows = [...this.db.presets.values()].sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
       return { results: rows, success: true, meta: { changes: 0 } };
     }
@@ -214,8 +214,8 @@ class MockStatement {
       return { success: true, meta: { changes: this.db.links.delete(args[0]) ? 1 : 0 } };
     }
     if (/^INSERT INTO presets/i.test(this.sql)) {
-      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clashMode] = args;
-      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "", members: members || "", mode: mode || "", clash_mode: clashMode || "inherit" });
+      const [name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clashMode, sources] = args;
+      this.db.presets.set(name, { name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips: skips || "", members: members || "", mode: mode || "", clash_mode: clashMode || "inherit", sources: sources || "" });
       return { success: true, meta: { changes: 1 } };
     }
     if (/^UPDATE presets SET machines = \?1, updated_at = \?2 WHERE name = \?3$/i.test(this.sql)) {
@@ -234,7 +234,7 @@ class MockStatement {
       return { success: true, meta: { changes: this.db.presets.delete(args[0]) ? 1 : 0 } };
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
-    if (/^ALTER TABLE presets ADD COLUMN (skips|members|mode|clash_mode)/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
+    if (/^ALTER TABLE presets ADD COLUMN (skips|members|mode|clash_mode|sources)/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
       const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
       if (this.db[column]) throw new Error("duplicate column name");
@@ -2607,4 +2607,43 @@ test("sub/fetch reports an upstream that returns no links", async () => {
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+/* 按条件收集的档案要能自动跟随：临时隧道每次重启换 *.trycloudflare.com 域名，
+ * 链接整个变了，按清单存的档案会当它消失，按条件存的应该照旧选中。 */
+test("a rules preset keeps following a temp tunnel after its domain changes", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const link = (host) => `vless://11111111-1111-4111-8111-111111111111@1.2.3.8:8443?encryption=none&security=tls&type=ws&host=${host}&path=%2F11111111-vl&sni=${host}#东-vless-argo`;
+  const names = async (path) => {
+    const res = await call(env, "GET", path, null, {});
+    assert.equal(res.status, 200);
+    return unb64(await res.text()).split("\n").filter(Boolean)
+      .map((line) => decodeURIComponent((line.split("#")[1] || "").trim()));
+  };
+
+  const first = link("old-words-1111.trycloudflare.com");
+  await call(env, "PUT", "/api/v1/nodes/vps-a", JSON.stringify({ nodes: [{ link: first }] }), auth);
+  await call(env, "PUT", "/api/v1/presets/tunnel", JSON.stringify({ mode: "rules", tunnel: "temp" }), auth);
+  /* members 存的是「去掉 # 之后的那整条链接」，不是节点 id */
+  await call(env, "PUT", "/api/v1/presets/picked", JSON.stringify({ mode: "members", members: [first.split("#")[0]] }), auth);
+
+  assert.deepEqual(await names(`/sub/p/tunnel/${TOKEN}`), ["东-vless-argo"]);
+  assert.deepEqual(await names(`/sub/p/picked/${TOKEN}`), ["东-vless-argo"]);
+
+  // 隧道重启换了域名：链接变了
+  const second = link("new-words-2222.trycloudflare.com");
+  await call(env, "PUT", "/api/v1/nodes/vps-a", JSON.stringify({ nodes: [{ link: second }] }), auth);
+
+  assert.deepEqual(await names(`/sub/p/tunnel/${TOKEN}`), ["东-vless-argo"], "按条件收集应该自动跟上新域名");
+  assert.deepEqual(await names(`/sub/p/picked/${TOKEN}`), [], "按清单收集认不出换了域名的节点");
+});
+
+test("saving a preset with mode=rules does not fall back to members", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const res = await call(env, "PUT", "/api/v1/presets/keep", JSON.stringify({ mode: "rules", protos: ["hy2"], members: ["hysteria2://a@b:443#x"] }), auth);
+  const body = await res.json();
+  assert.equal(body.preset.mode, "rules", "显式 rules 不能被 members 覆盖");
+  assert.deepEqual(body.preset.protos, ["hy2"]);
 });

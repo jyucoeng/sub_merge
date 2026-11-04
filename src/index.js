@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.1.5";
+const VERSION = "2.2.0";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -93,7 +93,8 @@ export const SCHEMA_STATEMENTS = [
   skips      TEXT NOT NULL DEFAULT '',
   members    TEXT NOT NULL DEFAULT '',
   mode       TEXT NOT NULL DEFAULT '',
-  clash_mode TEXT NOT NULL DEFAULT 'inherit'
+  clash_mode TEXT NOT NULL DEFAULT 'inherit',
+  sources    TEXT NOT NULL DEFAULT ''
 )`,
   `CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
@@ -111,6 +112,7 @@ export const MIGRATION_STATEMENTS = [
   "ALTER TABLE presets ADD COLUMN skips TEXT NOT NULL DEFAULT ''",  "ALTER TABLE presets ADD COLUMN members TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE presets ADD COLUMN mode TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE presets ADD COLUMN clash_mode TEXT NOT NULL DEFAULT 'inherit'",
+  "ALTER TABLE presets ADD COLUMN sources TEXT NOT NULL DEFAULT ''",
 ];
 
 /* 国旗图片：flagcdn w20 的 PNG 内联成 data URI。
@@ -714,7 +716,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
     <select id="pe-format" title="这个档案以后固定输出什么格式。留「格式自动」= 按客户端的 User-Agent 猜，跟普通订阅链接一样"><option value="">格式自动</option><option value="clash">Clash / Mihomo</option><option value="base64">通用 base64</option><option value="proxies">Clash 片段</option><option value="singbox">sing-box</option></select>
     <span id="pe-clash" class="tag auto" title="这个档案的 clash 输出用的分流规则来源。inherit = 跟随「分流规则」卡片里那一份全局规则，改一次全部档案一起变">分流规则：跟随全局</span>
   </div>
-  <div class="row" style="margin-top:10px">
+  <div class="row" style="margin-top:10px"><label>收集方式</label><span id="pe-collect-chips" class="protocols"></span><span class="tip" id="pe-collect-hint"></span></div>
+  <div class="row" style="margin-top:8px">
     <input id="pe-search" placeholder="按节点名或链接搜索" spellcheck="false" style="min-width:240px" title="在下面这个列表里按节点名、协议、机器名搜；只是筛列表，不影响已勾选的内容">
     <button id="pe-all" type="button">全选</button>
     <button id="pe-only" type="button">只选筛出来的</button>
@@ -1580,10 +1583,13 @@ vless-cdn  vless-reality  vmess-argo</pre>
       name: item ? item.name : "",
       label: item ? (item.label === item.name ? "" : item.label) : "",
       format: item ? (item.format || "") : "",
-      protos: [],
-      tunnel: "",
-      machines: [],
-      sources: [],
+      /* collect：rules = 按条件收集（机器/协议/接入方式/来源），members = 按清单（点名节点链接）。
+         老档案 mode 是 members 就按清单打开，其余（含空）都当条件；新建默认条件——用户要的就是这个。 */
+      collect: item && item.mode === "members" ? "members" : "rules",
+      protos: item ? (item.protos || []).slice() : [],
+      tunnel: item ? (item.tunnel || "") : "",
+      machines: item ? (item.machines || []).slice() : [],
+      sources: item ? (item.sources || []).slice() : [],
       search: "",
       picked: item ? (item.members || []).slice() : [],
       orig: item ? (item.members || []).slice() : [],
@@ -1654,8 +1660,21 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (!on && at >= 0) st.picked.splice(at, 1);
     renderPresetEditor();
   }
+  /* 条件签名的字符串形式，用来判断「条件改没改」 */
+  function peCondSig(st) {
+    var j = function (a) { return (a || []).slice().sort().join("\u0001"); };
+    return [st.collect || "rules", j(st.protos), j(st.machines), j(st.sources), st.tunnel || ""].join("\u0002");
+  }
   function peDirty() {
     var st = state.presetEdit; if (!st) return 0;
+    if ((st.collect || "rules") === "rules") {
+      var n2 = peCondSig(st) === (st.origCond === undefined ? peCondSig(st) : st.origCond) ? 0 : 1;
+      var lbl2 = String(($("pe-label") && $("pe-label").value) || "").trim();
+      var fmt2 = ($("pe-format") && $("pe-format").value) || "";
+      if (lbl2 !== (st.origLabel || "")) n2 += 1;
+      if (fmt2 !== (st.origFormat || "")) n2 += 1;
+      return n2;
+    }
     var before = {};
     (st.orig || []).forEach(function (id) { before[id] = 1; });
     var after = {};
@@ -1728,6 +1747,29 @@ vless-cdn  vless-reality  vmess-argo</pre>
         if (shownSet[rowKey(item)]) hit.shown += 1;
       });
       return map;
+    }
+    var collect = st.collect || "rules";
+    var cbox = $("pe-collect-chips");
+    if (cbox) {
+      cbox.innerHTML = "";
+      [["rules", "按条件 · 自动跟随"], ["members", "按清单 · 手动勾选"]].forEach(function (opt) {
+        var on = collect === opt[0];
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "proto" + (on ? " picked" : "");
+        b.textContent = opt[1];
+        b.title = opt[0] === "rules"
+          ? "把机器 / 协议 / 接入方式 / 来源写进档案当条件：以后新上报的节点、临时隧道换了域名，都会自动进这条订阅，不用回来重新勾"
+          : "只认你勾的这几条节点链接：隧道换域名、节点换参数后链接变了就匹配不上，那条会从订阅里消失，得回来重新勾";
+        b.onclick = function () { st.collect = opt[0]; renderPresetEditor(); };
+        cbox.appendChild(b);
+      });
+    }
+    var chint = $("pe-collect-hint");
+    if (chint) {
+      chint.textContent = collect === "rules"
+        ? "下面勾的胶囊就是条件本身，符合条件的 " + visible.length + " 条会全部进这个档案"
+        : "下面是可勾的清单，只有勾上的才进这个档案";
     }
     var protoBox = $("pe-proto-chips");
     if (protoBox) {
@@ -1805,9 +1847,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var inMaster = hit.node.in_sub !== false;
       var row = document.createElement("div"); row.className = "subnode pe-node" + (inMaster ? "" : " off");
       var box = document.createElement("input"); box.type = "checkbox";
-      box.checked = inMaster && peHas(hit.node.id);
-      box.disabled = !inMaster;
-      box.title = inMaster ? "勾上 = 这条进档案" : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
+      var byCond = (st.collect || "rules") === "rules";
+      box.checked = inMaster && (byCond ? true : peHas(hit.node.id));
+      box.disabled = !inMaster || byCond;
+      box.title = byCond
+        ? "按条件收集：这一条符合当前条件就会进档案，不用单独勾"
+        : inMaster ? "勾上 = 这条进档案" : "这条在主订阅里没启用，先去「订阅中的节点」勾上";
       box.onchange = function () { peToggle(hit.node.id, box.checked); };
       var tag = document.createElement("span"); tag.className = "ptag";
       tag.textContent = hit.node.cls_label || hit.node.label || hit.node.kind || "";
@@ -1863,24 +1908,29 @@ vless-cdn  vless-reality  vmess-argo</pre>
       presetStatus("标识「" + name + "」已经被别的档案用了，换一个（留空就自动生成）", false);
       return;
     }
+    var collect = st.collect || "rules";
     var body = {
       label: String($("pe-label").value || "").trim(),
       format: $("pe-format").value || "",
-      members: st.picked.slice(),
-      mode: "members",
-      protos: [],
-      tunnel: "",
-      machines: [],
+      mode: collect,
+      members: collect === "members" ? st.picked.slice() : [],
+      protos: collect === "rules" ? (st.protos || []).slice() : [],
+      tunnel: collect === "rules" ? (st.tunnel || "") : "",
+      machines: collect === "rules" ? (st.machines || []).slice() : [],
+      sources: collect === "rules" ? (st.sources || []).slice() : [],
       skips: [],
       create: st.mode === "new",
     };
     presetStatus("正在保存…", null);
     api("/presets/" + encodeURIComponent(name), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (data) {
-        var msg = "已保存 " + data.preset.name + "：绑定 " + (data.preset.members || []).length + " 条节点";
+        var msg = collect === "members"
+          ? "已保存 " + data.preset.name + "：绑定 " + (data.preset.members || []).length + " 条节点"
+          : "已保存 " + data.preset.name + "：按条件收集，当前匹配 " + peRows().length + " 条节点，以后自动跟随";
         presetStatus(msg, true);
         /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
         st.orig = st.picked.slice();
+        st.origCond = peCondSig(st);
         st.origLabel = String($("pe-label").value || "").trim();
         st.origFormat = $("pe-format").value || "";
         st.saved = true;
@@ -4471,6 +4521,7 @@ function presetFromRow(row) {
     skips: String(row.skips || "").split("").filter(Boolean),
     members: String(row.members || "").split("").filter(Boolean),
     mode: String(row.mode || ""),
+    sources: String(row.sources || "").split('\x01').filter(Boolean),
     clashMode: String(row.clash_mode || "inherit"),
     format: row.format || "",
     token: row.token || "",
@@ -4480,13 +4531,13 @@ function presetFromRow(row) {
 }
 
 async function listPresets(env) {
-  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets ORDER BY created_at DESC, name ASC").all();
+  const res = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode, sources FROM presets ORDER BY created_at DESC, name ASC").all();
   return (res.results || []).map(presetFromRow);
 }
 
 async function findPreset(env, name) {
   if (!PRESET_NAME_RE.test(String(name || ""))) return null;
-  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode FROM presets WHERE name = ?1").bind(name).first();
+  const row = await env.DB.prepare("SELECT name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode, sources FROM presets WHERE name = ?1").bind(name).first();
   return row ? presetFromRow(row) : null;
 }
 
@@ -4503,6 +4554,9 @@ async function putPreset(request, env, name) {
   const tunnel = ["fixed", "temp"].includes(tunnelRaw) ? tunnelRaw : "";
   const machines = (Array.isArray(data.machines) ? data.machines : String(data.machines || "").split(","))
     .map((x) => String(x).trim()).filter(Boolean).slice(0, 50);
+  /* 按条件收集时能用的来源限定：manual（手动粘的/机场导的）/ auto（脚本上报的） */
+  const sources = (Array.isArray(data.sources) ? data.sources : String(data.sources || "").split(","))
+    .map((x) => String(x).trim().toLowerCase()).filter((x) => x === "manual" || x === "auto").slice(0, 2);
   const formatRaw = String(data.format || "").toLowerCase();
   const format = ["clash", "proxies", "singbox", "base64"].includes(formatRaw) ? formatRaw : "";
   const label = String(data.label || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 40) || name;
@@ -4537,7 +4591,10 @@ async function putPreset(request, env, name) {
   if (skipsKey.length > PRESET_SET_MAX) {
     return json({ ok: false, error: `preset skips too large: ${skipsKey.length} > ${PRESET_SET_MAX} bytes` }, 400);
   }
-  const modeKey = String(data.mode || "").trim() === "members" ? "members" : (membersKey ? "members" : (existing ? existing.mode : ""));
+  /* members = 只认点名的那几条节点链接；rules = 按机器/协议/接入方式/来源筛，节点变了自动跟着变。
+   * 显式传 rules 就按 rules 存，别因为 members 非空又退回 members。 */
+  const modeRaw = String(data.mode || "").trim();
+  const modeKey = modeRaw === "rules" ? "rules" : (modeRaw === "members" || membersKey ? "members" : (existing ? existing.mode : ""));
   /* 分流规则来源：目前只有 inherit（跟随全局「分流规则」卡片那一份） */
   const clashModeRaw = data.clashMode !== undefined ? data.clashMode : data.clash_mode;
   const clashMode = String(clashModeRaw === undefined || clashModeRaw === null ? "" : clashModeRaw).trim().toLowerCase()
@@ -4545,10 +4602,10 @@ async function putPreset(request, env, name) {
   if (!PRESET_CLASH_MODES.includes(clashMode)) {
     return json({ ok: false, error: "clashMode must be one of: " + PRESET_CLASH_MODES.join(", ") }, 400);
   }
-  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9, skips = ?10, members = ?11, mode = ?12, clash_mode = ?13`)
-    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now, skipsKey, membersKey, modeKey, clashMode)
+  await env.DB.prepare(`INSERT INTO presets (name, label, protos, tunnel, machines, format, token, created_at, updated_at, skips, members, mode, clash_mode, sources)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+    ON CONFLICT(name) DO UPDATE SET label = ?2, protos = ?3, tunnel = ?4, machines = ?5, format = ?6, token = ?7, updated_at = ?9, skips = ?10, members = ?11, mode = ?12, clash_mode = ?13, sources = ?14`)
+    .bind(name, label, protos.join(","), tunnel, machinesKey, format, token, existing ? existing.created_at : now, now, skipsKey, membersKey, modeKey, clashMode, sources.join('\x01'))
     .run();
   const saved = await findPreset(env, name);
   return json({ ok: true, preset: saved, url: `${baseUrl(request)}/sub/p/${encodeURIComponent(name)}/${saved.token || authToken(env)}` });
@@ -4720,8 +4777,8 @@ async function servePreset(env, name, token, request, opts) {
   const rules = format === "clash" && preset.clashMode === "inherit" ? await loadClashRules(env) : null;
   const protocolMap = await loadProtocolMap(env);
   const disabled = await loadDisabledGlobal(env);
-  const filter = { protos: preset.protos, tunnel: preset.tunnel };
-  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + preset.machines.length + "|" + preset.skips.length + "|" + preset.members.length + "|" + preset.mode + "|" + preset.clashMode;
+  const filter = { protos: preset.protos, tunnel: preset.tunnel, sources: preset.sources || [] };
+  const rev = preset.updated_at + "|" + preset.protos.join("+") + "|" + preset.tunnel + "|" + (preset.sources || []).join("+") + "|" + preset.machines.length + "|" + preset.skips.length + "|" + preset.members.length + "|" + preset.mode + "|" + preset.clashMode;
   const liveKey = records.map((r) => `${r.machine}=${(protocolMap.get(r.machine) || []).join("+")}`).join(";") + "#" + disabled.size;
   const key = subCacheKey("preset:" + preset.name + ":" + rev + liveKey + (rules ? ":" + rules.rev : ""), format, order, records);
   const baseHeaders = { "x-preset": encodeURIComponent(preset.name), "x-machines": String(records.length), "x-storage": "d1" };
@@ -5583,6 +5640,10 @@ function filterKey(filter) {
 function matchesFilter(node, filter) {
   if (!filter) return true;
   if (filter.tunnel && tunnelKind(node) !== filter.tunnel) return false;
+  if (filter.sources && filter.sources.length) {
+    const src = String((node && node.source) || "auto");
+    if (filter.sources.indexOf(src) < 0) return false;
+  }
   if (!filter.protos.length) return true;
   const cls = nodeClassOf(node);
   const kind = nodeKind(node);

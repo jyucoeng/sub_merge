@@ -1416,12 +1416,21 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   check("订阅档案：面板写明分流规则来源", html.includes('id="pe-clash"') && html.includes("分流规则：跟随全局"), "pe-clash 标签");
   check("订阅档案：面板列出主订阅的全部节点", peRows().length >= 2, String(peRows().length));
   check("订阅档案：条件胶囊就在面板里", el("pe-proto-chips").children.some((c) => String(c.textContent).indexOf("Hysteria2") > -1), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
+  const cChips = el("pe-collect-chips").children.map((c) => c.textContent);
+  check("订阅档案：收集方式默认是按条件", cChips.length === 2 && cChips[0].indexOf("按条件") === 0 && String(el("pe-collect-chips").children[0].className).indexOf("picked") !== -1, cChips.join(" | "));
+  check("订阅档案：按条件时提示说明胶囊就是条件", /胶囊就是条件/.test(el("pe-collect-hint").textContent), el("pe-collect-hint").textContent);
+  check("订阅档案：按条件时节点行不用单独勾", peRows().every((r) => r.children[0].disabled === true), String(peRows().map((r) => r.children[0].disabled).join(",")));
   check("订阅档案：胶囊带 ✓/◐ 和「在订阅/共」计数", el("pe-proto-chips").children.every((c) => /^(✓ |◐ )?.+ · \d+\/\d+$/.test(c.textContent)), el("pe-proto-chips").children.map((c) => c.textContent).join(" / "));
 
   el("pe-name").value = "hy2";
   el("pe-label").value = "只要 Hy2";
   clickChip("pe-proto-chips", "Hysteria2");
   check("订阅档案：按协议筛完只剩 hy2", peRows().length === 1 && peRows()[0].children[1].textContent === "Hysteria2", String(peRows().length));
+  /* 新建默认是「按条件」，这几段测的是「按清单」的勾选行为，先切过去 */
+  const toMembers = () => { const c = el("pe-collect-chips"); c.children[1].onclick.call(c.children[1]); };
+  toMembers();
+  check("订阅档案：切到按清单后提示改成可勾清单", /只有勾上的才进/.test(el("pe-collect-hint").textContent), el("pe-collect-hint").textContent);
+  check("订阅档案：按清单时节点行可以勾", peRows().every((r) => r.children[0].disabled === false), String(peRows().map((r) => r.children[0].disabled).join(",")));
   click("pe-all");
   check("订阅档案：全选筛出来的 = 已勾选 1 条", /已勾选 1 条/.test(el("pe-shown").textContent), el("pe-shown").textContent);
   check("订阅档案：勾选的是这一行", peRows()[0].children[0].checked === true, String(peRows()[0].children[0].checked));
@@ -1468,6 +1477,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
   check("订阅档案：编辑打开面板并锁住档案名", String(el("preset-editor").className).indexOf("hidden") < 0 && el("pe-name").value === "hy2" && el("pe-name").readOnly === true && String(el("pe-name").className).indexOf("locked") >= 0, el("pe-name").value + "/" + el("pe-name").readOnly);
+  toMembers();
   check("订阅档案：编辑时把已有节点提前勾好", peRows().filter((r) => r.children[0].checked).length === 1, String(peRows().filter((r) => r.children[0].checked).length));
   check("订阅档案：正在编辑的那条按钮变「编辑中」", presets()[0].children[3].children[0].textContent === "编辑中" && String(presets()[0].children[3].children[0].className).indexOf("editing") >= 0, presets()[0].children[3].children[0].textContent + "/" + presets()[0].children[3].children[0].className);
   check("订阅档案：其它档案的按钮还是「编辑」", presets().slice(1).every((r) => r.children[3].children[0].textContent === "编辑"), presets().slice(1).map((r) => r.children[3].children[0].textContent).join(","));
@@ -1501,6 +1511,7 @@ check("同名：不新建而是切换并说明", text("status").includes("机器
   const masterNames = Buffer.from(await masterBefore.text(), "base64").toString("utf8");
   presets()[0].children[3].children[0].onclick.call(presets()[0].children[3].children[0]);
   await idle();
+  toMembers();
   const box = peRows().filter((r) => r.children[0].checked)[0].children[0];
   box.checked = false;
   box.onchange.call(box);

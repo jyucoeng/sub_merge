@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS presets (
   skips      TEXT NOT NULL DEFAULT '',
   members    TEXT NOT NULL DEFAULT '',
   mode       TEXT NOT NULL DEFAULT '',
-  clash_mode TEXT NOT NULL DEFAULT 'inherit'
+  clash_mode TEXT NOT NULL DEFAULT 'inherit',
+  sources    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS settings (
