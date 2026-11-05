@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.51";
+const VERSION = "2.4.52";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -487,11 +487,13 @@ textarea:focus{border-color:var(--acc)}
    表头还按 7 列栅格摆就会互相压字、按钮还会溢到卡片外。
    这里让表头也跟着换行：首行 机器名/地区，次行 节点数/最近上报，末行放解锁按钮。 */
 @media(max-width:720px){
-  .mlist-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;border-radius:10px}
+  /* 四个排序键挤在一行：缩小内边距、收紧间距，别让「最近上报」被挤到第二行；
+     锁定按钮单独占一行通栏，不然它会把四个键顶散。 */
+  .mlist-head{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;padding:7px 9px;border-radius:10px}
   .mlist-head .c-idx{display:none}
-  .mlist-head .c-name{flex:1 1 auto;min-width:0}
-  .mlist-head .c-meta{flex:1 1 100%;justify-content:flex-start;gap:14px}
-  .mlist-head .c-reset{flex:1 1 100%;justify-self:auto;width:100%;text-align:center;margin-top:2px}
+  .mlist-head .c-name,.mlist-head .c-meta{flex:0 1 auto;min-width:0;gap:8px;justify-content:flex-start;width:auto}
+  .mlist-head .h{white-space:nowrap;padding:2px 3px;font-size:11.5px}
+  .mlist-head .c-reset{flex:1 1 100%;justify-self:auto;width:100%;text-align:center;font-size:11.5px;padding:4px 10px;margin-top:2px}
   .mlist-head + #machine-list .machine:first-child{border-top-left-radius:10px;border-top-right-radius:10px}
 }
 .mlist-head + #machine-list .machine:first-child{border-top-left-radius:0;border-top-right-radius:0}
