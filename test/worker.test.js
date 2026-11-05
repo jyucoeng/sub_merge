@@ -2824,3 +2824,23 @@ test("the panel can keep a user-saved display order for reported nodes", async (
   res = await call(env, "PUT", "/api/v1/nodes/nope/order", JSON.stringify({ order: [] }), jsonAuth);
   assert.equal(res.status, 404, "没有这台机器就 404");
 });
+
+test("reading nodes on a pre-existing database without the new column heals itself", async () => {
+  /* 线上库是老的：部署新代码后 machines 还没有 auto_order_json。
+     GET /nodes 不该 500，而是就地补列再读（用户不用先去点「初始化数据库」）。 */
+  if (!sqlite) return;
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  await call(env, "POST", "/api/v1/report/heal", b64("hysteria2://pw@2.2.2.2:443?sni=a.com#hy2"), auth);
+
+  env.DB.sqlite.exec("ALTER TABLE machines DROP COLUMN auto_order_json");
+  let broken = false;
+  try { env.DB.sqlite.prepare("SELECT auto_order_json FROM machines").all(); } catch { broken = true; }
+  assert.ok(broken, "先确认列确实不在了");
+
+  const res = await call(env, "GET", "/api/v1/nodes/heal", null, auth);
+  assert.equal(res.status, 200, "缺列要自愈，不能 500");
+  const panel = await res.json();
+  assert.equal(panel.auto_nodes.length, 1, "原有的上报节点还在");
+  assert.deepEqual(panel.auto_order, [], "补出来的列默认空数组");
+});

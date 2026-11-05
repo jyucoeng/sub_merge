@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.30";
+const VERSION = "2.4.31";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4116,10 +4116,22 @@ function recordValues(record) {
   ];
 }
 
+/* 新加了列的老库还没补列（没跑过 /api/v1/admin/schema）时，SELECT 会报
+ * no such column，读接口整个 500。这里就地补一次再重读，用户不用先手动建表。 */
+async function machineQuery(env, run) {
+  try {
+    return await run();
+  } catch (error) {
+    if (!/no such column|no such table/i.test(String((error && error.message) || error))) throw error;
+    await initSchema(env);
+    return await run();
+  }
+}
+
 async function loadRecord(env, machine) {
   const db = dbEnv(env);
   if (!db) return null;
-  const row = await db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines WHERE machine = ?1`).bind(machine).first();
+  const row = await machineQuery(env, () => db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines WHERE machine = ?1`).bind(machine).first());
   const record = row ? rowToRecord(row) : null;
   return record;
 }
@@ -4127,7 +4139,7 @@ async function loadRecord(env, machine) {
 async function loadAllRecords(env) {
   const db = dbEnv(env);
   if (!db) return [];
-  const result = await db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines`).all();
+  const result = await machineQuery(env, () => db.prepare(`SELECT ${SELECT_COLUMNS} FROM machines`).all());
   const rows = (result && result.results) || [];
   const records = rows.map(rowToRecord);
   return records;
