@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.86";
+const VERSION = "2.4.87";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -686,7 +686,7 @@ body.locked .wrap{display:none}
 <div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
 <div class="msearch">
 <span class="msrch-box">
-<input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词，也认地区码 us / hk / jp）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）。输入时自动筛，回车或点框里的放大镜也一样" aria-label="搜索机器名">
+<input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，多个词用空格隔开，也认地区码和地区名：us / 美国 / 圣何塞）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）。输入时自动筛，回车或点框里的放大镜也一样" aria-label="搜索机器名">
 <button id="machine-search-btn" class="msrch-in" type="button" title="搜索（按框里的内容筛机器）" aria-label="搜索">🔍</button>
 </span>
 <button id="machine-clear" class="fold msrch-clear" type="button" hidden title="清掉搜索，显示全部机器">清除搜索</button>
@@ -2691,14 +2691,42 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     } catch (e) { return ""; }
   }
 
-  /* 机器名的模糊搜索：不分大小写、子串命中即可；空格分开的多个词要同时命中。
-     除了机器名本身，也匹配从名字里解析出的地区码（us / hk / 圣何塞 这种），
-     因为「找美国那几台」比「记得机器全名」常见得多。 */
+  /* 机器名的模糊搜索：不分大小写、子串命中即可。
+     分词：空格、逗号、顿号、全角空格都算分隔符；多个词默认「全都要命中」（AND）。
+     如果 AND 一条都没有，自动退化成「任一关键词命中」（OR），并在计数里说明——
+     不然搜「美国 圣何塞」会被当成「名字里同时有这两个词」，几乎必然 0 条，
+     看起来就像「多词搜索根本不能用」。 */
+  var COUNTRY_LABEL = {
+    US: "美国", HK: "香港", JP: "日本", KR: "韩国", SG: "新加坡", TW: "台湾", MO: "澳门",
+    DE: "德国", NL: "荷兰", GB: "英国", FR: "法国", CA: "加拿大", AU: "澳大利亚", NZ: "新西兰",
+    RU: "俄罗斯", TR: "土耳其", AE: "阿联酋", SA: "沙特", IL: "以色列", IN: "印度", PK: "巴基斯坦",
+    TH: "泰国", VN: "越南", MY: "马来西亚", ID: "印尼", PH: "菲律宾", KH: "柬埔寨", LA: "老挝",
+    BR: "巴西", AR: "阿根廷", CL: "智利", CO: "哥伦比亚", MX: "墨西哥", PE: "秘鲁",
+    IT: "意大利", ES: "西班牙", PT: "葡萄牙", IE: "爱尔兰", BE: "比利时", CH: "瑞士",
+    AT: "奥地利", SE: "瑞典", NO: "挪威", DK: "丹麦", FI: "芬兰", IS: "冰岛", PL: "波兰",
+    CZ: "捷克", HU: "匈牙利", RO: "罗马尼亚", BG: "保加利亚", GR: "希腊", UA: "乌克兰",
+    LT: "立陶宛", LV: "拉脱维亚", EE: "爱沙尼亚", MD: "摩尔多瓦", RS: "塞尔维亚", HR: "克罗地亚",
+    SI: "斯洛文尼亚", SK: "斯洛伐克", AL: "阿尔巴尼亚", MK: "北马其顿", BA: "波黑", ME: "黑山",
+    AM: "亚美尼亚", AZ: "阿塞拜疆", GE: "格鲁吉亚", CY: "塞浦路斯", MT: "马耳他", LU: "卢森堡",
+    ZA: "南非", EG: "埃及", NG: "尼日利亚", KE: "肯尼亚", MA: "摩洛哥",
+    KZ: "哈萨克斯坦", UZ: "乌兹别克斯坦", MN: "蒙古", NP: "尼泊尔", BD: "孟加拉", LK: "斯里兰卡"
+  };
+  function machineWords(query) {
+    return String(query || "").toLowerCase().split(/[\s,，、;；]+/).filter(Boolean);
+  }
+  function machineHay(m) {
+    var code = String(m.country || "").toUpperCase();
+    return [String(m.machine || ""), String(m.country || ""), COUNTRY_LABEL[code] || ""].join(" ").toLowerCase();
+  }
   function machineMatches(m, query) {
-    var hay = [String(m.machine || ""), String(m.country || "")].join(" ").toLowerCase();
-    return String(query || "").toLowerCase().split(/\s+/).filter(Boolean).every(function (word) {
-      return hay.indexOf(word) !== -1;
-    });
+    var words = machineWords(query);
+    if (!words.length) return true;
+    var hay = machineHay(m);
+    return words.every(function (word) { return hay.indexOf(word) !== -1; });
+  }
+  function machineMatchesAny(m, query) {
+    var hay = machineHay(m);
+    return machineWords(query).some(function (word) { return hay.indexOf(word) !== -1; });
   }
   function renderMachineList() {
     var box = $("machine-list"); box.innerHTML = "";
@@ -2725,15 +2753,29 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     var sorted = !!state.sortKey;
     var all = machineViewList();
     var q = String(state.machineSearch || "").trim();
-    var shown = q ? all.filter(function (m) { return machineMatches(m, q); }) : all;
+    var shown = all, anyMode = false;
+    if (q) {
+      shown = all.filter(function (m) { return machineMatches(m, q); });
+      /* 多个词全都要命中时为 0 条，就退化成「任一命中」，别让多词搜索看着像坏了 */
+      if (!shown.length && machineWords(q).length > 1) {
+        shown = all.filter(function (m) { return machineMatchesAny(m, q); });
+        anyMode = shown.length > 0;
+      }
+    }
     var cntEl = $("machine-search-count");
     /* 搜索时把「改顺序」的三颗按钮和序号锁住：此刻列表里只看得到一部分机器，
        按 ↑ 其实是和看不见的那台交换位置，按完屏幕上一点变化都没有，纯属误会。 */
     var lockMove = sorted || !!q;
-    if (cntEl) cntEl.textContent = q ? "匹配 " + shown.length + " / " + all.length + " 台 · 改顺序请先清掉搜索" : "";
+    if (cntEl) {
+      cntEl.textContent = q
+        ? "匹配 " + shown.length + " / " + all.length + " 台"
+          + (anyMode ? "（没有同时含全部关键词的，按任一关键词）" : "")
+          + " · 改顺序请先清掉搜索"
+        : "";
+    }
     if (q && !shown.length) {
       var none = document.createElement("div"); none.className = "empty mlist-empty";
-      none.textContent = "没有匹配「" + q + "」的机器。搜索只看机器名和地区码，清掉搜索就能看到全部 " + all.length + " 台。";
+      none.textContent = "没有匹配「" + q + "」的机器。搜索看机器名、地区码和地区中文名（美国 / 香港 / 圣何塞…），多个词用空格隔开；清掉搜索就能看到全部 " + all.length + " 台。";
       box.appendChild(none); return;
     }
     shown.forEach(function (m) {
