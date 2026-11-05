@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.82";
+const VERSION = "2.4.83";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -511,7 +511,8 @@ textarea:focus{border-color:var(--acc)}
 .sort-rules pre{margin:7px 0 0;padding:9px 11px;background:var(--code);border:1px solid var(--line);border-radius:8px;font:12px/1.8 ui-monospace,Consolas,monospace;color:var(--ink);overflow-x:auto}
 .mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .mrank-note .mn-text{flex:1 1 0;min-width:0}
-.msrch{flex:0 0 auto;width:220px;min-width:140px;font-size:12.5px;padding:5px 9px}
+.msrch-wrap{flex:1 1 100%;display:flex;align-items:center;gap:8px;min-width:0}
+.msrch{flex:0 1 360px;width:360px;min-width:140px;font-size:12.5px;padding:5px 9px}
 .msrch-clear{flex:0 0 auto;padding:5px 11px;font-size:12.5px;line-height:1.4;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
 .msrch-clear:hover{background:var(--autoline);color:var(--ink)}
 .msrch-count{flex:0 0 auto;white-space:nowrap}
@@ -685,11 +686,12 @@ body.locked .wrap{display:none}
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
-<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）"
-  aria-label="搜索机器名">
+<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button>
+<span class="msrch-wrap">
+<input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）" aria-label="搜索机器名">
 <button id="machine-clear" class="fold msrch-clear" type="button" hidden title="清掉搜索，显示全部机器">清除</button>
 <span class="tip msrch-count" id="machine-search-count"></span>
-<button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
+</span></div>
 <div class="mlist-head" id="mlist-head"></div>
 <div id="sort-rules" class="sort-rules hidden">
 <div class="sr-h">节点是怎么排出来的</div>
