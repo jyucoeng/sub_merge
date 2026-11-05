@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.77";
+const VERSION = "2.4.79";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -412,7 +412,7 @@ button.copied{background:rgba(21,128,61,.12);border-color:rgba(21,128,61,.45);co
 button.copied::before{content:"✓ ";font-weight:700}
 [data-theme="dark"] button.copied{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:#86efac}
 .err{color:var(--err)}
-button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
+button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
 .node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
 
@@ -793,6 +793,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
 </div>
 <div id="preset-editor" class="peditor hidden">
   <div class="pe-hint" id="pe-mode-hint"></div>
+  <div class="pe-hint" id="pe-collect-hint"></div>
   <div class="row" style="margin-top:4px">
     <b id="pe-title">新建档案</b>
     <span id="pe-name-wrap" class="lockwrap"><input id="pe-name" placeholder="标识（可留空，用显示名自动生成）" spellcheck="false" style="width:190px" title="内部标识：API 路径和长链接 /sub/p/标识/token 会用到它；发短链之后链接里看不到它了。只能用字母、数字、下划线、横线，1–32 位；留空会自动用显示名生成。建好之后不能改"></span>
@@ -1127,9 +1128,15 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     idx.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); idx.blur(); } };
     var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = node.link || ""; link.placeholder = "vless://... / vmess://... / hysteria2://... / tuic://... / trojan://... / anytls://...";
     var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = node.name || ""; name.placeholder = "显示名称";
+    var topN = document.createElement("button"); topN.type = "button"; topN.className = "m-top"; topN.textContent = "Top"; topN.title = "置顶（移到第 1 位）"; topN.disabled = index === 0;
     var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移";
     var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移";
     var del = trashButton("从这个分组里删掉这个节点", "删除节点");
+    topN.onclick = function () {
+      if (index <= 0) return;
+      if (!moveItem(state.nodes, index, 0)) return;
+      markDirty(); render();
+    };
     up.onclick = function () { if (index > 0) { var t = state.nodes[index - 1]; state.nodes[index - 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
     down.onclick = function () { if (index < state.nodes.length - 1) { var t = state.nodes[index + 1]; state.nodes[index + 1] = state.nodes[index]; state.nodes[index] = t; markDirty(); render(); } };
     del.onclick = function () { state.nodes.splice(index, 1); markDirty(); renderManual(); };
@@ -1140,6 +1147,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       ev.preventDefault();
       if (!link.value.trim()) { state.nodes.splice(index, 1); render(); }
       var r = addLinks(text);
+      /* 粘贴完必须标脏：以前只加了节点不置 dirty，离开页面不提示、保存按钮也不变样，
+         攒的一堆节点就这么没了。 */
+      markDirty();
       var tip = $("bulk-status");
       if (tip) { tip.textContent = "已添加 " + r.added + " 个节点" + (r.dup ? "，跳过 " + r.dup + " 个重复" : ""); tip.className = "tip ok"; }
     };
@@ -1149,7 +1159,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       if (auto) { state.nodes[index].name = auto; name.value = auto; }
     };
     name.oninput = function () { state.nodes[index].name = name.value; markDirty(); };
-    row.appendChild(idx); row.appendChild(link); row.appendChild(name); row.appendChild(up); row.appendChild(down); row.appendChild(del);
+    row.appendChild(idx); row.appendChild(link); row.appendChild(name); row.appendChild(topN); row.appendChild(up); row.appendChild(down); row.appendChild(del);
     return row;
   }
   function safeDecode(text) {
@@ -1246,11 +1256,14 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     var list = splitLinkText(text);
     var fromBase64 = !splitLinksOnce(text).length && list.length > 0;
     var have = {};
-    state.nodes.forEach(function (n) { if (n.link) have[n.link] = 1; });
+    /* 按「# 之前」的身份去重：同一条节点换个名字粘两遍，进来两条只会在 ① 里
+       看着像两个节点，订阅侧照样按身份合并，纯属自找混乱。 */
+    var ident = function (linkText) { return String(linkText || "").split("#")[0]; };
+    state.nodes.forEach(function (n) { if (n.link) have[ident(n.link)] = 1; });
     var added = 0, dup = 0;
     list.forEach(function (link) {
-      if (have[link]) { dup++; return; }
-      have[link] = 1;
+      if (have[ident(link)]) { dup++; return; }
+      have[ident(link)] = 1;
       state.nodes.push({ link: link, name: nameFromLink(link) });
       added++;
     });
@@ -1614,7 +1627,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       copy.title = "复制这条节点的原串（" + node.link.length + " 字符）";
       copy.onclick = function (ev) {
         if (ev && ev.stopPropagation) ev.stopPropagation();
-        copyToClipboard(node.link); flashButton(copy, "已复制");
+        copyWithFlash(copy, node.link);
       };
       row.onclick = function () { toggleSubNode(node); };
       row.appendChild(tick); row.appendChild(tag); row.appendChild(meta); row.appendChild(copy);
@@ -1633,7 +1646,12 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       state.sub.disabled = data.disabled || [];
       state.sub.stats = data.stats || state.sub.stats;
       return loadSubNodes(true);
-    }).catch(function (err) { subStatusText(err.message, false); });
+    }).catch(function (err) {
+      /* 以前这里把错误吞了，调用方的 .then 照样跑，于是界面弹出「已保存 N 处改动」，
+         实际一条都没写进去。现在把错误抛回去，由调用方决定怎么说。 */
+      subStatusText("保存失败：" + err.message + "（勾选还在，可以重试）", false);
+      throw err;
+    });
   }
   function toggleSubNode(node) {
     var draft = (state.sub.draft || []).slice();
@@ -1652,7 +1670,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       renderSub();
       subStatusText("已保存 " + count + " 处改动，现在 " + (stats.enabled != null ? stats.enabled : subEnabledCount()) + " / " + stats.total + " 个节点在订阅里", true);
       loadMachines(true);
-    });
+    }).catch(function () { /* 失败的提示已经在 putSubDisabled 里写过，这里只是别让 Promise 变成未捕获异常 */ });
   }
   function discardSubDraft() {
     state.sub.draft = (state.sub.disabled || []).slice();
@@ -2040,7 +2058,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         copy.title = "复制这条节点的原串（" + String(hit.node.link || "").length + " 字符）";
         copy.onclick = function (ev) {
           if (ev && ev.stopPropagation) ev.stopPropagation();
-          copyToClipboard(hit.node.link || ""); flashButton(copy, "已复制");
+          copyWithFlash(copy, hit.node.link || "");
         };
         row.appendChild(copy);
       }
@@ -2092,6 +2110,14 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         var msg = "已保存 " + data.preset.name + "：绑定 " + st.picked.length + " 组（机器 + 协议），隧道换域名也认";
         presetStatus(msg, true);
         /* 保存成功后先留着面板，让人看到「已保存」，3 秒后再收起 */
+        /* 新建成功后必须切成编辑态：否则再点一次「保存档案」还带着 create:true，
+           服务端会回「标识已存在」，看着像保存失败。 */
+        st.mode = "edit";
+        st.name = data.preset && data.preset.name ? data.preset.name : name;
+        if ($("pe-name")) { $("pe-name").value = st.name; $("pe-name").readOnly = true; $("pe-name").className = "locked"; $("pe-name").style.pointerEvents = "none"; }
+        var nameWrap = $("pe-name-wrap");
+        if (nameWrap) { nameWrap.className = "lockwrap locked"; nameWrap.title = "标识建好就固定了，不能改（API 路径和长链接用它）；短链不依赖它"; }
+        if ($("pe-title")) $("pe-title").textContent = "编辑档案：" + st.name;
         st.orig = st.picked.slice();
         st.origCond = peCondSig(st);
         st.origLabel = String($("pe-label").value || "").trim();
@@ -2155,7 +2181,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       meta.appendChild(nm); meta.appendChild(src); mid.appendChild(meta); mid.appendChild(sub);
       var cp = document.createElement("button"); cp.type = "button"; cp.className = "nlcopy"; cp.textContent = "复制";
       cp.title = "复制这条节点原串";
-      cp.onclick = function () { copyToClipboard(n.link); flashButton(cp, "已复制"); };
+      cp.onclick = function () { copyWithFlash(cp, n.link); };
       line.appendChild(badge); line.appendChild(mid); line.appendChild(cp);
       wrap.appendChild(line);
     });
@@ -2217,7 +2243,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
 
       var copy = document.createElement("button"); copy.type = "button"; copy.textContent = "复制";
       copy.title = (sl && view === "short") ? "复制这条短链（不含 token）" : "复制完整链接（含 token）";
-      copy.onclick = function () { copyToClipboard(shownUrl); flashButton(copy, "已复制"); };
+      copy.onclick = function () { copyWithFlash(copy, shownUrl); };
 
       var right = document.createElement("div"); right.className = "row"; right.style.gap = "6px";
       var editing = !!(state.presetEdit && state.presetEdit.mode === "edit" && state.presetEdit.name === item.name);
@@ -2336,8 +2362,40 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       btn.className = oldClass;
     }, COPY_FLASH_MS);
   }
+  /* 复制要返回 Promise<boolean>：以前既不看结果也没兜底，浏览器拒绝写剪贴板
+     （非 https、没给权限、iframe 里）时按钮照样闪「已复制」，用户粘贴出来是空的。
+     现在 navigator.clipboard → execCommand → 手动选中三层兜底，全都失败才算失败。 */
+  function copyFallback(text) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = String(text == null ? "" : text);
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-1000px";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
+  /* 复制 + 按钮反馈：成功才闪「已复制」，失败说清楚，别让按钮骗人 */
+  function copyWithFlash(btn, text, okText) {
+    return copyToClipboard(text).then(function (ok) {
+      if (btn) flashButton(btn, ok ? (okText || "已复制") : "复制失败");
+      if (!ok) setStatus("浏览器不让写剪贴板，手动选中那行文字复制一下", false);
+      return ok;
+    });
+  }
   function copyToClipboard(text) {
-    try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
+    var body = String(text == null ? "" : text);
+    if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(body).then(function () { return true; }, function () { return copyFallback(body); });
+    }
+    return Promise.resolve(copyFallback(body));
   }
 
   /* ② 的显示顺序：库里存过用户的顺序就按它，没存过就是上报顺序（脚本先打印哪条就先显示）。
@@ -2630,7 +2688,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         + "  bash sb.sh rep";
       var cmd = document.createElement("code"); cmd.className = "me-cmd"; cmd.textContent = cmdText;
       var cp = document.createElement("button"); cp.type = "button"; cp.textContent = "复制命令";
-      cp.onclick = function () { copyToClipboard(cmdText); flashButton(cp, "已复制"); };
+      cp.onclick = function () { copyWithFlash(cp, cmdText); };
       var d2 = document.createElement("div"); d2.className = "me-desc";
       d2.textContent = "装过 singbox-tools 的机器直接 sb rep；REPORT_TOKEN 在 Cloudflare 后台的环境变量里。";
       e.appendChild(t); e.appendChild(d); e.appendChild(cmd); e.appendChild(cp); e.appendChild(d2);
@@ -3050,7 +3108,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     syncOrderButtons();
   }
   window.addEventListener("beforeunload", function (e) {
-    if (!state.orderDirty && !state.autoDirty) return;
+    /* 档案编辑器里的未保存改动（勾选 / 名字 / 格式）也要拦住：
+       它不在 state.dirty 里，以前关页面一点提醒都没有。 */
+    if (!state.orderDirty && !state.autoDirty && !peDirty()) return;
     e.preventDefault();
     e.returnValue = "";
     return "";
@@ -3112,7 +3172,11 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
   $("pe-save").onclick = function () { busy(this, function () { return savePresetEdit(); }); };
   /* 取消不需要留痕：面板收起来本身就是反馈，再挂一句「已取消」既占位置，
      又会和刚点过的保存/失败提示抢同一个位置。 */
-  $("pe-cancel").onclick = function () { closePresetEditor(); presetStatus("", null); };
+  $("pe-cancel").onclick = function () {
+    /* 改过勾选/名字/格式就直接收起，等于悄悄丢掉这次编辑——问一句更省事 */
+    if (peDirty() && !window.confirm("这个档案有没保存的改动，确定放弃？")) return;
+    closePresetEditor(); presetStatus("", null);
+  };
   $("pe-search").oninput = function () { if (state.presetEdit) { cancelPresetClose(); state.presetEdit.search = this.value || ""; renderPresetEditor(); } };
   $("pe-all").onclick = function () {
     if (!state.presetEdit) return;
@@ -3337,9 +3401,13 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
   document.addEventListener("click", function (ev) {
     var id = ev.target && ev.target.getAttribute("data-copy");
     if (!id) return;
-    var text = $(id).textContent;
-    var done = function () { flashButton(ev.target, "已复制"); };
-    if (navigator.clipboard) navigator.clipboard.writeText(text).then(done).catch(done); else done();
+    var src = $(id);
+    if (!src) return;
+    var btn = ev.target;
+    copyToClipboard(src.textContent || "").then(function (ok) {
+      flashButton(btn, ok ? "已复制" : "复制失败");
+      if (!ok) setStatus("浏览器不让写剪贴板，手动选中那行文字复制一下", false);
+    });
   });
   $("clash-hide-empty").onchange = function () { renderClashGroups(); };
   $("clash-add-group").onclick = function () {
