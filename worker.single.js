@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.49";
+const VERSION = "2.4.50";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -478,10 +478,10 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .c-meta{display:flex;gap:12px;justify-content:space-between;align-items:center;width:100%}
 /* 这是「退出排序 + 解锁调整」的动作按钮，不是又一个排序键。
    表头其他键是次要色的字，这里给实心强调底色，一眼就分得开。 */
-.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:var(--acc);border:1px solid var(--acc);border-radius:999px;padding:4px 12px;font:inherit;font-size:12px;font-weight:600;line-height:1.2;color:#fff;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.06),0 2px 8px rgba(37,99,235,.28)}
-.mlist-head .c-reset:hover{filter:brightness(1.08)}
+.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:linear-gradient(#f9a63a,#e8820a);border:1px solid #c9700a;border-radius:999px;padding:5px 14px;font:inherit;font-size:12px;font-weight:700;line-height:1.2;letter-spacing:.02em;color:#3a1f00;cursor:pointer;box-shadow:0 2px 10px rgba(232,130,10,.42),inset 0 1px 0 rgba(255,255,255,.4);text-shadow:0 1px 0 rgba(255,255,255,.25)}
+.mlist-head .c-reset:hover{filter:brightness(1.06);box-shadow:0 3px 14px rgba(232,130,10,.6),inset 0 1px 0 rgba(255,255,255,.4)}
 .mlist-head .c-reset:active{transform:translateY(1px)}
-[data-theme="dark"] .mlist-head .c-reset{color:#04101f}
+[data-theme="dark"] .mlist-head .c-reset{color:#2a1700;box-shadow:0 2px 12px rgba(232,130,10,.55),inset 0 1px 0 rgba(255,255,255,.35)}
 .mlist-head .c-reset[hidden]{display:none}
 /* 窄屏下机器行会折成多行（.machine 在 720px 以下改 flex-wrap），
    表头还按 7 列栅格摆就会互相压字、按钮还会溢到卡片外。
