@@ -1381,6 +1381,40 @@ test("machine names can be Chinese, and Chinese regions drive default order", as
   assert.deepEqual((await res.json()).machine_order, [de, la, "香港-备用"]);
 });
 
+test("restoring the default order drops the saved machine order (back to country rk)", async () => {
+  /* 面板上的「恢复默认排序」= PUT 空数组，后端把 machine_order 清空，于是退回按地区 rk 排；
+     和「撤销改动」不同，这个连已保存的顺序一起删。 */
+  const env = makeEnv();
+  const hk = "香港-甲", la = "洛杉矶-乙", de = "德国-丙";
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  await call(env, "POST", `/api/v1/report/${encodeURIComponent(hk)}`, b64(SAMPLE_LINKS[0]), auth);
+  await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(la)}`, JSON.stringify({ nodes: [{ link: SAMPLE_LINKS[1] }] }), jsonAuth);
+  await call(env, "PUT", `/api/v1/nodes/${encodeURIComponent(de)}`, JSON.stringify({ nodes: [{ link: SAMPLE_LINKS[2] }] }), jsonAuth);
+
+  let res = await call(env, "GET", "/api/v1/machines", null, auth);
+  assert.deepEqual((await res.json()).machines.map((m) => m.machine), [hk, la, de], "默认按地区：香港 → 洛杉矶 → 德国");
+
+  /* 手动排一个反过来的顺序 */
+  res = await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: [de, la, hk] }), jsonAuth);
+  assert.equal(res.status, 200);
+  res = await call(env, "GET", "/api/v1/machines", null, auth);
+  assert.deepEqual((await res.json()).machines.map((m) => m.machine), [de, la, hk], "保存过的顺序优先");
+
+  /* 恢复默认排序：空数组 = 没有自定义顺序 */
+  res = await call(env, "PUT", "/api/v1/machines/order", JSON.stringify({ machines: [] }), jsonAuth);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).machine_order, []);
+  res = await call(env, "GET", "/api/v1/machines/order", null, auth);
+  assert.deepEqual((await res.json()).machine_order, [], "库里存的顺序被清掉");
+  res = await call(env, "GET", "/api/v1/machines", null, auth);
+  assert.deepEqual((await res.json()).machines.map((m) => m.machine), [hk, la, de], "回到按地区 rk 的默认顺序");
+
+  /* UI 上确实有这个按钮 */
+  const html = await (await call(env, "GET", "/ui")).text();
+  assert.ok(html.includes('id="default-machine-order"'), "机器排序区要有「恢复默认排序」按钮");
+});
+
 test("the WebUI script is syntactically valid JavaScript", async () => {
   const env = makeEnv();
   const res = await call(env, "GET", `/ui/${TOKEN}`);

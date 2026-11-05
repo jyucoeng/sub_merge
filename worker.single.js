@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.34";
+const VERSION = "2.4.35";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -653,6 +653,7 @@ body.locked .wrap{display:none}
 <div>两层按链接去重，<b>手动优先</b>：同一条链接两边都有时，只用手动那条，上报那条自动让位。</div>
 <div class="sr-h">第一层 · 机器之间</div>
 <div>· <b>保存过</b>「保存机器顺序」→ 完全按你排的来，序号 1 在最前；之后才上报进来的新机器，排在最后。</div>
+<div>· <b>恢复默认排序</b>→ 丢掉保存过的顺序，回到上面那套按地区 rk 自动排（不用先点保存，点完立即生效）。</div>
 <div>· <b>从没保存过</b> → 按机器名里认出的地区排，数字小的在前：</div>
 <pre>香港 10   韩国 20   日本 30    新加坡 40   亚洲其他 50
 美国 60   德国 70   欧洲其他 80  美洲其他 90  认不出 100</pre>
@@ -692,7 +693,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 
 </div>
 <div id="machine-list" class="machine-list"></div>
-<div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button><button id="reset-machine-order" type="button" disabled title="放弃这次改动，回到上次保存的顺序">撤销改动</button></div>
+<div class="row admin-only" style="margin-top:12px"><button id="save-machine-order" class="primary" type="button">保存机器顺序</button><button id="reset-machine-order" type="button" disabled title="放弃这次改动，回到上次保存的顺序">撤销改动</button><button id="default-machine-order" type="button" title="清掉保存过的顺序，回到按机器名里的地区自动排（香港→韩国→日本→新加坡→亚洲其他→美国→德国→欧洲其他→美洲其他→认不出的垫底）">恢复默认排序</button></div>
 <div id="order-status" class="status"></div>
 </section>
 
@@ -2902,11 +2903,23 @@ vless-cdn  vless-reality  vmess-argo</pre>
     syncOrderButtons();
   }
   window.addEventListener("beforeunload", function (e) {
-    if (!state.orderDirty) return;
+    if (!state.orderDirty && !state.autoDirty) return;
     e.preventDefault();
     e.returnValue = "";
     return "";
   });
+  /* 恢复默认排序 = 把库里的 machine_order 清成空数组，后端就会退回按地区 rk 排；
+     和「撤销改动」区别：那个只是放弃这次没保存的改动，这个是把已保存的顺序也删掉。 */
+  var defaultMachineOrder = $("default-machine-order");
+  if (defaultMachineOrder) defaultMachineOrder.onclick = function () {
+    var el = $("order-status");
+    if (!window.confirm("清掉保存过的机器顺序，回到按地区（国家 rk）自动排？")) return;
+    el.textContent = "正在恢复默认排序…"; el.className = "status";
+    api("/machines/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ machines: [] }) })
+      .then(function () { return loadMachines(); })
+      .then(function () { el.textContent = "已恢复默认排序（按地区 rk 自动排）"; el.className = "status ok"; })
+      .catch(function (e) { el.textContent = "恢复失败：" + e.message; el.className = "status err"; });
+  };
   $("save-machine-order").onclick = function () {
     var machines = state.machines.map(function (m) { return m.machine; });
     var el = $("order-status"); el.textContent = "保存中..."; el.className = "status";
