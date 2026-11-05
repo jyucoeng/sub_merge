@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.50";
+const VERSION = "2.4.51";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2908,7 +2908,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (!box) return;
     if (!box.children.length) {
       box.title = "表头只换看法：排序不动机器顺序，也不会变成「未保存」";
-      var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "#";
+      var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "序号"; ix.title = "这一列是机器顺序，改数字就能挪位置";
       box.appendChild(ix);
       /* 机器名和地区是同一列里的两个维度，挨着放；节点数/最近上报属于右边那块 */
       var nwrap = document.createElement("div"); nwrap.className = "c-name";
