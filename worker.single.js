@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.33";
+const VERSION = "2.4.34";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -710,7 +710,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-reset" type="button" title="丢掉自己排的顺序，回到脚本打印的上报顺序">恢复上报顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-save" type="button" disabled title="调整只改前端，点这里才写库（一次请求）">保存顺序</button><button id="auto-order-reset" type="button" title="丢掉自己排的顺序，回到脚本打印的上报顺序（同样要点保存才写库）">恢复上报顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -815,7 +815,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoOrder: [], dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoOrder: [], autoDirty: false, dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -2320,20 +2320,32 @@ vless-cdn  vless-reality  vmess-argo</pre>
     });
     return list;
   }
-  /* 自定义顺序只是「看法」，保存进库是为了换设备也在；写库失败就退回上报顺序，不装作成功。 */
-  function saveAutoOrder(order, done) {
-    var prev = state.autoOrder.slice();
+  /* 调整顺序只改本地草稿，点「保存顺序」才写库——连续挪七八下不会发八次请求。
+     草稿没保存时按钮是亮的，刷新/切机器会丢掉，所以状态条也一起提示。 */
+  function applyAutoOrder(order) {
     state.autoOrder = order.slice();
+    state.autoDirty = true;
     renderAutoNodes();
+    setStatus("顺序已调整（未保存，点「保存顺序」写入库；只影响这块列表的显示）", true);
+  }
+  function syncAutoOrderButtons() {
+    var save = $("auto-order-save");
+    if (!save) return;
+    save.disabled = !state.autoDirty;
+    save.textContent = state.autoDirty ? "保存顺序 •" : "保存顺序";
+  }
+  function saveAutoOrder(done) {
+    var order = state.autoOrder.slice();
     api("/nodes/" + encodeURIComponent(state.current) + "/order", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: order }),
     }).then(function () {
+      state.autoDirty = false;
+      syncAutoOrderButtons();
       setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已恢复上报顺序", true);
       if (done) done(true);
     }).catch(function (e) {
-      state.autoOrder = prev;
-      renderAutoNodes();
-      setStatus("顺序保存失败：" + e.message, false);
+      /* 失败不清草稿：用户排的东西还在，改完网络再点一次就行 */
+      setStatus("顺序保存失败：" + e.message + "（顺序还在，可以重试）", false);
       if (done) done(false);
     });
   }
@@ -2346,7 +2358,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var to = Math.max(0, Math.min(list.length - 1, toIndex));
     if (to === from) return false;
     list.splice(to, 0, list.splice(from, 1)[0]);
-    saveAutoOrder(list);
+    applyAutoOrder(list);
     return true;
   }
   function moveAutoNode(fromKey, toKey) {
@@ -2355,11 +2367,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var from = list.indexOf(fromKey), to = list.indexOf(toKey);
     if (from < 0 || to < 0) return;
     list.splice(to, 0, list.splice(from, 1)[0]);
-    saveAutoOrder(list);
+    applyAutoOrder(list);
   }
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
+    syncAutoOrderButtons();
     renderSources();
     if (!state.autoNodes.length) {
       var e = document.createElement("div"); e.className = "empty";
@@ -2767,6 +2780,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoOrder = Array.isArray(data.auto_order) ? data.auto_order.slice() : [];
+      state.autoDirty = false;
       state.sources = data.sources || [];
       var when = $("auto-when");
       if (when) {
@@ -2797,7 +2811,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
   var autoOrderReset = $("auto-order-reset");
-  if (autoOrderReset) autoOrderReset.onclick = function () { saveAutoOrder([]); };
+  if (autoOrderReset) autoOrderReset.onclick = function () { applyAutoOrder([]); };
+  var autoOrderSave = $("auto-order-save");
+  if (autoOrderSave) autoOrderSave.onclick = function () { saveAutoOrder(); };
   $("reset-machine-order").onclick = function () {
     if (!state.orderDirty) return;
     state.sortKey = ""; state.sortDir = 1;

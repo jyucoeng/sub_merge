@@ -2779,6 +2779,8 @@ test("the panel orders reported nodes without a mode switch (saved order, else u
   assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
   assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
   assert.ok(html.includes("恢复上报顺序"), "要能一键丢掉自己排的顺序");
+  assert.ok(html.includes('id="auto-order-save"'), "调完顺序要有「保存顺序」按钮，一次性写库");
+  assert.ok(html.includes("applyAutoOrder"), "调整只改草稿，不逐次发请求");
   /* 曾经的坑：autoSortMode() 只认 upload/proto/name，自定义永远落回 upload，
      表现为「箭头点了没反应、顺序存了不生效」。这里盯住那个函数别再出现。 */
   assert.ok(!html.includes("autoSortMode"), "不要再用排序模式决定是否套用保存的顺序");
