@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.37";
+const VERSION = "2.4.38";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2839,7 +2839,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   if (autoOrderSave) autoOrderSave.onclick = function () { saveAutoOrder(); };
   $("reset-machine-order").onclick = function () {
     if (!state.orderDirty) return;
-    state.sortKey = ""; state.sortDir = 1;
+    state.sortKey = ""; state.sortDir = 1; paintSortHead();
     /* 顺序这一块有自己的提示位（#order-status），别写到页面底部的全局状态条去 */
     var el = $("order-status"); el.textContent = "正在恢复…"; el.className = "status";
     loadMachines(true).then(function () { el.textContent = "已回到上次保存的顺序"; el.className = "status ok"; })
@@ -2950,10 +2950,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
   if (defaultMachineOrder) defaultMachineOrder.onclick = function () {
     var el = $("order-status");
     if (!window.confirm("清掉保存过的机器顺序，回到按地区（国家 rk）自动排？")) return;
+    /* 关键：临时排序（点表头）是纯视图，如果不清掉，库里顺序清空了界面上还是老样子，
+       看着就像「恢复了但没生效」。 */
+    state.sortKey = ""; state.sortDir = 1; paintSortHead();
     el.textContent = "正在恢复默认排序…"; el.className = "status";
     api("/machines/order", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ machines: [] }) })
       .then(function () { return loadMachines(); })
-      .then(function () { el.textContent = "已恢复默认排序（按地区 rk 自动排）"; el.className = "status ok"; })
+      .then(function () {
+        var noGeo = state.machines.filter(function (m) { return !m.country; }).length;
+        el.textContent = "已恢复默认排序（按地区 rk 自动排）"
+          + (noGeo ? "；其中 " + noGeo + " 台机器名里认不出地区，只能垫在后面（名字里加个地区词即可归位）" : "");
+        el.className = "status ok";
+      })
       .catch(function (e) { el.textContent = "恢复失败：" + e.message; el.className = "status err"; });
   };
   $("save-machine-order").onclick = function () {
