@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.81";
+const VERSION = "2.4.82";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -511,6 +511,10 @@ textarea:focus{border-color:var(--acc)}
 .sort-rules pre{margin:7px 0 0;padding:9px 11px;background:var(--code);border:1px solid var(--line);border-radius:8px;font:12px/1.8 ui-monospace,Consolas,monospace;color:var(--ink);overflow-x:auto}
 .mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .mrank-note .mn-text{flex:1 1 0;min-width:0}
+.msrch{flex:0 0 auto;width:220px;min-width:140px;font-size:12.5px;padding:5px 9px}
+.msrch-clear{flex:0 0 auto;padding:5px 11px;font-size:12.5px;line-height:1.4;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
+.msrch-clear:hover{background:var(--autoline);color:var(--ink)}
+.msrch-count{flex:0 0 auto;white-space:nowrap}
 .mlist-head button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .machine .m-top,.node .m-top{font-size:11px;font-weight:600;letter-spacing:0;padding-left:0;padding-right:0}
@@ -681,7 +685,11 @@ body.locked .wrap{display:none}
 
 <section class="card">
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
-<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
+<div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）"
+  aria-label="搜索机器名">
+<button id="machine-clear" class="fold msrch-clear" type="button" hidden title="清掉搜索，显示全部机器">清除</button>
+<span class="tip msrch-count" id="machine-search-count"></span>
+<button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
 <div class="mlist-head" id="mlist-head"></div>
 <div id="sort-rules" class="sort-rules hidden">
 <div class="sr-h">节点是怎么排出来的</div>
@@ -862,7 +870,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoOrder: [], autoDirty: false, dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoOrder: [], autoDirty: false, dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1, machineSearch: "" };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -2681,6 +2689,15 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     } catch (e) { return ""; }
   }
 
+  /* 机器名的模糊搜索：不分大小写、子串命中即可；空格分开的多个词要同时命中。
+     除了机器名本身，也匹配从名字里解析出的地区码（us / hk / 圣何塞 这种），
+     因为「找美国那几台」比「记得机器全名」常见得多。 */
+  function machineMatches(m, query) {
+    var hay = [String(m.machine || ""), String(m.country || "")].join(" ").toLowerCase();
+    return String(query || "").toLowerCase().split(/\s+/).filter(Boolean).every(function (word) {
+      return hay.indexOf(word) !== -1;
+    });
+  }
   function renderMachineList() {
     var box = $("machine-list"); box.innerHTML = "";
     if (!state.machines.length) {
@@ -2704,13 +2721,29 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       box.appendChild(e); return;
     }
     var sorted = !!state.sortKey;
-    machineViewList().forEach(function (m, index) {
+    var all = machineViewList();
+    var q = String(state.machineSearch || "").trim();
+    var shown = q ? all.filter(function (m) { return machineMatches(m, q); }) : all;
+    var cntEl = $("machine-search-count");
+    /* 搜索时把「改顺序」的三颗按钮和序号锁住：此刻列表里只看得到一部分机器，
+       按 ↑ 其实是和看不见的那台交换位置，按完屏幕上一点变化都没有，纯属误会。 */
+    var lockMove = sorted || !!q;
+    if (cntEl) cntEl.textContent = q ? "匹配 " + shown.length + " / " + all.length + " 台 · 改顺序请先清掉搜索" : "";
+    if (q && !shown.length) {
+      var none = document.createElement("div"); none.className = "empty mlist-empty";
+      none.textContent = "没有匹配「" + q + "」的机器。搜索只看机器名和地区码，清掉搜索就能看到全部 " + all.length + " 台。";
+      box.appendChild(none); return;
+    }
+    shown.forEach(function (m) {
       var row = document.createElement("div"); row.className = sorted ? "machine sorted" : "machine";
-      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1);
-      idx.disabled = sorted;
+      /* 序号永远是「这台机器在完整列表里的位置」——搜索只是把别的行藏起来，
+         不能让它显示的号变成筛选后的第几名，否则改序号会把人绕晕。 */
+      var at0 = machineIndexOf(m);
+      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String((at0 < 0 ? 0 : at0) + 1);
+      idx.disabled = lockMove;
       idx.title = sorted
         ? "位置暂时锁着：现在按表头排的序，点「解除顺序锁定」才能调位置"
-        : "输入序号直接调整这台机器的位置";
+        : (q ? "搜索时不能改位置：清掉搜索框里的字再改" : "输入序号直接调整这台机器的位置");
       idx.onchange = function () {
         var at = machineIndexOf(m);
         if (at < 0) return;
@@ -2777,11 +2810,10 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         + (((m.manual_nodes || 0) + (m.auto_nodes || 0) > (m.nodes || 0)) ? "，合并时按链接去重" : "")
         + " · 进订阅 " + (m.nodes || 0) + " 条"
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
-      var at0 = machineIndexOf(m);
       /* 和 ② 上报节点那颗「Top」同款：机器多的时候一下挪到第一位，不用点十几次 ↑ */
       var topM = document.createElement("button"); topM.type = "button"; topM.className = "m-top"; topM.textContent = "Top";
-      topM.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "置顶（移到第 1 位）";
-      topM.disabled = sorted || at0 <= 0;
+      topM.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : (q ? "搜索中不能改位置：先清掉搜索" : "置顶（移到第 1 位）");
+      topM.disabled = lockMove || at0 <= 0;
       topM.onclick = function () {
         var at = machineIndexOf(m);
         if (at <= 0) return;
@@ -2792,8 +2824,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         markOrderDirty();
         renderMachineList(); renderMachines();
       };
-      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "上移"; up.disabled = sorted || at0 <= 0;
-      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "下移"; down.disabled = sorted || at0 < 0 || at0 >= state.machines.length - 1;
+      var moveNote = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : (q ? "搜索中不能改位置：先清掉搜索" : "");
+      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = moveNote || "上移"; up.disabled = lockMove || at0 <= 0;
+      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = moveNote || "下移"; down.disabled = lockMove || at0 < 0 || at0 >= state.machines.length - 1;
       var editingThis = !!state.editingMachine && state.editingMachine === m.machine;
       var edit = document.createElement("button"); edit.type = "button";
       edit.className = editingThis ? "edit editing" : "edit";
@@ -3314,6 +3347,21 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     for (var i = 1; i < 1000; i++) { if (!have["manual-" + i]) return "manual-" + i; }
     return "manual-" + Date.now().toString(36);
   }
+  /* 机器搜索：输入即筛，Esc 清掉；有内容时右侧给个「清除」，省得来回删字 */
+  (function () {
+    var box = $("machine-search"), clear = $("machine-clear");
+    if (!box) return;
+    var sync = function () {
+      state.machineSearch = box.value || "";
+      if (clear) clear.hidden = !String(state.machineSearch).trim();
+      renderMachineList();
+    };
+    box.oninput = sync;
+    box.onkeydown = function (ev) {
+      if (ev.key === "Escape") { box.value = ""; sync(); }
+    };
+    if (clear) clear.onclick = function () { box.value = ""; box.focus(); sync(); };
+  })();
   $("create-machine").onclick = function () {
     var box = $("new-machine");
     var typed = String(box.value || "").trim().toLowerCase();
