@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.67";
+const VERSION = "2.4.68";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -463,7 +463,7 @@ textarea:focus{border-color:var(--acc)}
 /* 置顶/置底是「跳」，上移/下移是「挪一步」：描边和颜色各走一套，扫一眼就分得开 */
 /* 「顶/底」和「↑/↓」是同一件事的两种跨度，样式别搞成两套；
    只把字重压一点，让人看出这是「一步到位」而不是「挪一格」。 */
-.node button.edge{color:var(--acc)}.node button.ico{padding:5px 0;display:flex;align-items:center;justify-content:center}.node button>svg{display:block}
+.node button.edge{color:var(--acc);font-weight:600;letter-spacing:0}.node button.ico{padding:5px 0;display:flex;align-items:center;justify-content:center}.node button>svg{display:block}
 .node button.jump:hover:not(:disabled){color:var(--acc);border-color:var(--acc);background:var(--accbg)}
 .machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
 .machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
@@ -2503,19 +2503,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
          全看用户系统装了什么字体，同一排按钮在 Windows/安卓上会大小不一。
          SVG 用 stroke:currentColor，悬停/禁用自然跟随按钮颜色。 */
       var ICON = {
-        top: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14"/><path d="M12 20V10"/><path d="M7 14l5-5 5 5"/></svg>',
-        up: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
-        down: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
+        up: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+        down: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
       };
       var mkMove = function (icon, title, target, off, kind) {
         var b = document.createElement("button"); b.type = "button"; b.title = title;
-        b.innerHTML = ICON[icon];
-        b.className = kind ? kind + " ico" : "ico";
+        if (ICON[icon]) { b.innerHTML = ICON[icon]; b.className = kind ? kind + " ico" : "ico"; }
+        else { b.textContent = icon; b.className = kind || ""; }
         b.disabled = target === viewIndex;
         b.onclick = function () { moveAutoNodeTo(here, typeof target === "number" ? target : off); };
         return b;
       };
-      var topBtn = mkMove("top", "置顶（移到第 1 位）", 0, null, "edge");
+      var topBtn = mkMove("顶", "置顶（移到第 1 位）", 0, null, "edge");
       var upBtn = mkMove("up", "上移一位", null, viewIndex - 1);
       var downBtn = mkMove("down", "下移一位", null, viewIndex + 1);
       upBtn.disabled = viewIndex === 0;
