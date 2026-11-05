@@ -2731,3 +2731,30 @@ test("IPv6 nodes emit bracket-free addresses in clash and sing-box, keep bracket
   assert.ok(plain.includes("@[2408:8207:1234::5]:21004"), "base64 订阅里的链接必须保留方括号（RFC 3986 要求）");
   assert.equal(plain.split("\n").filter(Boolean).length, 3);
 });
+
+test("the panel lists reported nodes in upload order, not the subscription's grouped order", async () => {
+  /* 面板 ② 那张卡是「核对上报内容」用的：脚本先打印哪条，这里就先显示哪条。
+     而订阅输出要按接入方式分组（argo→cdn→reality→普通），两者顺序本来就不同。
+     坑在于 machines.nodes_json 存的正是排过序的结果，面板若直接拿它会永远对不上，
+     所以要从最近一次上报的原文还原顺序。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const argo = "trojan://pw@argo.example.com:443?security=tls&sni=a.com&type=ws&host=h.example.com&path=%2F#trojan-argo";
+  const hy2 = "hysteria2://pw@2.2.2.2:443?sni=a.com#hy2";
+  const reality = "vless://33333333-3333-4333-8333-333333333333@5.5.5.5:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-reality";
+  const tuic = "tuic://u:p@4.4.4.4:443?sni=a.com#tuic";
+  /* 故意按「普通→reality→argo」的上报顺序，和分组排序完全相反 */
+  await call(env, "POST", "/api/v1/report/panel", b64([hy2, tuic, reality, argo].join("\n")), auth);
+
+  const panel = await (await call(env, "GET", "/api/v1/nodes/panel", null, auth)).json();
+  assert.deepEqual((panel.auto_nodes || []).map((n) => n.name), ["hy2", "tuic", "vless-reality", "trojan-argo"],
+    "面板按上报顺序铺开");
+
+  /* 订阅仍然按接入方式分组：argo 在最前，其次 reality，再普通（hy2/tuic 按协议字母序） */
+  const text = unb64(await (await call(env, "GET", `/sub/panel/${TOKEN}`)).text());
+  const names = text.split("\n").filter(Boolean).map((line) => {
+    const h = line.indexOf("#");
+    return h >= 0 ? decodeURIComponent(line.slice(h + 1)) : "";
+  });
+  assert.deepEqual(names, ["trojan-argo", "vless-reality", "hy2", "tuic"], "订阅侧的分组顺序不受影响");
+});

@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.27";
+const VERSION = "2.4.28";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -5152,11 +5152,11 @@ async function getNodeConfig(env, machine) {
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
     nodes: await nodesOf(record, allowed, disabled),
     manual_nodes: record.manual_nodes || [],
-    /* ② 的列表按「上报顺序」原样铺开（useRank=false，不排序）。
-       这一段的顺序是上报脚本自己给的（脚本里怎么打印就怎么报），用户在面板里核对
-       上报内容时，看到的就是脚本的输出顺序，一眼能对上；订阅那边仍按接入方式分组排序，
-       两处顺序因此可能不同，这是有意的。 */
-    auto_nodes: sortNodes(autoNodes, false),
+    /* ② 的列表按「上报的原始顺序」铺开。要注意 nodes_json 是排过序的（订阅要分组），
+       所以光靠 sortNodes(..., false) 拿到的仍是分组顺序——必须从最近一次上报的原文
+       还原脚本的打印顺序，否则面板和脚本输出对不上。订阅那边仍按接入方式分组排序，
+       两处顺序不同是有意的。 */
+    auto_nodes: await autoNodesInUploadOrder(record),
     sources: reports.map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
     protocols: allowed,
@@ -5679,6 +5679,28 @@ async function autoNodesOf(record) {
   if (record && record.content) return normalizeNodes(splitLinks(decodeSafe(record.content)), []);
   return [];
 }
+/* 面板要按「上报的原始顺序」铺开节点。machines.nodes_json 里存的是按接入方式分组
+   排过序的结果（订阅输出走的是它），拿它铺面板永远对不上脚本打印的顺序，所以这里
+   用最近一次上报的原文（base64）重新走一遍链接顺序。原文里已经不存在的节点
+   （例如之后被单独删掉的）按库里的顺序补在后面，保证一个都不丢。 */
+async function autoNodesInUploadOrder(record) {
+  const stored = await autoNodesOf(record);
+  const links = splitLinks(decodeSafe(record && record.content ? record.content : ""));
+  if (!links.length) return stored;
+  const byLink = new Map();
+  for (const node of stored) if (node && node.link) byLink.set(node.link, node);
+  const seen = new Set();
+  const out = [];
+  for (const link of links) {
+    const hit = byLink.get(link);
+    if (!hit || seen.has(link)) continue;
+    seen.add(link);
+    out.push(hit);
+  }
+  for (const node of stored) if (node && node.link && !seen.has(node.link)) out.push(node);
+  return out;
+}
+
 
 /* 同一条节点的「身份」：去掉 #名字 之后的部分。
  * 手动节点和上报节点只要身份相同就算同一条，名字以手动的为准。 */
