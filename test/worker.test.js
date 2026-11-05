@@ -2813,6 +2813,8 @@ test("the panel orders reported nodes without a mode switch (saved order, else u
   assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
   assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
   assert.ok(html.includes("清掉自定顺序"), "要能一键丢掉自己排的顺序");
+  /* 清掉 ≠ 改草稿：点它应当直接清库，否则会先亮成红色「未保存」，像是清完还得再点一次保存 */
+  assert.ok(html.includes("clearAutoOrder"), "清掉自定顺序要直接写库，不走未保存草稿");
   assert.ok(html.includes('id="auto-order-save"'), "调完顺序要有「保存顺序」按钮，一次性写库");
   /* ①「保存机器顺序」和 ②「保存顺序」都表示「改了还没写库」，
      样式和文案得一致（红底 + 白点 + 括注），不然会以为其中一处已经存了。 */

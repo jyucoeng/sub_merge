@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.56";
+const VERSION = "2.4.57";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -755,7 +755,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-save" class="primary" type="button" disabled title="调整只改前端，点这里才写库（一次请求）">保存顺序</button><button id="auto-order-reset" type="button" title="丢掉自己排的自定顺序，回到脚本打印的上报顺序；只改前端，点「保存顺序」才写库">清掉自定顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-save" class="primary" type="button" disabled title="调整只改前端，点这里才写库（一次请求）">保存顺序</button><button id="auto-order-reset" type="button" title="清掉这台机器「上报节点」的自定顺序（立即写库，回到脚本上报的顺序）；不动机器顺序、不动手动节点">清掉自定顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -2397,6 +2397,30 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (done) done(false);
     });
   }
+  /* 「清掉自定顺序」= 直接把这台机器上报节点的顺序从库里清空（一次 PUT）。
+     清空本身就是最终状态，让它先变成红色「未保存」再要用户点一次保存是多余的——
+     而且容易误以为是「清掉但还没生效」。只动上报段顺序：机器顺序、手动节点、
+     勾选、订阅成员一律不碰。 */
+  function clearAutoOrder() {
+    if (!state.current) return;
+    var prev = state.autoOrder.slice();
+    state.autoOrder = [];
+    state.autoDirty = false;
+    renderAutoNodes();
+    syncAutoOrderButtons();
+    setStatus("正在清掉上报节点的自定顺序…", true);
+    api("/nodes/" + encodeURIComponent(state.current) + "/order", {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: [] }),
+    }).then(function () {
+      setStatus("已清掉上报节点的自定顺序（面板和订阅都回到上报顺序 / 默认分组）", true);
+    }).catch(function (e) {
+      /* 失败就把原来的顺序铺回去，别让人以为已经清掉了 */
+      state.autoOrder = prev;
+      renderAutoNodes();
+      syncAutoOrderButtons();
+      setStatus("清掉失败：" + e.message + "（顺序还在，可以重试）", false);
+    });
+  }
   function autoKeyOf(n) { return String((n && n.link) || "").split("#")[0]; }
   /* 按目标下标移动：箭头（±1）、序号输入框、拖动都走这里，最后都落到 saveAutoOrder。 */
   function moveAutoNodeTo(key, toIndex) {
@@ -2880,7 +2904,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
   var autoOrderReset = $("auto-order-reset");
-  if (autoOrderReset) autoOrderReset.onclick = function () { applyAutoOrder([]); };
+  if (autoOrderReset) autoOrderReset.onclick = function () { clearAutoOrder(); };
   var autoOrderSave = $("auto-order-save");
   if (autoOrderSave) autoOrderSave.onclick = function () { saveAutoOrder(); };
   $("reset-machine-order").onclick = function () {
