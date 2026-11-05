@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.52";
+const VERSION = "2.4.53";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -470,7 +470,8 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .h{background:none;border:0;padding:2px 4px;font:inherit;font-size:12px;color:inherit;cursor:pointer;border-radius:6px;text-align:left;white-space:nowrap}
 .mlist-head .h:hover{background:var(--chip);color:var(--ink)}
 .mlist-head .h.on{color:var(--acc);font-weight:600}
-.mlist-head .c-idx{opacity:.7;cursor:default}
+.mlist-head .c-idx{opacity:.7;cursor:default;text-align:center}
+.machine .idx-input{text-align:center}
 .mlist-head .c-name{display:flex;gap:8px;align-items:center;min-width:0}
 .mlist-head .c-name .h[data-k="region"]{flex:0 0 auto}
 /* 「节点数」和「最近上报」在视觉上不属于一回事，中间拉开：左一个右一个，
@@ -2917,7 +2918,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (!box) return;
     if (!box.children.length) {
       box.title = "表头只换看法：排序不动机器顺序，也不会变成「未保存」";
-      var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "序号"; ix.title = "这一列是机器顺序，改数字就能挪位置";
+      var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "#"; ix.title = "这一列是机器顺序，改数字就能挪位置";
       box.appendChild(ix);
       /* 机器名和地区是同一列里的两个维度，挨着放；节点数/最近上报属于右边那块 */
       var nwrap = document.createElement("div"); nwrap.className = "c-name";
