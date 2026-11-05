@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.71";
+const VERSION = "2.4.72";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -703,8 +703,8 @@ body.locked .wrap{display:none}
 <div><b>① 手动节点</b>　完全按你在「① 手动节点」里排的顺序 —— 粘贴的先后，加上 <b>↑↓</b> 拖动。这一层永远在最前面，任何规则都不会动它。</div>
 <div><b>② 上报节点</b>　脚本给的，顺序由下面两条规则决定。</div>
 <div class="sr-h">上报段的规则</div>
-<div>1. 先按接入方式分组，组的先后固定：<b>Argo → CDN → Reality → 普通</b></div>
-<div>2. 组内按基础协议名字母升序：<b>anytls → hysteria2 → trojan → tuic → vless → vmess</b></div>
+<div>1. 默认就是<b>脚本上报的顺序</b>——脚本先打印哪条，这里就排哪条，和面板、订阅完全一致</div>
+<div>2. 在 <b>② 自动上报的节点</b>里拖过并点了保存的，按你排的顺序置顶，没排过的（含新上报的）接在后面</div>
 <div class="sr-h">例子</div>
 <div>上报进来 8 条，按顺序是：</div>
 <pre>anytls  hysteria2  trojan-argo  trojan-cdn  tuic
@@ -2385,7 +2385,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }).then(function () {
       state.autoDirty = false;
       syncAutoOrderButtons();
-      setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已清掉上报节点的自定顺序，改回上报顺序", true);
+      setStatus(order.length ? "顺序已保存（② 面板、③ 清单、④ 档案、订阅四处同序）" : "已清掉上报节点的自定顺序，改回上报顺序", true);
       if (done) done(true);
     }).catch(function (e) {
       /* 失败不清草稿：用户排的东西还在，改完网络再点一次就行 */
@@ -2459,7 +2459,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       /* 直接拖行就能排：拖到哪条上就插到那条前面，松手即写库。
          不用另设「编辑顺序」模式，也不用点保存——拖完就是最终顺序。 */
       row.draggable = true;
-      row.title = "拖动这一行可以调整显示顺序（只影响这块列表；订阅仍按接入方式分组）";
+      row.title = "拖动这一行可以调整显示顺序（② ③ ④ 和订阅四处同序）";
       row.ondragstart = function (ev) {
         state.dragKey = autoKeyOf(n);
         if (ev && ev.dataTransfer) { try { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", here); } catch (e) {} }
@@ -4809,7 +4809,7 @@ async function nodeEntries(record, disabled) {
   };
   for (const node of (record && record.manual_nodes) || []) push(node, "manual");
   /* 上报段和订阅用同一套顺序（② 里排过的优先），否则这块清单和订阅、和 ② 三处对不上 */
-  for (const node of applySavedOrder(await autoNodesOf(record), record && record.auto_order)) push(node, "auto");
+  for (const node of applySavedOrder(await autoNodesInUploadOrder(record), record && record.auto_order)) push(node, "auto");
   return out;
 }
 
@@ -5469,10 +5469,9 @@ async function getNodeConfig(env, machine) {
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
     nodes: await nodesOf(record, allowed, disabled),
     manual_nodes: record.manual_nodes || [],
-    /* ② 的列表按「上报的原始顺序」铺开。要注意 nodes_json 是排过序的（订阅要分组），
-       所以光靠 sortNodes(..., false) 拿到的仍是分组顺序——必须从最近一次上报的原文
-       还原脚本的打印顺序，否则面板和脚本输出对不上。订阅那边仍按接入方式分组排序，
-       两处顺序不同是有意的。 */
+    /* ② 的列表按「上报的原始顺序」铺开。nodes_json 是老版本按接入方式分组存下来的，
+       直接拿它铺面板永远和脚本打印的顺序对不上，所以从最近一次上报的原文还原。
+       2.4.72 起 ③ 清单、④ 档案、订阅输出也都走同一个顺序，四处一致。 */
     auto_nodes: await autoNodesInUploadOrder(record),
     /* 用户自己排过的显示顺序（身份数组）；空数组表示没排过、按上报顺序显示 */
     auto_order: Array.isArray(record.auto_order) ? record.auto_order : [],
@@ -5998,10 +5997,10 @@ async function autoNodesOf(record) {
   if (record && record.content) return normalizeNodes(splitLinks(decodeSafe(record.content)), []);
   return [];
 }
-/* 面板要按「上报的原始顺序」铺开节点。machines.nodes_json 里存的是按接入方式分组
-   排过序的结果（订阅输出走的是它），拿它铺面板永远对不上脚本打印的顺序，所以这里
-   用最近一次上报的原文（base64）重新走一遍链接顺序。原文里已经不存在的节点
-   （例如之后被单独删掉的）按库里的顺序补在后面，保证一个都不丢。 */
+/* 上报段的唯一顺序来源：最近一次上报的原文（base64）里脚本打印的先后。
+   machines.nodes_json 是旧版本按接入方式分组排过的结果，只能当「兜底名单」用。
+   原文里已经没有的节点（之后被单独删掉的）按库里的顺序补在后面，保证一个都不丢。
+   面板、③ 清单、④ 档案、订阅输出四处都调这个函数，顺序才可能一致。 */
 async function autoNodesInUploadOrder(record) {
   const stored = await autoNodesOf(record);
   const links = splitLinks(decodeSafe(record && record.content ? record.content : ""));
@@ -6073,8 +6072,8 @@ function sortNodes(nodes, useRank) {
 }
 
 /* 上报段的顺序：用户在 ② 里调过并保存过顺序（machines.auto_order_json）就按它来，
-   没调过的（或新上报进来的）继续按接入方式分组。面板上看到什么顺序，订阅就拼什么顺序，
-   两处不一致最容易让人以为「顺序没保存」。
+   没调过的（或新上报进来的）保持上报原文的顺序。面板上看到什么顺序，订阅就拼什么顺序，
+   四处不一致最容易让人以为「顺序没保存」。
    注意只在同一台机器的上报段内部生效，跨机器的机器顺序仍归第一层管。 */
 function applySavedOrder(list, autoOrder, sorter) {
   const order = Array.isArray(autoOrder) ? autoOrder : [];
@@ -6096,15 +6095,17 @@ function applySavedOrder(list, autoOrder, sorter) {
   return [...picked, ...(sorter ? sorter(rest) : rest)];
 }
 
-/* 订阅里的上报段：没存过顺序时按接入方式分组，存过就按用户排的 */
+/* 订阅里的上报段：没存过顺序就保持上报原文的顺序（和 ② 面板看到的一样），存过就按用户排的。
+   以前这里默认套 sortNodes 分组，导致 ② 显示上报顺序、④ 和订阅却是 argo→cdn→reality→普通，
+   同一台机器两处对不上——用户以为顺序没保存住。 */
 function orderAutoPart(autoPart, autoOrder) {
-  return applySavedOrder(autoPart, autoOrder, (list) => sortNodes(list, true));
+  return applySavedOrder(autoPart, autoOrder);
 }
 
 /* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */
 async function nodesOf(record, allowed, disabled) {
   const manual = record && Array.isArray(record.manual_nodes) ? record.manual_nodes.slice() : [];
-  const auto = await autoNodesOf(record);
+  const auto = await autoNodesInUploadOrder(record);
   const seen = new Set();
   const manualPart = [];
   for (const node of manual) {

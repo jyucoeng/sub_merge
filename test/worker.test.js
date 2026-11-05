@@ -359,7 +359,7 @@ test("report, dedupe, read and list", async () => {
 
   res = await call(env, "GET", `/sub/sgw/${TOKEN}`);
   assert.equal(res.status, 200);
-  assert.equal(unb64(await res.text()), "anytls://two\nvless://one");
+  assert.equal(unb64(await res.text()), "vless://one\nanytls://two", "输出顺序就是上报原文的顺序");
 
   res = await call(env, "GET", `/sub/sgw/wrong`);
   assert.equal(res.status, 401);
@@ -439,8 +439,8 @@ test("a node turned manual moves to the manual block, ahead of every reported no
   /* 多来一条上报的 vless：手动段仍在前，上报段内部按协议字母序 */
   const vless2 = "vless://22222222-2222-4222-8222-222222222222@9.9.9.9:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless-第二条";
   await call(env, "POST", "/api/v1/report/mix", b64([vless, hy2, tuic, vless2].join("\n")), auth);
-  assert.deepEqual(await names(), ["vless-手动", "vless-第二条", "hy2-上报", "tuic-上报"],
-    "手动段整段在前；上报段自己按接入方式分组，reality 组在普通组之前");
+  assert.deepEqual(await names(), ["vless-手动", "hy2-上报", "tuic-上报", "vless-第二条"],
+    "手动段整段在前；上报段按上报原文的顺序，后报的接在末尾");
 });
 
 test("renaming a machine keeps accepting reports sent to the old name", async () => {
@@ -855,7 +855,7 @@ test("machine order controls merged subscription order", async () => {
   assert.deepEqual(merged, ["anytls://c", "vless://a", "tuic://b"]);
 });
 
-test("default machine order follows region proximity and default node order follows protocol", async () => {
+test("default machine order follows region proximity, node order follows upload order", async () => {
   const env = makeEnv();
   const machines = ["au-aws", "ca-oracle-nat", "de-dandan", "hk-opt", "in-amd", "my-dandan", "jp-dandan-tky", "kr-dandan", "nl-ams", "sg-dandan", "us-sje"];
   for (const machine of machines) {
@@ -883,9 +883,9 @@ test("default machine order follows region proximity and default node order foll
   assert.equal(res.status, 200);
   res = await call(env, "GET", "/api/v1/nodes/order-proto", null, { authorization: `Bearer ${TOKEN}` });
   const nodeData = await res.json();
-  /* 机器内先按接入方式归拢（argo → cdn → reality → 普通），
-     组内再按协议名字母升序：AnyTLS → HY2 → SOCKS5 → TUIC */
-  assert.deepEqual(nodeData.nodes.map((n) => n.name), ["Node-Argo", "Node-CDN", "Reality", "AnyTLS", "HY2", "SOCKS5", "TUIC"]);
+  /* 机器内不再重排：脚本先打印哪条，这里就是哪条（和 ② 面板、订阅同序） */
+  assert.deepEqual(nodeData.nodes.map((n) => n.name), ["TUIC", "HY2", "SOCKS5", "Reality", "Node-Argo", "Node-CDN", "AnyTLS"],
+    "节点顺序跟上报原文一致，不再按接入方式分组");
 });
 
 test("subscription formats adapt from query and user-agent", async () => {
@@ -922,11 +922,11 @@ test("subscription formats adapt from query and user-agent", async () => {
   assert.equal(res.status, 200);
   const singbox = JSON.parse(await res.text());
   assert.equal(singbox.outbounds.length, 4);
-  /* reality 组先出，普通组内按协议名：anytls → hysteria2 → tuic */
+  /* 出站顺序 = 上报原文顺序（vless → anytls → tuic → hysteria2） */
   assert.equal(singbox.outbounds[0].type, "vless");
   assert.equal(singbox.outbounds[1].type, "anytls");
-  assert.equal(singbox.outbounds[2].type, "hysteria2");
-  assert.equal(singbox.outbounds[3].type, "tuic");
+  assert.equal(singbox.outbounds[2].type, "tuic");
+  assert.equal(singbox.outbounds[3].type, "hysteria2");
 
   res = await call(env, "GET", `/sub/fmt/${TOKEN}`, null, { "user-agent": "clash-meta/1.0" });
   assert.match(await res.text(), /^rule-providers:$/m);
@@ -2776,11 +2776,10 @@ test("IPv6 nodes emit bracket-free addresses in clash and sing-box, keep bracket
   assert.equal(plain.split("\n").filter(Boolean).length, 3);
 });
 
-test("the panel lists reported nodes in upload order, not the subscription's grouped order", async () => {
+test("the panel, the node list and the subscription all follow upload order", async () => {
   /* 面板 ② 那张卡是「核对上报内容」用的：脚本先打印哪条，这里就先显示哪条。
-     而订阅输出要按接入方式分组（argo→cdn→reality→普通），两者顺序本来就不同。
-     坑在于 machines.nodes_json 存的正是排过序的结果，面板若直接拿它会永远对不上，
-     所以要从最近一次上报的原文还原顺序。 */
+     2.4.72 之前订阅输出另按接入方式分组（argo→cdn→reality→普通），同一台机器
+     面板和档案/订阅两处顺序对不上；现在四处统一从上报原文还原顺序。 */
   const env = makeEnv();
   const auth = { authorization: `Bearer ${TOKEN}` };
   const argo = "trojan://pw@argo.example.com:443?security=tls&sni=a.com&type=ws&host=h.example.com&path=%2F#trojan-argo";
@@ -2794,13 +2793,13 @@ test("the panel lists reported nodes in upload order, not the subscription's gro
   assert.deepEqual((panel.auto_nodes || []).map((n) => n.name), ["hy2", "tuic", "vless-reality", "trojan-argo"],
     "面板按上报顺序铺开");
 
-  /* 订阅仍然按接入方式分组：argo 在最前，其次 reality，再普通（hy2/tuic 按协议字母序） */
+  /* 订阅侧也按上报顺序，和面板逐条对应 */
   const text = unb64(await (await call(env, "GET", `/sub/panel/${TOKEN}`)).text());
   const names = text.split("\n").filter(Boolean).map((line) => {
     const h = line.indexOf("#");
     return h >= 0 ? decodeURIComponent(line.slice(h + 1)) : "";
   });
-  assert.deepEqual(names, ["trojan-argo", "vless-reality", "hy2", "tuic"], "订阅侧的分组顺序不受影响");
+  assert.deepEqual(names, ["hy2", "tuic", "vless-reality", "trojan-argo"], "订阅侧顺序和面板一致");
 });
 
 test("the panel orders reported nodes without a mode switch (saved order, else upload order)", async () => {
@@ -2892,16 +2891,15 @@ test("the subscription follows the order saved in the panel", async () => {
     });
   };
 
-  /* vless 带 security=reality，属于 Reality 组，组序在「普通」之前 */
-  assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "没排过时按分组规则来");
+  assert.deepEqual(await names(), ["hy2", "tuic", "vless"], "没排过时按上报原文顺序");
 
   const custom = [tuic, hy2, vless].map((link) => link.split("#")[0]);
   await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: custom }), jsonAuth);
   assert.deepEqual(await names(), ["tuic", "hy2", "vless"], "保存过顺序后订阅要跟着变");
 
-  /* 清掉上报节点的自定顺序 → 订阅回到分组规则 */
+  /* 清掉上报节点的自定顺序 → 订阅回到上报原文顺序 */
   await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: [] }), jsonAuth);
-  assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "清掉顺序就回到分组规则");
+  assert.deepEqual(await names(), ["hy2", "tuic", "vless"], "清掉顺序就回到上报顺序");
 });
 
 test("the 订阅中的节点 list follows the order saved in the panel", async () => {
@@ -2920,14 +2918,14 @@ test("the 订阅中的节点 list follows the order saved in the panel", async (
     return row.nodes.filter((n) => n.source === "auto").map((n) => n.name);
   };
 
-  assert.deepEqual(await listed(), ["vless", "hy2", "tuic"], "没排过时按上报/分组顺序");
+  assert.deepEqual(await listed(), ["hy2", "tuic", "vless"], "没排过时按上报顺序");
 
   const custom = [tuic, hy2, vless].map((link) => link.split("#")[0]);
   await call(env, "PUT", "/api/v1/nodes/listsub/order", JSON.stringify({ order: custom }), jsonAuth);
   assert.deepEqual(await listed(), ["tuic", "hy2", "vless"], "③ 的清单要跟着 ② 保存的顺序走");
 
   await call(env, "PUT", "/api/v1/nodes/listsub/order", JSON.stringify({ order: [] }), jsonAuth);
-  assert.deepEqual(await listed(), ["vless", "hy2", "tuic"], "清掉顺序后回到原顺序");
+  assert.deepEqual(await listed(), ["hy2", "tuic", "vless"], "清掉顺序后回到上报顺序");
 });
 
 test("reading nodes on a pre-existing database without the new column heals itself", async () => {
