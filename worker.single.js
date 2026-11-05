@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.59";
+const VERSION = "2.4.60";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -718,7 +718,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="sr-h">② 里自己排过的顺序</div>
 <div>上面那套分组是<b>没排过顺序时的默认</b>。在 ② 里用 <b>顶 / ↑ / ↓ / 底</b> 挪过位置、并点了「保存顺序」之后，这台机器的上报段就<b>完全按你排的来</b>，订阅里也是这个顺序（新上报进来、还没拖过的节点排在末尾）。</div>
 <div>· 只影响<b>这一台机器</b>的上报段；机器之间谁先谁后仍由第一层的机器顺序决定。</div>
-<div>· 点「清掉自定顺序」→ 先回到上报顺序显示，再点「保存顺序」写进库，订阅就回到上面那套分组规则。</div>
+<div>· 点「清掉上报节点自定顺序」→ 立即清库，面板和订阅都回到脚本上报的顺序。</div>
 <div>· 手动段不受影响：它永远整段在最前面。</div>
 <div class="sr-h">几个判定细节</div>
 <div>· <b>security=reality</b> 的节点算 Reality 组，即使 path 里带 argo</div>
@@ -755,7 +755,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-save" class="primary" type="button" disabled title="调整只改前端，点这里才写库（一次请求）">保存顺序</button><button id="auto-order-reset" type="button" title="清掉这台机器「上报节点」的自定顺序（立即写库，回到脚本上报的顺序）；不动机器顺序、不动手动节点">清掉自定顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-save" class="primary" type="button" disabled title="调整只改前端，点这里才写库（一次请求）">保存顺序</button><button id="auto-order-reset" type="button" title="清掉这台机器「上报节点」的自定顺序（立即写库，回到脚本上报的顺序）；不动机器顺序、不动手动节点">清掉上报节点自定顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -2385,7 +2385,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
     }).then(function () {
       state.autoDirty = false;
       syncAutoOrderButtons();
-      setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已清掉自定顺序，改回上报顺序（点「保存顺序」写入库）", true);
+      setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已清掉上报节点的自定顺序，改回上报顺序", true);
       if (done) done(true);
     }).catch(function (e) {
       /* 失败不清草稿：用户排的东西还在，改完网络再点一次就行 */
@@ -2393,7 +2393,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (done) done(false);
     });
   }
-  /* 「清掉自定顺序」= 直接把这台机器上报节点的顺序从库里清空（一次 PUT）。
+  /* 「清掉上报节点自定顺序」= 直接把这台机器上报节点的顺序从库里清空（一次 PUT）。
      清空本身就是最终状态，让它先变成红色「未保存」再要用户点一次保存是多余的——
      而且容易误以为是「清掉但还没生效」。只动上报段顺序：机器顺序、手动节点、
      勾选、订阅成员一律不碰。 */

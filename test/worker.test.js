@@ -2812,9 +2812,9 @@ test("the panel orders reported nodes without a mode switch (saved order, else u
   assert.ok(!html.includes('value="proto"'), "按协议 / 按名称这两种看法已经去掉");
   assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
   assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
-  assert.ok(html.includes("清掉自定顺序"), "要能一键丢掉自己排的顺序");
+  assert.ok(html.includes("清掉上报节点自定顺序"), "要能一键丢掉上报节点的自定顺序");
   /* 清掉 ≠ 改草稿：点它应当直接清库，否则会先亮成红色「未保存」，像是清完还得再点一次保存 */
-  assert.ok(html.includes("clearAutoOrder"), "清掉自定顺序要直接写库，不走未保存草稿");
+  assert.ok(html.includes("clearAutoOrder"), "清掉上报节点自定顺序要直接写库，不走未保存草稿");
   assert.ok(html.includes('id="auto-order-save"'), "调完顺序要有「保存顺序」按钮，一次性写库");
   /* ①「保存机器顺序」和 ②「保存顺序」都表示「改了还没写库」，
      样式和文案得一致（红底 + 白点 + 括注），不然会以为其中一处已经存了。 */
@@ -2899,7 +2899,7 @@ test("the subscription follows the order saved in the panel", async () => {
   await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: custom }), jsonAuth);
   assert.deepEqual(await names(), ["tuic", "hy2", "vless"], "保存过顺序后订阅要跟着变");
 
-  /* 清掉自定顺序 → 订阅回到分组规则 */
+  /* 清掉上报节点的自定顺序 → 订阅回到分组规则 */
   await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: [] }), jsonAuth);
   assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "清掉顺序就回到分组规则");
 });
