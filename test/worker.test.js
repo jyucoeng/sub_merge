@@ -2814,6 +2814,10 @@ test("the panel orders reported nodes without a mode switch (saved order, else u
   assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
   assert.ok(html.includes("清掉自定顺序"), "要能一键丢掉自己排的顺序");
   assert.ok(html.includes('id="auto-order-save"'), "调完顺序要有「保存顺序」按钮，一次性写库");
+  /* ①「保存机器顺序」和 ②「保存顺序」都表示「改了还没写库」，
+     样式和文案得一致（红底 + 白点 + 括注），不然会以为其中一处已经存了。 */
+  assert.ok(html.includes("保存顺序（未保存）"), "② 未保存时文案要和 ① 一样带（未保存）");
+  assert.ok(html.includes('"primary dirty"'), "② 未保存时要和 ① 用同一个 dirty 样式");
   assert.ok(html.includes("applyAutoOrder"), "调整只改草稿，不逐次发请求");
   /* 曾经的坑：autoSortMode() 只认 upload/proto/name，自定义永远落回 upload，
      表现为「箭头点了没反应、顺序存了不生效」。这里盯住那个函数别再出现。 */
