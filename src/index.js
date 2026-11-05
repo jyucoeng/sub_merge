@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.57";
+const VERSION = "2.4.58";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -4805,7 +4805,8 @@ async function nodeEntries(record, disabled) {
     });
   };
   for (const node of (record && record.manual_nodes) || []) push(node, "manual");
-  for (const node of await autoNodesOf(record)) push(node, "auto");
+  /* 上报段和订阅用同一套顺序（② 里排过的优先），否则这块清单和订阅、和 ② 三处对不上 */
+  for (const node of applySavedOrder(await autoNodesOf(record), record && record.auto_order)) push(node, "auto");
   return out;
 }
 
@@ -6072,24 +6073,29 @@ function sortNodes(nodes, useRank) {
    没调过的（或新上报进来的）继续按接入方式分组。面板上看到什么顺序，订阅就拼什么顺序，
    两处不一致最容易让人以为「顺序没保存」。
    注意只在同一台机器的上报段内部生效，跨机器的机器顺序仍归第一层管。 */
-function orderAutoPart(autoPart, autoOrder) {
-  const list = Array.isArray(autoOrder) ? autoOrder : [];
-  if (!list.length) return sortNodes(autoPart, true);
+function applySavedOrder(list, autoOrder, sorter) {
+  const order = Array.isArray(autoOrder) ? autoOrder : [];
+  if (!order.length) return sorter ? sorter(list) : list.slice();
   const rank = new Map();
-  list.forEach((link, i) => {
+  order.forEach((link, i) => {
     const id = linkIdentity(link);
     if (id && !rank.has(id)) rank.set(id, i);
   });
-  if (!rank.size) return sortNodes(autoPart, true);
+  if (!rank.size) return sorter ? sorter(list) : list.slice();
   const picked = [];
   const rest = [];
-  for (const node of autoPart) {
+  for (const node of list) {
     if (rank.has(linkIdentity(node.link))) picked.push(node);
     else rest.push(node);
   }
   picked.sort((a, b) => rank.get(linkIdentity(a.link)) - rank.get(linkIdentity(b.link)));
-  /* 自定顺序之后新上报、还没被拖过的节点排在这段末尾，保持原来的分组观感 */
-  return [...picked, ...sortNodes(rest, true)];
+  /* 自定顺序之后新上报、还没被拖过的节点排在这段末尾，保持原来的观感 */
+  return [...picked, ...(sorter ? sorter(rest) : rest)];
+}
+
+/* 订阅里的上报段：没存过顺序时按接入方式分组，存过就按用户排的 */
+function orderAutoPart(autoPart, autoOrder) {
+  return applySavedOrder(autoPart, autoOrder, (list) => sortNodes(list, true));
 }
 
 /* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */

@@ -2902,6 +2902,32 @@ test("the subscription follows the order saved in the panel", async () => {
   assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "清掉顺序就回到分组规则");
 });
 
+test("the 订阅中的节点 list follows the order saved in the panel", async () => {
+  /* ③ 的清单走 nodeEntries，之前完全不看 auto_order，结果 ②、③、订阅三处顺序对不上。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const hy2 = "hysteria2://pw@2.2.2.2:443?sni=a.com#hy2";
+  const tuic = "tuic://u:p@4.4.4.4:443?sni=a.com#tuic";
+  const vless = "vless://44444444-4444-4444-8444-444444444444@5.5.5.5:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless";
+  await call(env, "POST", "/api/v1/report/listsub", b64([hy2, tuic, vless].join("\n")), auth);
+
+  const listed = async () => {
+    const data = await (await call(env, "GET", "/api/v1/sub/nodes", null, auth)).json();
+    const row = data.machines.find((m) => m.machine === "listsub");
+    return row.nodes.filter((n) => n.source === "auto").map((n) => n.name);
+  };
+
+  assert.deepEqual(await listed(), ["vless", "hy2", "tuic"], "没排过时按上报/分组顺序");
+
+  const custom = [tuic, hy2, vless].map((link) => link.split("#")[0]);
+  await call(env, "PUT", "/api/v1/nodes/listsub/order", JSON.stringify({ order: custom }), jsonAuth);
+  assert.deepEqual(await listed(), ["tuic", "hy2", "vless"], "③ 的清单要跟着 ② 保存的顺序走");
+
+  await call(env, "PUT", "/api/v1/nodes/listsub/order", JSON.stringify({ order: [] }), jsonAuth);
+  assert.deepEqual(await listed(), ["vless", "hy2", "tuic"], "清掉顺序后回到原顺序");
+});
+
 test("reading nodes on a pre-existing database without the new column heals itself", async () => {
   /* 线上库是老的：部署新代码后 machines 还没有 auto_order_json。
      GET /nodes 不该 500，而是就地补列再读（用户不用先去点「初始化数据库」）。 */
