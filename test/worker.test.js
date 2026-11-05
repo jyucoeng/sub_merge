@@ -2805,13 +2805,13 @@ test("the panel lists reported nodes in upload order, not the subscription's gro
 
 test("the panel orders reported nodes without a mode switch (saved order, else upload order)", async () => {
   /* 顺序不是一个「模式」：库里存过就按它显示，没存过就是上报顺序。
-     行内有序号、↑↓、置顶/置底，拖动也还在。 */
+     行内有序号、↑↓、🔝 置顶，拖动也还在（置底去掉了，拖到最后更快）。 */
   const env = makeEnv();
   const html = await (await call(env, "GET", "/ui")).text();
   assert.ok(!html.includes('id="auto-sort"'), "不应该再有「顺序」下拉");
   assert.ok(!html.includes('value="proto"'), "按协议 / 按名称这两种看法已经去掉");
   assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
-  assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
+  assert.ok(html.includes("置顶"), "② 的行要能一键置顶（🔝）");
   assert.ok(html.includes("清掉上报节点自定顺序"), "要能一键丢掉上报节点的自定顺序");
   /* 清掉 ≠ 改草稿：点它应当直接清库，否则会先亮成红色「未保存」，像是清完还得再点一次保存 */
   assert.ok(html.includes("clearAutoOrder"), "清掉上报节点自定顺序要直接写库，不走未保存草稿");

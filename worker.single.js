@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.60";
+const VERSION = "2.4.61";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -421,7 +421,7 @@ button.copied::before{content:"✓ ";font-weight:700}
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
-.node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
 
 .node.auto-row.copied .name{color:#94a3b8}
 .node.auto-row .srctag{justify-self:end;margin-right:2px;white-space:nowrap;font-size:11px}
@@ -2497,7 +2497,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
       };
       pos.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); pos.blur(); } };
       /* 置顶/置底当初用双箭头（⇑/⇓），和 ↑/↓ 放在一起像四个长得差不多的箭头，
-         虚线描边看着更乱。改成汉字「顶/底」：一眼分得出跨度，也不用记符号含义。 */
+         虚线描边看着更乱；后来试过汉字「顶/底」，也还是普通。现在只留一个 🔝：
+         要挪到最后直接拖动更快，那一格省下来给链接铺宽。 */
       var mkMove = function (label, title, target, off, kind) {
         var b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title;
         if (kind) b.className = kind;
@@ -2505,15 +2506,14 @@ vless-cdn  vless-reality  vmess-argo</pre>
         b.onclick = function () { moveAutoNodeTo(here, typeof target === "number" ? target : off); };
         return b;
       };
-      var topBtn = mkMove("顶", "置顶（移到第 1 位）", 0, null, "edge");
+      var topBtn = mkMove("\ud83d\udd1d", "置顶（移到第 1 位）", 0, null, "edge");
       var upBtn = mkMove("\u2191", "上移一位", null, viewIndex - 1);
       var downBtn = mkMove("\u2193", "下移一位", null, viewIndex + 1);
-      var bottomBtn = mkMove("底", "置底（移到最后一位）", total - 1, null, "edge");
       upBtn.disabled = viewIndex === 0;
       downBtn.disabled = viewIndex >= total - 1;
       row.appendChild(pos);
       row.appendChild(link); row.appendChild(name);
-      row.appendChild(topBtn); row.appendChild(upBtn); row.appendChild(downBtn); row.appendChild(bottomBtn);
+      row.appendChild(topBtn); row.appendChild(upBtn); row.appendChild(downBtn);
       if (copied) {
         var tag = document.createElement("span"); tag.className = "srctag manual"; tag.textContent = "已在 ① 手动";
         tag.title = "这条已经复制进 ① 手动节点了，要改就去上面 ① 改（这里仍然只读）";
