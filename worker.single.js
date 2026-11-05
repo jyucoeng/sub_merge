@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.29";
+const VERSION = "2.4.30";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -59,7 +59,8 @@ export const SCHEMA_STATEMENTS = [
   manual_nodes_json TEXT NOT NULL DEFAULT '[]',
   manual     INTEGER NOT NULL DEFAULT 0,
   auto_content TEXT,
-  manual_updated_at TEXT
+  manual_updated_at TEXT,
+  auto_order_json TEXT NOT NULL DEFAULT '[]'
 )`,
   "CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC)",
   `CREATE TABLE IF NOT EXISTS machine_former (
@@ -116,6 +117,9 @@ export const MIGRATION_STATEMENTS = [
   "ALTER TABLE machines ADD COLUMN auto_content TEXT",
   "ALTER TABLE machines ADD COLUMN manual_nodes_json TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE machines ADD COLUMN manual_updated_at TEXT",
+  /* ② 上报列表的自定义显示顺序：存 link 去掉 #名字 之后的「身份」，按用户排的顺序。
+     空数组 = 没排过，面板就按上报顺序（脚本打印的顺序）显示。 */
+  "ALTER TABLE machines ADD COLUMN auto_order_json TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE presets ADD COLUMN skips TEXT NOT NULL DEFAULT ''",  "ALTER TABLE presets ADD COLUMN members TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE presets ADD COLUMN mode TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE presets ADD COLUMN clash_mode TEXT NOT NULL DEFAULT 'inherit'",
@@ -706,7 +710,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="lab" style="margin-left:6px">顺序：</span><select id="auto-sort" title="只影响这块列表的显示顺序；订阅里仍按接入方式分组排" style="width:auto"><option value="upload">上报顺序</option><option value="proto">按协议</option><option value="name">按名称</option></select><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="lab" style="margin-left:6px">顺序：</span><select id="auto-sort" title="只影响这块列表的显示顺序；订阅里仍按接入方式分组排" style="width:auto"><option value="upload">上报顺序</option><option value="custom">自定义（拖动）</option><option value="proto">按协议</option><option value="name">按名称</option></select><button id="auto-order-reset" type="button" title="丢掉自己排的顺序，回到脚本打印的上报顺序">恢复上报顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -811,7 +815,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoSort: "upload", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoSort: "upload", autoOrder: [], dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -2312,6 +2316,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var mode = autoSortMode();
     var list = state.autoNodes.slice();
     if (mode === "upload") return list;
+    if (mode === "custom") {
+      /* 用户自己拖出来的顺序存在库里（身份 = link 去掉 #名字）。没排到的节点
+         （比如这之后新上报的）垫在最后，内部仍按上报顺序，不会乱跳。 */
+      var rank = {};
+      (state.autoOrder || []).forEach(function (key, i) { if (rank[key] == null) rank[key] = i; });
+      list.sort(function (a, b) {
+        var ka = (a.link || "").split("#")[0], kb = (b.link || "").split("#")[0];
+        var ra = rank[ka] == null ? 1e9 : rank[ka], rb = rank[kb] == null ? 1e9 : rank[kb];
+        return ra - rb;
+      });
+      return list;
+    }
     var proto = function (n) { return String((n && n.link) || "").split("://")[0].toLowerCase(); };
     list.sort(function (a, b) {
       var r = mode === "proto" ? proto(a).localeCompare(proto(b)) : 0;
@@ -2320,7 +2336,36 @@ vless-cdn  vless-reality  vmess-argo</pre>
     });
     return list;
   }
-  try { var _as = localStorage.getItem("submerge.autoSort"); if (_as === "proto" || _as === "name" || _as === "upload") state.autoSort = _as; } catch (e) {}
+  try { var _as = localStorage.getItem("submerge.autoSort"); if (_as === "proto" || _as === "name" || _as === "upload" || _as === "custom") state.autoSort = _as; } catch (e) {}
+  /* 自定义顺序只是「看法」，保存进库是为了换设备也在；写库失败就退回上报顺序，不装作成功。 */
+  function saveAutoOrder(order, done) {
+    var prev = state.autoOrder.slice(), prevMode = state.autoSort;
+    state.autoOrder = order.slice();
+    state.autoSort = order.length ? "custom" : "upload";
+    var sel = $("auto-sort"); if (sel) sel.value = state.autoSort;
+    try { localStorage.setItem("submerge.autoSort", state.autoSort); } catch (e) {}
+    renderAutoNodes();
+    api("/nodes/" + encodeURIComponent(state.current) + "/order", {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: order }),
+    }).then(function () {
+      setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已恢复上报顺序", true);
+      if (done) done(true);
+    }).catch(function (e) {
+      state.autoOrder = prev; state.autoSort = prevMode;
+      renderAutoNodes();
+      setStatus("顺序保存失败：" + e.message, false);
+      if (done) done(false);
+    });
+  }
+  function autoKeyOf(n) { return String((n && n.link) || "").split("#")[0]; }
+  function moveAutoNode(fromKey, toKey) {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    var list = autoNodesForView().map(autoKeyOf);
+    var from = list.indexOf(fromKey), to = list.indexOf(toKey);
+    if (from < 0 || to < 0) return;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    saveAutoOrder(list);
+  }
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
@@ -2339,6 +2384,28 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var here = (n.link || "").split("#")[0];
       var copied = manualKeys.has(here);
       var row = document.createElement("div"); row.className = "node auto-row" + (copied ? " copied" : "");
+      /* 直接拖行就能排：拖到哪条上就插到那条前面，松手即写库。
+         不用另设「编辑顺序」模式，也不用点保存——拖完就是最终顺序。 */
+      row.draggable = true;
+      row.title = "拖动这一行可以调整显示顺序（只影响这块列表；订阅仍按接入方式分组）";
+      row.ondragstart = function (ev) {
+        state.dragKey = autoKeyOf(n);
+        if (ev && ev.dataTransfer) { try { ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", here); } catch (e) {} }
+      };
+      row.ondragover = function (ev) {
+        if (!state.dragKey || state.dragKey === here) return;
+        if (ev && ev.preventDefault) ev.preventDefault();
+        row.style.borderTop = "2px solid #3b82f6";
+      };
+      row.ondragleave = function () { row.style.borderTop = ""; };
+      row.ondrop = function (ev) {
+        if (ev && ev.preventDefault) ev.preventDefault();
+        row.style.borderTop = "";
+        var fromKey = state.dragKey;
+        state.dragKey = "";
+        moveAutoNode(fromKey, here);
+      };
+      row.ondragend = function () { row.style.borderTop = ""; state.dragKey = ""; };
       var link = document.createElement("input"); link.className = "link"; link.type = "text"; link.value = n.link || ""; link.readOnly = true; link.title = n.link || "";
       /* 上报节点的名字由上报内容决定，这里只读。想改就「转 ① 手动」再改。 */
       var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || "";
@@ -2681,6 +2748,12 @@ vless-cdn  vless-reality  vmess-argo</pre>
     return api("/nodes/" + encodeURIComponent(state.current)).then(function (data) {
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
+      state.autoOrder = Array.isArray(data.auto_order) ? data.auto_order.slice() : [];
+      /* 库里没存过顺序，就别停在「自定义」上（否则看着像排过、其实没有） */
+      if (!state.autoOrder.length && autoSortMode() === "custom") {
+        state.autoSort = "upload";
+        var _sel = $("auto-sort"); if (_sel) _sel.value = "upload";
+      }
       state.sources = data.sources || [];
       var when = $("auto-when");
       if (when) {
@@ -2710,6 +2783,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
   }
+  var autoOrderReset = $("auto-order-reset");
+  if (autoOrderReset) autoOrderReset.onclick = function () { saveAutoOrder([]); };
   var autoSortSel = $("auto-sort");
   if (autoSortSel) {
     autoSortSel.value = autoSortMode();
@@ -3632,6 +3707,16 @@ async function handleRequest(request, env) {
     return report(request, env, decodeURIComponent(m[1]));
   }
 
+  /* ② 的自定义显示顺序单独一个入口：只改顺序，不动节点本身，所以不和 PUT /nodes/:machine
+     混在一起（那个是全量覆盖 ① 手动节点，语义完全不同）。 */
+  m = path.match(/^\/api\/v1\/nodes\/([^/]+)\/order$/);
+  if (m) {
+    if (!authToken(env)) return missingConfig("SUB_TOKEN");
+    if (!dbEnv(env)) return missingConfig("DB");
+    if (request.method !== "PUT") return methodNotAllowed("PUT");
+    return putNodeOrder(request, env, decodeURIComponent(m[1]));
+  }
+
   m = path.match(/^\/api\/v1\/nodes\/([^/]+)$/);
   if (m) {
     if (!authToken(env)) return missingConfig("SUB_TOKEN");
@@ -3980,7 +4065,7 @@ function dbEnv(env) { return env && env.DB ? env.DB : null; }
 
 /* ---------------- storage: Cloudflare D1 ---------------- */
 
-const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at";
+const SELECT_COLUMNS = "machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at, auto_order_json";
 
 function parseJsonArray(text) {
   try {
@@ -4007,6 +4092,8 @@ function rowToRecord(row) {
     auto_content: row.auto_content == null ? null : String(row.auto_content),
     // ① 手动层最后一次「保存配置」的时间；上报不会动它
     manual_updated_at: row.manual_updated_at == null ? null : String(row.manual_updated_at),
+    // ② 的自定义显示顺序（link 去掉 #名字 之后的身份）；空数组 = 按上报顺序
+    auto_order: parseJsonArray(row.auto_order_json),
   };
 }
 
@@ -4022,6 +4109,10 @@ function recordValues(record) {
     record.auto_content == null ? null : String(record.auto_content),
     JSON.stringify(record.manual_nodes || []),
     record.manual_updated_at == null ? null : String(record.manual_updated_at),
+    /* null = 「这次写库不管自定义顺序」，SQL 里用 CASE 保留原值。
+       上报、改名、重置这些路径直接 spread 老记录（会带上 auto_order），
+       少数从零拼 record 的路径不填，就不会把用户排好的顺序冲掉。 */
+    record.auto_order == null ? null : JSON.stringify(record.auto_order),
   ];
 }
 
@@ -4046,8 +4137,8 @@ async function saveRecord(env, record) {
   const db = dbEnv(env);
   if (!db) throw new Error("DB binding is not configured");
   await db.prepare(
-    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+    `INSERT INTO machines (machine, content, hash, bytes, updated_at, nodes_json, manual, auto_content, manual_nodes_json, manual_updated_at, auto_order_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, '[]'))
      ON CONFLICT(machine) DO UPDATE SET
        content = excluded.content,
        hash = excluded.hash,
@@ -4057,7 +4148,8 @@ async function saveRecord(env, record) {
        manual = excluded.manual,
        auto_content = excluded.auto_content,
        manual_nodes_json = excluded.manual_nodes_json,
-       manual_updated_at = excluded.manual_updated_at`,
+       manual_updated_at = excluded.manual_updated_at,
+       auto_order_json = CASE WHEN ?11 IS NULL THEN machines.auto_order_json ELSE ?11 END`,
   ).bind(...recordValues(record)).run();
   return record;
 }
@@ -5167,6 +5259,29 @@ async function putClashRules(request, env) {
   return json({ ok: true, custom: true, groups: saved.groups, rulesets: saved.rulesets, updated_at: saved.updated_at });
 }
 
+/* 保存 ② 的显示顺序。只存「身份」（link 去掉 #名字），名字随上报变也不影响匹配；
+ * 库里没有的、重复的都剔掉；顺序为空数组 = 恢复上报顺序。 */
+async function putNodeOrder(request, env, machine) {
+  if (!MACHINE_RE.test(machine)) return json({ ok: false, error: "invalid machine name" }, 400);
+  let data;
+  try { data = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  const raw = data && Array.isArray(data.order) ? data.order : null;
+  if (!raw) return json({ ok: false, error: "order must be an array" }, 400);
+  if (raw.length > 5000) return json({ ok: false, error: "too many entries" }, 400);
+  const order = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const key = linkIdentity(String(item == null ? "" : item));
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    order.push(key);
+  }
+  const old = await loadRecord(env, machine);
+  if (!old) return json({ ok: false, error: "subscription not found" }, 404);
+  await saveRecord(env, { ...old, auto_order: order });
+  return json({ ok: true, machine, auto_order: order });
+}
+
 async function getNodeConfig(env, machine) {
   const record = await loadRecord(env, machine);
   if (!record) return json({ ok: true, machine, nodes: [], manual: false, manual_nodes: [], auto_nodes: [], manual_updated_at: null });
@@ -5193,6 +5308,8 @@ async function getNodeConfig(env, machine) {
        还原脚本的打印顺序，否则面板和脚本输出对不上。订阅那边仍按接入方式分组排序，
        两处顺序不同是有意的。 */
     auto_nodes: await autoNodesInUploadOrder(record),
+    /* 用户自己排过的显示顺序（身份数组）；空数组表示没排过、按上报顺序显示 */
+    auto_order: Array.isArray(record.auto_order) ? record.auto_order : [],
     sources: reports.map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
     protocols: allowed,

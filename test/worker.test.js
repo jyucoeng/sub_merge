@@ -42,6 +42,7 @@ function mockRow(args) {
     auto_content: args[7] == null ? null : args[7],
     manual_nodes_json: args[8] == null ? "[]" : args[8],
     manual_updated_at: args[9] == null ? null : args[9],
+    auto_order_json: args[10] == null ? "[]" : args[10],
   };
 }
 
@@ -138,7 +139,14 @@ class MockStatement {
   async run() {
     const args = this.args;
     if (/^INSERT INTO machines .+ ON CONFLICT\(machine\) DO UPDATE/i.test(this.sql)) {
-      this.db.machines.set(args[0], mockRow(args));
+      const row = mockRow(args);
+      /* SQL 里 auto_order_json 是 COALESCE + CASE：没传这一项就保留原值，
+         mock 必须照着做，否则「上报不动用户排好的顺序」这条测不出来。 */
+      if (args[10] == null) {
+        const old = this.db.machines.get(args[0]);
+        if (old) row.auto_order_json = old.auto_order_json == null ? "[]" : old.auto_order_json;
+      }
+      this.db.machines.set(args[0], row);
       return { success: true, meta: { changes: 1 } };
     }
     if (/^INSERT INTO machines .+ ON CONFLICT\(machine\) DO NOTHING/i.test(this.sql)) {
@@ -243,6 +251,7 @@ class MockStatement {
     }
     if (/^CREATE (TABLE|INDEX) IF NOT EXISTS/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE presets ADD COLUMN (skips|members|mode|clash_mode|sources)/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
+    if (/^ALTER TABLE machines ADD COLUMN auto_order_json/i.test(this.sql)) return { success: true, meta: { changes: 0 } };
     if (/^ALTER TABLE machines ADD COLUMN (auto_content|manual_nodes_json|manual_updated_at)/i.test(this.sql)) {
       const column = /auto_content/i.test(this.sql) ? "hasAutoContent" : "hasManualNodes";
       if (this.db[column]) throw new Error("duplicate column name");
@@ -1409,6 +1418,7 @@ test("admin schema endpoint is idempotent and unblocks a fresh database", async 
   const headers = { authorization: `Bearer ${TOKEN}` };
 
   let res = await call(env, "POST", "/api/v1/admin/schema", null, headers);
+  if (res.status !== 200) console.log("SCHEMA ERR", await res.text());
   assert.equal(res.status, 200);
   let data = await res.json();
   assert.equal(data.storage, "d1");
@@ -2768,4 +2778,49 @@ test("the panel offers a display-order switch for reported nodes (upload order b
   assert.ok(html.includes('<option value="upload">上报顺序</option>'), "默认项是上报顺序");
   assert.ok(html.includes('<option value="proto">按协议</option>') && html.includes('<option value="name">按名称</option>'),
     "另外两种可选顺序");
+});
+
+test("the panel can keep a user-saved display order for reported nodes", async () => {
+  /* 用户在面板里拖动 ② 的先后，顺序存进库（身份 = link 去掉 #名字），换设备也在；
+     订阅完全不受影响。上报新内容时顺序要保留，没排到的新节点垫在后面。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const hy2 = "hysteria2://pw@2.2.2.2:443?sni=a.com#hy2";
+  const tuic = "tuic://u:p@4.4.4.4:443?sni=a.com#tuic";
+  const vless = "vless://44444444-4444-4444-8444-444444444444@5.5.5.5:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless";
+  await call(env, "POST", "/api/v1/report/ord", b64([hy2, tuic, vless].join("\n")), auth);
+
+  let panel = await (await call(env, "GET", "/api/v1/nodes/ord", null, auth)).json();
+  assert.deepEqual(panel.auto_order, [], "没排过时是空数组，面板按上报顺序显示");
+  assert.deepEqual(panel.auto_nodes.map((n) => n.name), ["hy2", "tuic", "vless"]);
+
+  const reversed = [vless, tuic, hy2].map((link) => link.split("#")[0]);
+  let res = await call(env, "PUT", "/api/v1/nodes/ord/order", JSON.stringify({ order: reversed }), jsonAuth);
+  assert.equal(res.status, 200);
+  panel = await (await call(env, "GET", "/api/v1/nodes/ord", null, auth)).json();
+  assert.deepEqual(panel.auto_order, reversed, "顺序要存下来");
+  assert.deepEqual(panel.auto_nodes.map((n) => n.name), ["hy2", "tuic", "vless"],
+    "auto_nodes 仍按上报顺序给，排法交给前端");
+
+  /* 新来一次上报：顺序不能被冲掉，新节点排在最后 */
+  const extra = "hysteria2://pw@6.6.6.6:443?sni=a.com#hy2-新";
+  await call(env, "POST", "/api/v1/report/ord", b64([hy2, tuic, vless, extra].join("\n")), auth);
+  panel = await (await call(env, "GET", "/api/v1/nodes/ord", null, auth)).json();
+  assert.deepEqual(panel.auto_order, reversed, "上报不能清掉用户排好的顺序");
+  assert.equal(panel.auto_nodes.length, 4);
+
+  /* 恢复默认：传空数组 */
+  await call(env, "PUT", "/api/v1/nodes/ord/order", JSON.stringify({ order: [] }), jsonAuth);
+  panel = await (await call(env, "GET", "/api/v1/nodes/ord", null, auth)).json();
+  assert.deepEqual(panel.auto_order, [], "可以清空回到上报顺序");
+
+  /* 脏输入：重复、空串、非数组 */
+  await call(env, "PUT", "/api/v1/nodes/ord/order", JSON.stringify({ order: [hy2.split("#")[0], hy2.split("#")[0], ""] }), jsonAuth);
+  panel = await (await call(env, "GET", "/api/v1/nodes/ord", null, auth)).json();
+  assert.deepEqual(panel.auto_order, [hy2.split("#")[0]], "重复项和空值要剔掉");
+  res = await call(env, "PUT", "/api/v1/nodes/ord/order", JSON.stringify({ order: "x" }), jsonAuth);
+  assert.equal(res.status, 400, "order 必须是数组");
+  res = await call(env, "PUT", "/api/v1/nodes/nope/order", JSON.stringify({ order: [] }), jsonAuth);
+  assert.equal(res.status, 404, "没有这台机器就 404");
 });

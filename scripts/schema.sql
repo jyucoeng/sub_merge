@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS machines (
   manual_nodes_json TEXT NOT NULL DEFAULT '[]',
   manual     INTEGER NOT NULL DEFAULT 0,
   auto_content TEXT,
-  manual_updated_at TEXT
+  manual_updated_at TEXT,
+  auto_order_json TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_machines_updated_at ON machines (updated_at DESC);
