@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.53";
+const VERSION = "2.4.54";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -454,7 +454,9 @@ textarea:focus{border-color:var(--acc)}
    尤其是「临时排序视图下不许调位置」这种上下文禁用，灰掉但鼠标还是手型最迷惑。 */
 .machine.sorted input.idx-input,.machine.sorted button:disabled,.node button:disabled,button:disabled{cursor:not-allowed}
 /* 置顶/置底是「跳」，上移/下移是「挪一步」：描边和颜色各走一套，扫一眼就分得开 */
-.node button.jump{background:transparent;border-style:dashed;color:var(--sub);border-color:var(--sub)}
+/* 「顶/底」和「↑/↓」是同一件事的两种跨度，样式别搞成两套；
+   只把字重压一点，让人看出这是「一步到位」而不是「挪一格」。 */
+.node button.edge{font-weight:600;letter-spacing:.02em}
 .node button.jump:hover:not(:disabled){color:var(--acc);border-color:var(--acc);background:var(--accbg)}
 .machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
 .machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
@@ -2458,8 +2460,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
         if (!moveAutoNodeTo(here, to)) pos.value = String(viewIndex + 1);
       };
       pos.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); pos.blur(); } };
-      /* 置顶/置底和上移/下移原来都是同一种箭头，四个按钮排一起看不出谁是谁。
-         置顶/置底改成双箭头 + 虚线描边（次级样式），上移/下移保持实线。 */
+      /* 置顶/置底当初用双箭头（⇑/⇓），和 ↑/↓ 放在一起像四个长得差不多的箭头，
+         虚线描边看着更乱。改成汉字「顶/底」：一眼分得出跨度，也不用记符号含义。 */
       var mkMove = function (label, title, target, off, kind) {
         var b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title;
         if (kind) b.className = kind;
@@ -2467,10 +2469,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
         b.onclick = function () { moveAutoNodeTo(here, typeof target === "number" ? target : off); };
         return b;
       };
-      var topBtn = mkMove("\u21d1", "置顶（移到第 1 位）", 0, null, "jump");
+      var topBtn = mkMove("顶", "置顶（移到第 1 位）", 0, null, "edge");
       var upBtn = mkMove("\u2191", "上移一位", null, viewIndex - 1);
       var downBtn = mkMove("\u2193", "下移一位", null, viewIndex + 1);
-      var bottomBtn = mkMove("\u21d3", "置底（移到最后一位）", total - 1, null, "jump");
+      var bottomBtn = mkMove("底", "置底（移到最后一位）", total - 1, null, "edge");
       upBtn.disabled = viewIndex === 0;
       downBtn.disabled = viewIndex >= total - 1;
       row.appendChild(pos);
