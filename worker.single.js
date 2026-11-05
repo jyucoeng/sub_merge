@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.45";
+const VERSION = "2.4.46";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -675,7 +675,7 @@ body.locked .wrap{display:none}
 <div>· <b>从没保存过</b> → 按机器名里认出的地区排，数字小的在前：</div>
 <pre>香港 10   韩国 20   日本 30    新加坡 40   亚洲其他 50
 美国 60   德国 70   欧洲其他 80  美洲其他 90  认不出 100</pre>
-<div>· 点表头「机器名 / 地区 / 节点数 / 更新时间」只是<b>临时换个看法</b>（找最近或最久没上报的机器用），不改机器顺序、也不会变成「未保存」；点「原顺序」回到正常显示。</div>
+<div>· 点表头「机器名 / 地区 / 节点数 / 更新时间」只是<b>临时换个看法</b>（找最近或最久没上报的机器用），不改机器顺序、也不会变成「未保存」；点「解除顺序锁定」回到正常显示（表头排序期间位置不可调整，等于锁着）。</div>
 <div>· 地区是从<b>机器名</b>里认出来的，按命中强度取最高分：中文地名（香港/东京/圣何塞）&gt; 城市三字码（SJC/NRT/ICN）&gt; 机场三字码（PHX/FRA）和两字码在中间 &gt; 两字码在开头。</div>
 <div>· <b>跟手动 / 上报无关</b>：一台机器排第几，只看上面的序号和地区。它自己有没有手动节点、上报进来几条，都不影响它的位置 —— 手动和上报只决定机器<b>内部</b>节点的先后（见第二层）。</div>
 <div class="sr-h">第二层 · 机器里的节点</div>
@@ -2572,7 +2572,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1);
       idx.disabled = sorted;
       idx.title = sorted
-        ? "现在是临时排序视图，位置不代表机器顺序；想调整先点「原顺序」"
+        ? "位置暂时锁着：现在按表头排的序，点「解除顺序锁定」才能调位置"
         : "输入序号直接调整这台机器的位置";
       idx.onchange = function () {
         var at = machineIndexOf(m);
@@ -2641,8 +2641,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
         + " · 进订阅 " + (m.nodes || 0) + " 条"
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
       var at0 = machineIndexOf(m);
-      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = sorted ? "临时排序视图下不能调位置（先点「原顺序」）" : "上移"; up.disabled = sorted || at0 <= 0;
-      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = sorted ? "临时排序视图下不能调位置（先点「原顺序」）" : "下移"; down.disabled = sorted || at0 < 0 || at0 >= state.machines.length - 1;
+      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "上移"; up.disabled = sorted || at0 <= 0;
+      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "下移"; down.disabled = sorted || at0 < 0 || at0 >= state.machines.length - 1;
       var editingThis = !!state.editingMachine && state.editingMachine === m.machine;
       var edit = document.createElement("button"); edit.type = "button";
       edit.className = editingThis ? "edit editing" : "edit";
@@ -2922,7 +2922,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       });
       box.appendChild(meta);
       var rst = document.createElement("button");
-      rst.type = "button"; rst.className = "c-reset"; rst.setAttribute("data-clear", "1"); rst.textContent = "原顺序";
+      rst.type = "button"; rst.className = "c-reset"; rst.setAttribute("data-clear", "1"); rst.textContent = "解除顺序锁定";
       rst.title = "回到按机器顺序（保存过的顺序 / 地区默认）显示";
       rst.onclick = function () { state.sortKey = ""; state.sortDir = 1; paintSortHead(); renderMachineList(); };
       box.appendChild(rst);
