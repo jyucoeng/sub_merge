@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.72";
+const VERSION = "2.4.73";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2379,6 +2379,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
       state.autoDirty = false;
       syncAutoOrderButtons();
       setStatus(order.length ? "顺序已保存（② 面板、③ 清单、④ 档案、订阅四处同序）" : "已清掉上报节点的自定顺序，改回上报顺序", true);
+      /* 保存完立刻把 ③ 清单 / ④ 档案重新拉一遍：这两块的数据来自 /sub/nodes，
+         不刷新就还是旧顺序，看着像「顺序没生效」，得手动刷新页面才对得上。 */
+      loadSubNodes(true);
       if (done) done(true);
     }).catch(function (e) {
       /* 失败不清草稿：用户排的东西还在，改完网络再点一次就行 */
@@ -2401,7 +2404,8 @@ vless-cdn  vless-reality  vmess-argo</pre>
     api("/nodes/" + encodeURIComponent(state.current) + "/order", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: [] }),
     }).then(function () {
-      setStatus("已清掉上报节点的自定顺序（面板和订阅都回到上报顺序 / 默认分组）", true);
+      setStatus("已清掉上报节点的自定顺序（面板和订阅都回到上报顺序）", true);
+      loadSubNodes(true);
     }).catch(function (e) {
       /* 失败就把原来的顺序铺回去，别让人以为已经清掉了 */
       state.autoOrder = prev;
