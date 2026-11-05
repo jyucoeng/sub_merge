@@ -2706,3 +2706,28 @@ test("renaming a machine carries identity presets along", async () => {
 
   assert.deepEqual(await names(`/sub/p/ident/${TOKEN}`), ["东-vless-argo"], "机器改名后档案不该变空");
 });
+
+test("IPv6 nodes emit bracket-free addresses in clash and sing-box, keep brackets in base64", async () => {
+  const env = makeEnv();
+  const auth = { "content-type": "application/json", authorization: `Bearer ${TOKEN}` };
+  const V6 = "[2408:8207:1234::5]";
+  const v6 = "vless://11111111-1111-4111-8111-111111111111@[2408:8207:1234::5]:21004?encryption=none&security=tls&sni=a.example.com&type=ws&path=%2Fws#v6机-vless";
+  const v4 = "vless://11111111-1111-4111-8111-111111111111@203.0.113.7:21004?encryption=none&security=tls&sni=a.example.com&type=ws&path=%2Fws#v6机-v4";
+  const hy6 = "hysteria2://pw@[2408:8207:1234::5]:21002?sni=a.example.com#v6机-hy2";
+
+  const put = await call(env, "PUT", "/api/v1/nodes/vps6", JSON.stringify({ nodes: [{ link: v6 }, { link: v4 }, { link: hy6 }] }), auth);
+  assert.equal(put.status, 200, await put.text());
+
+  const clash = await (await call(env, "GET", `/sub/vps6/${TOKEN}?format=clash`)).text();
+  assert.ok(clash.includes(`server: "2408:8207:1234::5"`), "clash 的 server 必须是裸 IPv6，不能带方括号\n" + clash);
+  assert.ok(!clash.includes(`server: "${V6}"`), "clash 里不该再出现带方括号的 server");
+
+  const sb = JSON.parse(await (await call(env, "GET", `/sub/vps6/${TOKEN}?format=singbox`)).text());
+  const servers = sb.outbounds.filter((o) => o.server).map((o) => o.server);
+  assert.ok(servers.includes("2408:8207:1234::5"), "sing-box 的 server 必须是裸 IPv6");
+  assert.ok(servers.every((s) => !s.startsWith("[")), "sing-box 里不该有带方括号的 server：" + JSON.stringify(servers));
+
+  const plain = unb64(await (await call(env, "GET", `/sub/vps6/${TOKEN}`)).text());
+  assert.ok(plain.includes("@[2408:8207:1234::5]:21004"), "base64 订阅里的链接必须保留方括号（RFC 3986 要求）");
+  assert.equal(plain.split("\n").filter(Boolean).length, 3);
+});

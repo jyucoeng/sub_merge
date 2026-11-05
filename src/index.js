@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.25";
+const VERSION = "2.4.27";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -5152,9 +5152,11 @@ async function getNodeConfig(env, machine) {
     // nodes = 生效顺序（手动 + 自动），manual_nodes 可编辑，auto_nodes 只读
     nodes: await nodesOf(record, allowed, disabled),
     manual_nodes: record.manual_nodes || [],
-    /* ② 的列表按订阅里的实际顺序显示：用户看到的这段，就是客户端里那段。
-       上报顺序是脚本给的，没有语义，照原样铺开反而看不出排序规则。 */
-    auto_nodes: sortNodes(autoNodes, true),
+    /* ② 的列表按「上报顺序」原样铺开（useRank=false，不排序）。
+       这一段的顺序是上报脚本自己给的（脚本里怎么打印就怎么报），用户在面板里核对
+       上报内容时，看到的就是脚本的输出顺序，一眼能对上；订阅那边仍按接入方式分组排序，
+       两处顺序因此可能不同，这是有意的。 */
+    auto_nodes: sortNodes(autoNodes, false),
     sources: reports.map((item) => ({ source: item.source, nodes: item.nodes.length, updated_at: item.updated_at })),
     // 协议筛选：protocols 是勾选的协议（空 = 全部显示），protocol_stats 是这台机器实际有的协议分布
     protocols: allowed,
@@ -6029,6 +6031,14 @@ function cachedSubResponse(entry, extraHeaders) {
   return new Response(entry.body, { headers: subHeaders(entry.type, extraHeaders) });
 }
 
+/* IPv6 地址在输出里必须去掉方括号。
+ * parseLink 用的是 WHATWG URL 的 u.hostname，对 IPv6 会保留 [2408:...] 这种带括号形式；
+ * 但 clash / sing-box 的 server 字段要求裸地址，带方括号会被当成非法 IP，节点静默不可用。
+ * base64 输出走原始链接，不受影响。 */
+function serverHost(server) {
+  return String(server == null ? "" : server).replace(/^\[/, "").replace(/\]$/, "");
+}
+
 function yamlString(value) { return JSON.stringify(String(value == null ? "" : value)); }
 
 function uniqueNodeEntries(nodes, reserved) {
@@ -6042,7 +6052,7 @@ function uniqueNodeEntries(nodes, reserved) {
     if (!proxy) continue;
     if (link) usedLinks.add(link);
     let base = String((node && node.name) || proxy.name || "").trim();
-    if (!base) base = proxy.kind.toUpperCase() + "-" + proxy.server;
+    if (!base) base = proxy.kind.toUpperCase() + "-" + serverHost(proxy.server);
     let name = base;
     for (let i = 2; usedNames.has(name); i += 1) name = base + " " + i;
     usedNames.add(name);
@@ -6057,7 +6067,7 @@ function clashProxyLines(entries) {
     const p = entry.proxy;
     lines.push(`  - name: ${yamlString(entry.name)}`);
     lines.push(`    type: ${p.kind === "hy2" ? "hysteria2" : p.kind}`);
-    lines.push(`    server: ${yamlString(p.server)}`);
+    lines.push(`    server: ${yamlString(serverHost(p.server))}`);
     lines.push(`    port: ${p.port}`);
     lines.push("    udp: true");
     if (p.kind === "vless") {
@@ -6569,7 +6579,7 @@ function toSingbox(nodes) {
   for (const node of nodes) {
     const p = node.proxy || parseLink(node.link);
     if (!p) continue;
-    const base = String(node.name || p.name || "").trim() || `${p.kind}-${p.server}`;
+    const base = String(node.name || p.name || "").trim() || `${p.kind}-${serverHost(p.server)}`;
     let tag = base;
     for (let i = 2; usedTags.has(tag); i += 1) tag = `${base} ${i}`;
     usedTags.add(tag);
@@ -6581,7 +6591,7 @@ function toSingbox(nodes) {
       tls.reality = { enabled: true, public_key: p.pbk, short_id: p.sid || "" };
     }
     if (p.kind === "vless") {
-      const o = { type: "vless", tag, server: p.server, server_port: p.port, uuid: p.uuid };
+      const o = { type: "vless", tag, server: serverHost(p.server), server_port: p.port, uuid: p.uuid };
       if (p.flow) o.flow = p.flow;
       if (p.tls) o.tls = tls;
       if (p.network === "ws") {
@@ -6590,22 +6600,22 @@ function toSingbox(nodes) {
       }
       outbounds.push(o);
     } else if (p.kind === "anytls") {
-      outbounds.push({ type: "anytls", tag, server: p.server, server_port: p.port, password: p.password, tls });
+      outbounds.push({ type: "anytls", tag, server: serverHost(p.server), server_port: p.port, password: p.password, tls });
     } else if (p.kind === "hy2") {
-      outbounds.push({ type: "hysteria2", tag, server: p.server, server_port: p.port, password: p.password, tls });
+      outbounds.push({ type: "hysteria2", tag, server: serverHost(p.server), server_port: p.port, password: p.password, tls });
     } else if (p.kind === "tuic") {
-      outbounds.push({ type: "tuic", tag, server: p.server, server_port: p.port, uuid: p.uuid, password: p.password, congestion_control: p.congestion || "bbr", udp_relay_mode: p.relay || "native", tls });
+      outbounds.push({ type: "tuic", tag, server: serverHost(p.server), server_port: p.port, uuid: p.uuid, password: p.password, congestion_control: p.congestion || "bbr", udp_relay_mode: p.relay || "native", tls });
     } else if (p.kind === "trojan") {
-      outbounds.push({ type: "trojan", tag, server: p.server, server_port: p.port, password: p.password, tls });
+      outbounds.push({ type: "trojan", tag, server: serverHost(p.server), server_port: p.port, password: p.password, tls });
     } else if (p.kind === "ss") {
-      outbounds.push({ type: "shadowsocks", tag, server: p.server, server_port: p.port, method: p.method, password: p.password });
+      outbounds.push({ type: "shadowsocks", tag, server: serverHost(p.server), server_port: p.port, method: p.method, password: p.password });
     } else if (p.kind === "socks5") {
-      const o = { type: "socks", tag, server: p.server, server_port: p.port };
+      const o = { type: "socks", tag, server: serverHost(p.server), server_port: p.port };
       if (p.username) o.username = p.username;
       if (p.password) o.password = p.password;
       outbounds.push(o);
     } else if (p.kind === "vmess") {
-      const o = { type: "vmess", tag, server: p.server, server_port: p.port, uuid: p.uuid, security: p.cipher || "auto", alter_id: p.alterId || 0 };
+      const o = { type: "vmess", tag, server: serverHost(p.server), server_port: p.port, uuid: p.uuid, security: p.cipher || "auto", alter_id: p.alterId || 0 };
       if (p.tls) o.tls = tls;
       if (p.network === "ws") {
         o.transport = { type: "ws", path: p.path || "/" };
