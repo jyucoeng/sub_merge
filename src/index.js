@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.28";
+const VERSION = "2.4.29";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -699,7 +699,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="lab" style="margin-left:6px">顺序：</span><select id="auto-sort" title="只影响这块列表的显示顺序；订阅里仍按接入方式分组排" style="width:auto"><option value="upload">上报顺序</option><option value="proto">按协议</option><option value="name">按名称</option></select><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -804,7 +804,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoSort: "upload", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -2294,6 +2294,26 @@ vless-cdn  vless-reality  vmess-argo</pre>
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
   }
 
+  /* ② 的默认顺序就是上报顺序（脚本先打印哪条就先显示哪条），和接口返回一致；
+     想换个看法（找某个协议、按名字找）就用右上角的「顺序」下拉，纯显示层，
+     不写库、也不影响订阅里的顺序。选择记在 localStorage，下次打开照旧。 */
+  function autoSortMode() {
+    var m = state.autoSort || "upload";
+    return m === "proto" || m === "name" ? m : "upload";
+  }
+  function autoNodesForView() {
+    var mode = autoSortMode();
+    var list = state.autoNodes.slice();
+    if (mode === "upload") return list;
+    var proto = function (n) { return String((n && n.link) || "").split("://")[0].toLowerCase(); };
+    list.sort(function (a, b) {
+      var r = mode === "proto" ? proto(a).localeCompare(proto(b)) : 0;
+      if (!r) r = String(a.name || "").localeCompare(String(b.name || ""));
+      return r;
+    });
+    return list;
+  }
+  try { var _as = localStorage.getItem("submerge.autoSort"); if (_as === "proto" || _as === "name" || _as === "upload") state.autoSort = _as; } catch (e) {}
   function renderAutoNodes() {
     var box = $("auto-nodes"); if (!box) return;
     box.innerHTML = "";
@@ -2308,7 +2328,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
        （vless 带后量子参数动辄两三千字符）。几十条手动 × 几十条自动，就是上千万次
        长字符串比较——这就是「点开机器要等」的来源之一。换成 Set 一次建好。 */
     var manualKeys = new Set(state.nodes.map(function (x) { return (x.link || "").split("#")[0]; }));
-    state.autoNodes.forEach(function (n) {
+    autoNodesForView().forEach(function (n) {
       var here = (n.link || "").split("#")[0];
       var copied = manualKeys.has(here);
       var row = document.createElement("div"); row.className = "node auto-row" + (copied ? " copied" : "");
@@ -2682,6 +2702,15 @@ vless-cdn  vless-reality  vmess-argo</pre>
       render(); renderAutoNodes(); markClean();
       if (!quiet) setStatus("已加载 " + state.nodes.length + " 个手动节点、" + state.autoNodes.length + " 个自动节点");
     }).catch(function (e) { setStatus("加载失败：" + e.message, false); });
+  }
+  var autoSortSel = $("auto-sort");
+  if (autoSortSel) {
+    autoSortSel.value = autoSortMode();
+    autoSortSel.onchange = function () {
+      state.autoSort = this.value;
+      try { localStorage.setItem("submerge.autoSort", state.autoSort); } catch (e) {}
+      renderAutoNodes();
+    };
   }
   $("reset-machine-order").onclick = function () {
     if (!state.orderDirty) return;

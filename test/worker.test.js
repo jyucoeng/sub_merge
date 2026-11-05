@@ -2758,3 +2758,14 @@ test("the panel lists reported nodes in upload order, not the subscription's gro
   });
   assert.deepEqual(names, ["trojan-argo", "vless-reality", "hy2", "tuic"], "订阅侧的分组顺序不受影响");
 });
+
+test("the panel offers a display-order switch for reported nodes (upload order by default)", async () => {
+  /* ② 列表默认就是上报顺序；换看法用「顺序」下拉（上报 / 按协议 / 按名称）。 */
+  const env = makeEnv();
+  const res = await call(env, "GET", "/ui");
+  const html = await res.text();
+  assert.ok(html.includes('id="auto-sort"'), "② 卡片上要有顺序下拉");
+  assert.ok(html.includes('<option value="upload">上报顺序</option>'), "默认项是上报顺序");
+  assert.ok(html.includes('<option value="proto">按协议</option>') && html.includes('<option value="name">按名称</option>'),
+    "另外两种可选顺序");
+});
