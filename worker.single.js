@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.87";
+const VERSION = "2.4.88";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -563,6 +563,7 @@ code{font:12px ui-monospace,Consolas,monospace;color:#1d4ed8;word-break:break-al
 .pe-node .nllink{font:10.5px ui-monospace,Consolas,monospace;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pe-node .nlsrc{font-size:11.5px;color:var(--sub);white-space:nowrap}
 input.locked{background:var(--soft);color:var(--sub);cursor:not-allowed}
+.idx-input.locked{border-style:dashed;opacity:.75}
 .lockwrap{display:inline-block}
 .lockwrap.locked{cursor:not-allowed}
 .lockwrap.locked input{cursor:not-allowed}
@@ -2790,7 +2791,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
       /* 序号永远是「这台机器在完整列表里的位置」——搜索只是把别的行藏起来，
          不能让它显示的号变成筛选后的第几名，否则改序号会把人绕晕。 */
       var at0 = machineIndexOf(m);
-      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String((at0 < 0 ? 0 : at0) + 1);
+      /* 搜到一半时序号是「不能改」的，得让它看起来也不能改：
+         只设 disabled 的话浏览器只会挡住输入，框本身还是白的，跟别的行没区别。 */
+      var idx = document.createElement("input"); idx.className = lockMove ? "idx-input locked" : "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String((at0 < 0 ? 0 : at0) + 1);
       idx.disabled = lockMove;
       idx.title = sorted
         ? "位置暂时锁着：现在按表头排的序，点「解除顺序锁定」才能调位置"
