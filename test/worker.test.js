@@ -801,6 +801,32 @@ test("all merges machines and delete works", async () => {
   assert.equal(res.status, 404);
 });
 
+
+test("bracketed IPv6 links survive ingest and follow the saved order", async () => {
+  /* 另一地址族那条是 hysteria2://pw@[2603:...]:31004/... 这种写法。
+     new URL() 在部分运行时对它抛 Invalid URL，处理不好整条节点会被静默丢掉
+     （script 侧上报了、面板里却只有 4 条），所以单独盯一条。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const v6 = "hysteria2://pw@[2603:c024:c00c:a420:0:f415:3e03]:31004/?sni=a.com&insecure=1#hy2-IPv6";
+  const v4 = "hysteria2://pw@1.1.1.1:31004/?sni=a.com&insecure=1#hy2";
+  const tuic = "tuic://u:p@1.1.1.1:31005?sni=a.com#tuic";
+  await call(env, "POST", "/api/v1/report/v6", b64([v6, v4, tuic].join("\n")), auth);
+
+  const names = async () => {
+    const data = await (await call(env, "GET", "/api/v1/sub/nodes", null, auth)).json();
+    return data.machines.find((m) => m.machine === "v6").nodes.map((n) => n.name);
+  };
+  assert.deepEqual(await names(), ["hy2-IPv6", "hy2", "tuic"], "方括号 IPv6 不能被丢掉，且按上报顺序");
+
+  await call(env, "PUT", "/api/v1/nodes/v6/order", JSON.stringify({ order: [tuic.split("#")[0]] }), jsonAuth);
+  assert.deepEqual(await names(), ["tuic", "hy2-IPv6", "hy2"], "保存的顺序要立刻反映在 ③/④ 的清单里");
+
+  const text = unb64(await (await call(env, "GET", `/sub/v6/${TOKEN}`)).text());
+  assert.ok(text.split("\n")[0].includes("31005"), "订阅第一条也应该是 tuic");
+});
+
 const SAMPLE_LINKS = [
   "vless://11111111-1111-4111-8111-111111111111@example.com:443?security=reality&sni=pypi.org&pbk=abc123&sid=deadbeef&fp=chrome&flow=xtls-rprx-vision&type=tcp#Reality-Node",
   "anytls://secret@example.org:8443?sni=rubygems.org&insecure=1#AnyTLS-Node",

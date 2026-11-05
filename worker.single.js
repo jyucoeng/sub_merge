@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.73";
+const VERSION = "2.4.74";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -2378,6 +2378,27 @@ vless-cdn  vless-reality  vmess-argo</pre>
     save.className = state.autoDirty ? "primary dirty" : "primary";
     save.textContent = state.autoDirty ? "保存顺序（未保存）" : "保存顺序";
   }
+  /* 保存顺序后，先把本地 ③/④ 的数组按新顺序重排一遍再重拉接口：
+     重拉是异步的，也可能命中缓存，档案要是停一秒旧顺序，用户就以为没保存。 */
+  function applyOrderLocally(order) {
+    var rank = {};
+    (order || []).forEach(function (key, i) { rank[String(key).split("#")[0]] = i; });
+    ((state.sub && state.sub.machines) || []).forEach(function (m) {
+      if (m.machine !== state.current) return;
+      var manual = [], auto = [];
+      (m.nodes || []).forEach(function (n) { (n.source === "manual" ? manual : auto).push(n); });
+      auto = auto.map(function (n, i) { return { n: n, i: i }; }).sort(function (a, b) {
+        var ra = rank[String(a.n.link || "").split("#")[0]];
+        var rb = rank[String(b.n.link || "").split("#")[0]];
+        ra = ra == null ? Infinity : ra;
+        rb = rb == null ? Infinity : rb;
+        return ra - rb || a.i - b.i;
+      }).map(function (x) { return x.n; });
+      m.nodes = manual.concat(auto);
+    });
+    renderPresets();
+    renderPresetEditor();
+  }
   function saveAutoOrder(done) {
     var order = state.autoOrder.slice();
     api("/nodes/" + encodeURIComponent(state.current) + "/order", {
@@ -2388,6 +2409,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       setStatus(order.length ? "顺序已保存（② 面板、③ 清单、④ 档案、订阅四处同序）" : "已清掉上报节点的自定顺序，改回上报顺序", true);
       /* 保存完立刻把 ③ 清单 / ④ 档案重新拉一遍：这两块的数据来自 /sub/nodes，
          不刷新就还是旧顺序，看着像「顺序没生效」，得手动刷新页面才对得上。 */
+      applyOrderLocally(order);
       loadSubNodes(true);
       if (done) done(true);
     }).catch(function (e) {
@@ -2412,6 +2434,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: [] }),
     }).then(function () {
       setStatus("已清掉上报节点的自定顺序（面板和订阅都回到上报顺序）", true);
+      applyOrderLocally([]);
       loadSubNodes(true);
     }).catch(function (e) {
       /* 失败就把原来的顺序铺回去，别让人以为已经清掉了 */
@@ -6222,11 +6245,55 @@ function parseShadowsocks(link) {
   } catch { return null; }
 }
 
+/* new URL() 在部分运行时对「非标准协议 + 方括号 IPv6」直接抛 Invalid URL
+   （Node 就是这样；workerd 版本之间也不一致），于是
+   hysteria2://pw@[2603:c024:c00c:a420:0:f415:3e03]:31004/... 这种节点会被当成非法链接
+   静默丢掉——另一地址族那条就是这么消失的。这里给 parseLink 一个手工解析兜底，
+   只还原 parseLink 用到的字段，hostname 保持不带方括号（serverHost() 负责剥壳）。 */
+function linkUrl(link) {
+  try {
+    return new URL(link);
+  } catch { /* 落到下面的手工解析 */ }
+  const m = /^([a-z0-9+.\-]+):\/\/([^/?#]*)([^#]*)(?:#([\s\S]*))?$/i.exec(String(link || ""));
+  if (!m) return null;
+  const scheme = m[1].toLowerCase();
+  const authority = m[2] || "";
+  const tail = m[3] || "";
+  const fragment = m[4] || "";
+  const at = authority.lastIndexOf("@");
+  const userinfo = at >= 0 ? authority.slice(0, at) : "";
+  const hostport = at >= 0 ? authority.slice(at + 1) : authority;
+  let host = "";
+  let port = "";
+  const v6 = /^\[([^\]]+)\](?::(\d*))?$/.exec(hostport);
+  if (v6) {
+    host = v6[1];
+    port = v6[2] || "";
+  } else {
+    const ci2 = hostport.lastIndexOf(":");
+    host = ci2 >= 0 ? hostport.slice(0, ci2) : hostport;
+    port = ci2 >= 0 ? hostport.slice(ci2 + 1) : "";
+  }
+  if (!host) return null;
+  const colon = userinfo.indexOf(":");
+  const qi = tail.indexOf("?");
+  return {
+    protocol: scheme + ":",
+    hostname: host,
+    port: /^\d*$/.test(port) ? port : "",
+    username: colon >= 0 ? userinfo.slice(0, colon) : userinfo,
+    password: colon >= 0 ? userinfo.slice(colon + 1) : "",
+    searchParams: new URLSearchParams(qi >= 0 ? tail.slice(qi + 1) : ""),
+    hash: fragment ? "#" + fragment : "",
+  };
+}
+
 function parseLink(link) {
   try {
     if (link.startsWith("vmess://")) return parseVmess(link);
     if (link.startsWith("ss://")) return parseShadowsocks(link);
-    const u = new URL(link);
+    const u = linkUrl(link);
+    if (!u) return null;
     const kind = u.protocol.replace(/:$/, "").toLowerCase();
     const q = u.searchParams;
     const port = Number(u.port || 443);
@@ -7080,7 +7147,9 @@ function sqlValue(value) {
 }
 
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders(), "content-type": "application/json; charset=utf-8" } });
+  /* no-store：/api/v1/sub/nodes 这类列表在保存顺序后必须立刻反映新顺序，
+     浏览器要是按启发式缓存了 GET 响应，界面就停在旧数据上，看着像「保存没生效」。 */
+  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders(), "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 }
 function html(text, status = 200) {
   return new Response(text, { status, headers: { ...corsHeaders(), "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff", "x-frame-options": "DENY" } });
