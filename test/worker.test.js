@@ -2775,6 +2775,7 @@ test("the panel offers a display-order switch for reported nodes (upload order b
   const res = await call(env, "GET", "/ui");
   const html = await res.text();
   assert.ok(html.includes('id="auto-sort"'), "② 卡片上要有顺序下拉");
+  assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
   assert.ok(html.includes('<option value="upload">上报顺序</option>'), "默认项是上报顺序");
   assert.ok(html.includes('<option value="proto">按协议</option>') && html.includes('<option value="name">按名称</option>'),
     "另外两种可选顺序");

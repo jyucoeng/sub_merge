@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.31";
+const VERSION = "2.4.32";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -414,8 +414,8 @@ button.copied::before{content:"✓ ";font-weight:700}
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
-.node.auto-row{grid-template-columns:minmax(0,1fr) 104px;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
-.node.auto-row input.link{grid-column:1/-1}
+.node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
+
 .node.auto-row.copied .name{color:#94a3b8}
 .node.auto-row .srctag{justify-self:end;margin-right:2px;white-space:nowrap;font-size:11px}
 .node.auto-row input[readonly]{background:var(--soft);color:var(--sub);cursor:text}
@@ -2351,6 +2351,17 @@ vless-cdn  vless-reality  vmess-argo</pre>
     });
   }
   function autoKeyOf(n) { return String((n && n.link) || "").split("#")[0]; }
+  /* 按目标下标移动：箭头（±1）、序号输入框、拖动都走这里，最后都落到 saveAutoOrder。 */
+  function moveAutoNodeTo(key, toIndex) {
+    var list = autoNodesForView().map(autoKeyOf);
+    var from = list.indexOf(key);
+    if (from < 0) return false;
+    var to = Math.max(0, Math.min(list.length - 1, toIndex));
+    if (to === from) return false;
+    list.splice(to, 0, list.splice(from, 1)[0]);
+    saveAutoOrder(list);
+    return true;
+  }
   function moveAutoNode(fromKey, toKey) {
     if (!fromKey || !toKey || fromKey === toKey) return;
     var list = autoNodesForView().map(autoKeyOf);
@@ -2373,7 +2384,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
        （vless 带后量子参数动辄两三千字符）。几十条手动 × 几十条自动，就是上千万次
        长字符串比较——这就是「点开机器要等」的来源之一。换成 Set 一次建好。 */
     var manualKeys = new Set(state.nodes.map(function (x) { return (x.link || "").split("#")[0]; }));
-    autoNodesForView().forEach(function (n) {
+    autoNodesForView().forEach(function (n, viewIndex) {
       var here = (n.link || "").split("#")[0];
       var copied = manualKeys.has(here);
       var row = document.createElement("div"); row.className = "node auto-row" + (copied ? " copied" : "");
@@ -2404,7 +2415,26 @@ vless-cdn  vless-reality  vmess-argo</pre>
       var name = document.createElement("input"); name.className = "name"; name.type = "text"; name.value = n.name || "";
       name.readOnly = true;
       name.title = n.name || "";
+      /* 序号可直接改、箭头可上下挪：和 ① 手动节点、机器排序同一套手感，
+         这里改的是库里的自定义顺序（拖动的等价操作）。 */
+      var total = autoNodesForView().length;
+      var pos = document.createElement("input");
+      pos.className = "idx-input"; pos.type = "number"; pos.min = "1"; pos.max = String(total);
+      pos.value = String(viewIndex + 1);
+      pos.title = "输入序号直接调整这一条的次序（拖动、箭头、序号三种都行）";
+      pos.onchange = function () {
+        var want = parseInt(pos.value, 10);
+        var to = Math.max(1, Math.min(total, isNaN(want) ? viewIndex + 1 : want)) - 1;
+        if (!moveAutoNodeTo(here, to)) pos.value = String(viewIndex + 1);
+      };
+      pos.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); pos.blur(); } };
+      var upBtn = document.createElement("button"); upBtn.type = "button"; upBtn.textContent = "↑"; upBtn.title = "上移一位"; upBtn.disabled = viewIndex === 0;
+      var downBtn = document.createElement("button"); downBtn.type = "button"; downBtn.textContent = "↓"; downBtn.title = "下移一位"; downBtn.disabled = viewIndex >= total - 1;
+      upBtn.onclick = function () { moveAutoNodeTo(here, viewIndex - 1); };
+      downBtn.onclick = function () { moveAutoNodeTo(here, viewIndex + 1); };
+      row.appendChild(pos);
       row.appendChild(link); row.appendChild(name);
+      row.appendChild(upBtn); row.appendChild(downBtn);
       if (copied) {
         var tag = document.createElement("span"); tag.className = "srctag manual"; tag.textContent = "已在 ① 手动";
         tag.title = "这条已经复制进 ① 手动节点了，要改就去上面 ① 改（这里仍然只读）";
