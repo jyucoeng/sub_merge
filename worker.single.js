@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.85";
+const VERSION = "2.4.86";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -513,9 +513,10 @@ textarea:focus{border-color:var(--acc)}
 .mrank-note .mn-text{flex:1 1 0;min-width:0}
 /* 机器搜索是独立的一块，不塞进上面天青色的提示条里 */
 .msearch{display:flex;align-items:center;gap:8px;margin-top:10px;min-width:0}
-.msrch{flex:0 1 380px;width:380px;min-width:150px;font-size:13px;padding:6px 10px}
-.msrch-btn{flex:0 0 auto;width:34px;height:32px;padding:0;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;border-radius:8px}
-.msrch-btn:hover{border-color:var(--acc)}
+.msrch-box{position:relative;flex:0 1 380px;min-width:150px;display:flex}
+.msrch{width:100%;min-width:0;font-size:13px;padding:6px 32px 6px 10px}
+.msrch-in{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:26px;height:26px;padding:0;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:0;border-radius:6px;opacity:.7;cursor:pointer}
+.msrch-in:hover{opacity:1;background:var(--soft)}
 .msrch-clear{flex:0 0 auto;padding:5px 11px;font-size:12.5px;line-height:1.4;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
 .msrch-clear:hover{background:var(--autoline);color:var(--ink)}
 .msrch-count{flex:0 0 auto;white-space:nowrap}
@@ -691,8 +692,10 @@ body.locked .wrap{display:none}
 <h2>机器排序 <span class="tip">自动上报的机器和手动新建的机器都在这里，一起按下面的顺序拼进合并订阅；左边的序号可以直接改成想要的位置</span></h2>
 <div class="mrank-note" title="机器名里认出的地区决定默认位置；保存过一次顺序后，就只按你排的来"><div class="mn-text">没保存顺序时按机器名里的地区排：香港 → 韩国 → 日本 → 新加坡 → 亚洲其他 → 美国 → 德国 → 欧洲其他 → 美洲其他 → 认不出的垫底。保存过之后只按你排的来。</div><button id="sort-help" class="fold sort-help-btn" type="button" title="展开看看机器和节点是按什么规则排出来的">排序规则 展开 +</button></div>
 <div class="msearch">
-<input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词，也认地区码 us / hk / jp）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）。输入时自动筛，回车或点右边的搜索按钮也一样" aria-label="搜索机器名">
-<button id="machine-search-btn" class="msrch-btn" type="button" title="搜索（按框里的内容筛机器）" aria-label="搜索">🔍</button>
+<span class="msrch-box">
+<input id="machine-search" class="msrch" spellcheck="false" placeholder="搜机器名（模糊匹配，空格分隔多个词，也认地区码 us / hk / jp）" title="按机器名模糊搜索：只输入几个字就行，多个词用空格隔开表示同时满足；也认地区码（us / hk / jp）。输入时自动筛，回车或点框里的放大镜也一样" aria-label="搜索机器名">
+<button id="machine-search-btn" class="msrch-in" type="button" title="搜索（按框里的内容筛机器）" aria-label="搜索">🔍</button>
+</span>
 <button id="machine-clear" class="fold msrch-clear" type="button" hidden title="清掉搜索，显示全部机器">清除搜索</button>
 <span class="tip msrch-count" id="machine-search-count"></span>
 </div>
