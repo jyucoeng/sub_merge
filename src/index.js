@@ -466,7 +466,6 @@ textarea:focus{border-color:var(--acc)}
 /* 「节点数」和「最近上报」在视觉上不属于一回事，中间拉开：左一个右一个，
    用 space-between 把这一格填满，中间自然留出空白当分隔。 */
 .mlist-head .c-meta{display:flex;gap:12px;justify-content:space-between;align-items:center;width:100%}
-.mlist-head .c-meta .h+p{display:none}
 .mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font:inherit;font-size:12px;color:var(--sub);cursor:pointer}
 .mlist-head .c-reset:hover{border-color:var(--acc);color:var(--acc)}
 .mlist-head .c-reset[hidden]{display:none}
