@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.48";
+const VERSION = "2.4.49";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -476,6 +476,17 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .c-reset:active{transform:translateY(1px)}
 [data-theme="dark"] .mlist-head .c-reset{color:#04101f}
 .mlist-head .c-reset[hidden]{display:none}
+/* 窄屏下机器行会折成多行（.machine 在 720px 以下改 flex-wrap），
+   表头还按 7 列栅格摆就会互相压字、按钮还会溢到卡片外。
+   这里让表头也跟着换行：首行 机器名/地区，次行 节点数/最近上报，末行放解锁按钮。 */
+@media(max-width:720px){
+  .mlist-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;border-radius:10px}
+  .mlist-head .c-idx{display:none}
+  .mlist-head .c-name{flex:1 1 auto;min-width:0}
+  .mlist-head .c-meta{flex:1 1 100%;justify-content:flex-start;gap:14px}
+  .mlist-head .c-reset{flex:1 1 100%;justify-self:auto;width:100%;text-align:center;margin-top:2px}
+  .mlist-head + #machine-list .machine:first-child{border-top-left-radius:10px;border-top-right-radius:10px}
+}
 .mlist-head + #machine-list .machine:first-child{border-top-left-radius:0;border-top-right-radius:0}
 .sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
 .sort-help-btn:hover{background:var(--autoline);border-color:var(--autoline);color:var(--ink)}
