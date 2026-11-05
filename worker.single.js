@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.32";
+const VERSION = "2.4.33";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -421,7 +421,7 @@ button.copied::before{content:"✓ ";font-weight:700}
 .err{color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}.nodes{margin-top:14px;display:grid;gap:8px}.node{display:grid;grid-template-columns:46px 1fr 180px 34px 34px 34px;gap:8px;align-items:center;content-visibility:auto;contain-intrinsic-size:auto 44px}
 .idx-input{width:100%;min-width:0;padding:4px 2px;text-align:center;font:12px ui-monospace,Consolas,monospace;color:var(--ink);border-radius:8px}.node input.link{font:12px ui-monospace,Consolas,monospace;min-width:0}
-.node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.node.auto-row{grid-template-columns:46px minmax(0,1fr) 150px 34px 34px 34px 34px auto;row-gap:4px;padding:6px 0;border-bottom:1px dashed var(--line)}
 
 .node.auto-row.copied .name{color:#94a3b8}
 .node.auto-row .srctag{justify-self:end;margin-right:2px;white-space:nowrap;font-size:11px}
@@ -710,7 +710,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
 <div class="row admin-only"><button id="save" class="primary" type="button" title="只保存这台机器的 ① 手动节点；② 上报来的内容由脚本更新">保存节点配置</button><button id="discard" type="button" title="把①恢复成上次保存的内容">撤销修改</button><span class="tip">保存后这台机器进入「手动」模式：之后的上报只更新 ②，不再改动 ①</span></div>
 </div>
 <div class="nsec auto">
-<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><span class="lab" style="margin-left:6px">顺序：</span><select id="auto-sort" title="只影响这块列表的显示顺序；订阅里仍按接入方式分组排" style="width:auto"><option value="upload">上报顺序</option><option value="custom">自定义（拖动）</option><option value="proto">按协议</option><option value="name">按名称</option></select><button id="auto-order-reset" type="button" title="丢掉自己排的顺序，回到脚本打印的上报顺序">恢复上报顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
+<div class="nsec-head"><span class="nstep">②</span><b>自动上报的节点</b><span class="tag auto" id="auto-count">0 个</span><button id="auto-order-reset" type="button" title="丢掉自己排的顺序，回到脚本打印的上报顺序">恢复上报顺序</button><span class="tip" id="auto-when" title="上报内容没有变化时不会刷新这个时间">内容更新于：—</span><span class="tip">只读，来自最近一次上报，也同样进订阅；这里改不了、也不提供删除（脚本下次上报覆盖即可）。想编辑或长期保留就点该行的「转 ① 手动」，会复制一份到 ①，还要再点 ① 的保存</span></div>
 <div id="auto-sources" class="sources"></div>
 <div id="auto-nodes" class="nodes"></div>
 </div>
@@ -815,7 +815,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
   "use strict";
   var TOKEN = "";
   var ROLE = null;
-  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoSort: "upload", autoOrder: [], dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
+  var state = { machines: [], current: "", nodes: [], autoNodes: [], autoOrder: [], dragKey: "", sources: [], sub: { machines: [], disabled: [], draft: [], search: "", protos: [], machinesF: [], tunnel: "", sources: [] }, presets: [], links: [], presetSearch: "", presetEdit: null, editingMachine: "", orderDirty: false, sortKey: "", sortDir: 1 };
   var $ = function (id) { return document.getElementById(id); };
 
   function api(path, opts) {
@@ -2305,45 +2305,25 @@ vless-cdn  vless-reality  vmess-argo</pre>
     try { if (typeof navigator !== "undefined" && navigator.clipboard) navigator.clipboard.writeText(text); } catch (e) {}
   }
 
-  /* ② 的默认顺序就是上报顺序（脚本先打印哪条就先显示哪条），和接口返回一致；
-     想换个看法（找某个协议、按名字找）就用右上角的「顺序」下拉，纯显示层，
-     不写库、也不影响订阅里的顺序。选择记在 localStorage，下次打开照旧。 */
-  function autoSortMode() {
-    var m = state.autoSort || "upload";
-    return m === "proto" || m === "name" ? m : "upload";
-  }
+  /* ② 的显示顺序：库里存过用户的顺序就按它，没存过就是上报顺序（脚本先打印哪条就先显示）。
+     身份 = link 去掉 #名字；排过的节点按名次、没排到的（之后新上报的）垫在最后，
+     内部仍按上报顺序，不会乱跳。 */
   function autoNodesForView() {
-    var mode = autoSortMode();
     var list = state.autoNodes.slice();
-    if (mode === "upload") return list;
-    if (mode === "custom") {
-      /* 用户自己拖出来的顺序存在库里（身份 = link 去掉 #名字）。没排到的节点
-         （比如这之后新上报的）垫在最后，内部仍按上报顺序，不会乱跳。 */
-      var rank = {};
-      (state.autoOrder || []).forEach(function (key, i) { if (rank[key] == null) rank[key] = i; });
-      list.sort(function (a, b) {
-        var ka = (a.link || "").split("#")[0], kb = (b.link || "").split("#")[0];
-        var ra = rank[ka] == null ? 1e9 : rank[ka], rb = rank[kb] == null ? 1e9 : rank[kb];
-        return ra - rb;
-      });
-      return list;
-    }
-    var proto = function (n) { return String((n && n.link) || "").split("://")[0].toLowerCase(); };
+    var keys = state.autoOrder || [];
+    if (!keys.length) return list;
+    var rank = {};
+    keys.forEach(function (key, i) { if (rank[key] == null) rank[key] = i; });
     list.sort(function (a, b) {
-      var r = mode === "proto" ? proto(a).localeCompare(proto(b)) : 0;
-      if (!r) r = String(a.name || "").localeCompare(String(b.name || ""));
-      return r;
+      var ra = rank[(a.link || "").split("#")[0]], rb = rank[(b.link || "").split("#")[0]];
+      return (ra == null ? 1e9 : ra) - (rb == null ? 1e9 : rb);
     });
     return list;
   }
-  try { var _as = localStorage.getItem("submerge.autoSort"); if (_as === "proto" || _as === "name" || _as === "upload" || _as === "custom") state.autoSort = _as; } catch (e) {}
   /* 自定义顺序只是「看法」，保存进库是为了换设备也在；写库失败就退回上报顺序，不装作成功。 */
   function saveAutoOrder(order, done) {
-    var prev = state.autoOrder.slice(), prevMode = state.autoSort;
+    var prev = state.autoOrder.slice();
     state.autoOrder = order.slice();
-    state.autoSort = order.length ? "custom" : "upload";
-    var sel = $("auto-sort"); if (sel) sel.value = state.autoSort;
-    try { localStorage.setItem("submerge.autoSort", state.autoSort); } catch (e) {}
     renderAutoNodes();
     api("/nodes/" + encodeURIComponent(state.current) + "/order", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ order: order }),
@@ -2351,7 +2331,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       setStatus(order.length ? "顺序已保存（只影响这块列表的显示，订阅仍按接入方式分组）" : "已恢复上报顺序", true);
       if (done) done(true);
     }).catch(function (e) {
-      state.autoOrder = prev; state.autoSort = prevMode;
+      state.autoOrder = prev;
       renderAutoNodes();
       setStatus("顺序保存失败：" + e.message, false);
       if (done) done(false);
@@ -2435,13 +2415,21 @@ vless-cdn  vless-reality  vmess-argo</pre>
         if (!moveAutoNodeTo(here, to)) pos.value = String(viewIndex + 1);
       };
       pos.onkeydown = function (ev) { if (ev.key === "Enter") { ev.preventDefault(); pos.blur(); } };
-      var upBtn = document.createElement("button"); upBtn.type = "button"; upBtn.textContent = "↑"; upBtn.title = "上移一位"; upBtn.disabled = viewIndex === 0;
-      var downBtn = document.createElement("button"); downBtn.type = "button"; downBtn.textContent = "↓"; downBtn.title = "下移一位"; downBtn.disabled = viewIndex >= total - 1;
-      upBtn.onclick = function () { moveAutoNodeTo(here, viewIndex - 1); };
-      downBtn.onclick = function () { moveAutoNodeTo(here, viewIndex + 1); };
+      var mkMove = function (label, title, target, off) {
+        var b = document.createElement("button"); b.type = "button"; b.textContent = label; b.title = title;
+        b.disabled = target === viewIndex;
+        b.onclick = function () { moveAutoNodeTo(here, typeof target === "number" ? target : off); };
+        return b;
+      };
+      var topBtn = mkMove("⤒", "置顶（移到第 1 位）", 0);
+      var upBtn = mkMove("↑", "上移一位", null, viewIndex - 1);
+      var downBtn = mkMove("↓", "下移一位", null, viewIndex + 1);
+      var bottomBtn = mkMove("⤓", "置底（移到最后一位）", total - 1);
+      upBtn.disabled = viewIndex === 0;
+      downBtn.disabled = viewIndex >= total - 1;
       row.appendChild(pos);
       row.appendChild(link); row.appendChild(name);
-      row.appendChild(upBtn); row.appendChild(downBtn);
+      row.appendChild(topBtn); row.appendChild(upBtn); row.appendChild(downBtn); row.appendChild(bottomBtn);
       if (copied) {
         var tag = document.createElement("span"); tag.className = "srctag manual"; tag.textContent = "已在 ① 手动";
         tag.title = "这条已经复制进 ① 手动节点了，要改就去上面 ① 改（这里仍然只读）";
@@ -2779,11 +2767,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
       state.nodes = (data.manual_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoNodes = (data.auto_nodes || []).map(function (n) { return { link: n.link || "", name: n.name || "" }; });
       state.autoOrder = Array.isArray(data.auto_order) ? data.auto_order.slice() : [];
-      /* 库里没存过顺序，就别停在「自定义」上（否则看着像排过、其实没有） */
-      if (!state.autoOrder.length && autoSortMode() === "custom") {
-        state.autoSort = "upload";
-        var _sel = $("auto-sort"); if (_sel) _sel.value = "upload";
-      }
       state.sources = data.sources || [];
       var when = $("auto-when");
       if (when) {
@@ -2815,15 +2798,6 @@ vless-cdn  vless-reality  vmess-argo</pre>
   }
   var autoOrderReset = $("auto-order-reset");
   if (autoOrderReset) autoOrderReset.onclick = function () { saveAutoOrder([]); };
-  var autoSortSel = $("auto-sort");
-  if (autoSortSel) {
-    autoSortSel.value = autoSortMode();
-    autoSortSel.onchange = function () {
-      state.autoSort = this.value;
-      try { localStorage.setItem("submerge.autoSort", state.autoSort); } catch (e) {}
-      renderAutoNodes();
-    };
-  }
   $("reset-machine-order").onclick = function () {
     if (!state.orderDirty) return;
     state.sortKey = ""; state.sortDir = 1;

@@ -2769,16 +2769,19 @@ test("the panel lists reported nodes in upload order, not the subscription's gro
   assert.deepEqual(names, ["trojan-argo", "vless-reality", "hy2", "tuic"], "订阅侧的分组顺序不受影响");
 });
 
-test("the panel offers a display-order switch for reported nodes (upload order by default)", async () => {
-  /* ② 列表默认就是上报顺序；换看法用「顺序」下拉（上报 / 按协议 / 按名称）。 */
+test("the panel orders reported nodes without a mode switch (saved order, else upload order)", async () => {
+  /* 顺序不是一个「模式」：库里存过就按它显示，没存过就是上报顺序。
+     行内有序号、↑↓、置顶/置底，拖动也还在。 */
   const env = makeEnv();
-  const res = await call(env, "GET", "/ui");
-  const html = await res.text();
-  assert.ok(html.includes('id="auto-sort"'), "② 卡片上要有顺序下拉");
+  const html = await (await call(env, "GET", "/ui")).text();
+  assert.ok(!html.includes('id="auto-sort"'), "不应该再有「顺序」下拉");
+  assert.ok(!html.includes('value="proto"'), "按协议 / 按名称这两种看法已经去掉");
   assert.ok(html.includes("moveAutoNodeTo"), "② 的行要能按序号 / 箭头调整顺序");
-  assert.ok(html.includes('<option value="upload">上报顺序</option>'), "默认项是上报顺序");
-  assert.ok(html.includes('<option value="proto">按协议</option>') && html.includes('<option value="name">按名称</option>'),
-    "另外两种可选顺序");
+  assert.ok(html.includes("置顶") && html.includes("置底"), "② 的行要能一键置顶 / 置底");
+  assert.ok(html.includes("恢复上报顺序"), "要能一键丢掉自己排的顺序");
+  /* 曾经的坑：autoSortMode() 只认 upload/proto/name，自定义永远落回 upload，
+     表现为「箭头点了没反应、顺序存了不生效」。这里盯住那个函数别再出现。 */
+  assert.ok(!html.includes("autoSortMode"), "不要再用排序模式决定是否套用保存的顺序");
 });
 
 test("the panel can keep a user-saved display order for reported nodes", async () => {
