@@ -2869,6 +2869,37 @@ test("the panel can keep a user-saved display order for reported nodes", async (
   assert.equal(res.status, 404, "没有这台机器就 404");
 });
 
+test("the subscription follows the order saved in the panel", async () => {
+  /* 面板里排过的顺序必须带进订阅：两处不一致，用户会以为顺序没存住。
+     没排过的仍按接入方式分组（这里三条都是「普通」组，所以按协议名字母序）。 */
+  const env = makeEnv();
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const jsonAuth = { ...auth, "content-type": "application/json" };
+  const hy2 = "hysteria2://pw@2.2.2.2:443?sni=a.com#hy2";
+  const tuic = "tuic://u:p@4.4.4.4:443?sni=a.com#tuic";
+  const vless = "vless://44444444-4444-4444-8444-444444444444@5.5.5.5:443?security=reality&sni=a.com&pbk=x&sid=1&type=tcp#vless";
+  await call(env, "POST", "/api/v1/report/ordsub", b64([hy2, tuic, vless].join("\n")), auth);
+
+  const names = async () => {
+    const text = unb64(await (await call(env, "GET", `/sub/ordsub/${TOKEN}`)).text());
+    return text.split("\n").filter(Boolean).map((line) => {
+      const h = line.indexOf("#");
+      return h >= 0 ? decodeURIComponent(line.slice(h + 1)) : line.slice(0, 24);
+    });
+  };
+
+  /* vless 带 security=reality，属于 Reality 组，组序在「普通」之前 */
+  assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "没排过时按分组规则来");
+
+  const custom = [tuic, hy2, vless].map((link) => link.split("#")[0]);
+  await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: custom }), jsonAuth);
+  assert.deepEqual(await names(), ["tuic", "hy2", "vless"], "保存过顺序后订阅要跟着变");
+
+  /* 清掉自定顺序 → 订阅回到分组规则 */
+  await call(env, "PUT", "/api/v1/nodes/ordsub/order", JSON.stringify({ order: [] }), jsonAuth);
+  assert.deepEqual(await names(), ["vless", "hy2", "tuic"], "清掉顺序就回到分组规则");
+});
+
 test("reading nodes on a pre-existing database without the new column heals itself", async () => {
   /* 线上库是老的：部署新代码后 machines 还没有 auto_order_json。
      GET /nodes 不该 500，而是就地补列再读（用户不用先去点「初始化数据库」）。 */

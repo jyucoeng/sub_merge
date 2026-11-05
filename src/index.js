@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.55";
+const VERSION = "2.4.56";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -708,11 +708,17 @@ vless-cdn  vless-reality  vmess-argo</pre>
 [Reality]  vless-reality
 [普通]     anytls  hysteria2  tuic</pre>
 <div>同名协议按字母站在自己组里（trojan 在 vless 前），不会跨组乱跑。</div>
+<div class="sr-h">② 里自己排过的顺序</div>
+<div>上面那套分组是<b>没排过顺序时的默认</b>。在 ② 里用 <b>顶 / ↑ / ↓ / 底</b> 挪过位置、并点了「保存顺序」之后，这台机器的上报段就<b>完全按你排的来</b>，订阅里也是这个顺序（新上报进来、还没拖过的节点排在末尾）。</div>
+<div>· 只影响<b>这一台机器</b>的上报段；机器之间谁先谁后仍由第一层的机器顺序决定。</div>
+<div>· 点「清掉自定顺序」→ 先回到上报顺序显示，再点「保存顺序」写进库，订阅就回到上面那套分组规则。</div>
+<div>· 手动段不受影响：它永远整段在最前面。</div>
 <div class="sr-h">几个判定细节</div>
 <div>· <b>security=reality</b> 的节点算 Reality 组，即使 path 里带 argo</div>
 <div>· path 里同时带 <b>-cdn</b> 和 <b>argo</b> 的，算 CDN 组（cdn 优先于 argo）</div>
 <div>· 一个节点只会落进一个组，不会重复出现</div>
 <div>· 手动节点<b>不参与</b>这套分组：你把 hysteria2 拖到 vless-reality 前面，它就一直在前面</div>
+<div>· 上报段保存过自定顺序时，上面这套「Argo → CDN → Reality → 普通」不再生效，按你排的来</div>
 <div>· 同一台机器里认不出地区的，机器名照样参与排序，只是落在 100 那一档</div>
 <div>· 只放了手动节点、从没上报过的机器，照样按地区 / 序号排，不会因为「没上报」被挪到后面</div>
 <div class="sr-h">把上报节点「转 ① 手动」之后会怎样</div>
@@ -6038,6 +6044,30 @@ function sortNodes(nodes, useRank) {
   return decorated.map((item) => item.node);
 }
 
+/* 上报段的顺序：用户在 ② 里调过并保存过顺序（machines.auto_order_json）就按它来，
+   没调过的（或新上报进来的）继续按接入方式分组。面板上看到什么顺序，订阅就拼什么顺序，
+   两处不一致最容易让人以为「顺序没保存」。
+   注意只在同一台机器的上报段内部生效，跨机器的机器顺序仍归第一层管。 */
+function orderAutoPart(autoPart, autoOrder) {
+  const list = Array.isArray(autoOrder) ? autoOrder : [];
+  if (!list.length) return sortNodes(autoPart, true);
+  const rank = new Map();
+  list.forEach((link, i) => {
+    const id = linkIdentity(link);
+    if (id && !rank.has(id)) rank.set(id, i);
+  });
+  if (!rank.size) return sortNodes(autoPart, true);
+  const picked = [];
+  const rest = [];
+  for (const node of autoPart) {
+    if (rank.has(linkIdentity(node.link))) picked.push(node);
+    else rest.push(node);
+  }
+  picked.sort((a, b) => rank.get(linkIdentity(a.link)) - rank.get(linkIdentity(b.link)));
+  /* 自定顺序之后新上报、还没被拖过的节点排在这段末尾，保持原来的分组观感 */
+  return [...picked, ...sortNodes(rest, true)];
+}
+
 /* 一台机器对外暴露的节点 = 手动节点（用户手写，永远不被上报覆盖）+ 自动节点（最近一次上报），按 link 去重 */
 async function nodesOf(record, allowed, disabled) {
   const manual = record && Array.isArray(record.manual_nodes) ? record.manual_nodes.slice() : [];
@@ -6066,10 +6096,10 @@ async function nodesOf(record, allowed, disabled) {
   }
   const hide = disabled instanceof Set ? disabled : new Set(disabled || []);
   /* 手动是独立的一层，排序时必须保留这个前提：手动段整体在前，上报段在后，
-     两段各自按协议字母升序。手动节点是你亲手写的，它不是「和上报混在一起的
+     两段各自排自己的（上报段见 orderAutoPart）。手动节点是你亲手写的，它不是「和上报混在一起的
      同类项」——把它打散进上报里，那条人工改过的配置就找不到位置了。
      所以这里是两段各排各的再拼，不是合并后统一排。 */
-  const merged = [...sortManualNodes(manualPart), ...sortNodes(autoPart, true)]
+  const merged = [...sortManualNodes(manualPart), ...orderAutoPart(autoPart, record && record.auto_order)]
     .filter((node) => !hide.has(linkIdentity(node.link)));
   return keepProtocols(merged, allowed).map((node, i) => ({ ...node, _sort: i }));
 }
@@ -6315,7 +6345,9 @@ const SUB_CACHE_MAX = 8;
 const SUB_CACHE_MAX_BYTES = 512 * 1024;
 
 function subCacheKey(tag, format, order, records) {
-  const parts = records.map((r) => [r.machine, r.updated_at, r.hash, r.manual ? 1 : 0].join("\u0001"));
+  /* auto_order 必须进缓存键：它只存在 machines.auto_order_json 里，不改 updated_at/hash，
+     漏了就会在订阅缓存过期前一直吐旧顺序——面板改了、订阅没变，很难查。 */
+  const parts = records.map((r) => [r.machine, r.updated_at, r.hash, r.manual ? 1 : 0, (r.auto_order || []).join("\u0004")].join("\u0001"));
   return [tag, format, order.join("\u0003"), parts.join("\u0002")].join("\u0000");
 }
 
