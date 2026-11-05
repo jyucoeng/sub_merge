@@ -2824,6 +2824,8 @@ test("the panel orders reported nodes without a mode switch (saved order, else u
   /* 曾经的坑：autoSortMode() 只认 upload/proto/name，自定义永远落回 upload，
      表现为「箭头点了没反应、顺序存了不生效」。这里盯住那个函数别再出现。 */
   assert.ok(!html.includes("autoSortMode"), "不要再用排序模式决定是否套用保存的顺序");
+  /* 档案编辑器曾经把「勾过的行」整体提到最前，结果列表顺序和 ②、和订阅都对不上 */
+  assert.ok(!html.includes("peHas(identKey(a.machine"), "档案里的节点列表不要按勾选状态重排，跟 ② 走");
 });
 
 test("the panel can keep a user-saved display order for reported nodes", async () => {

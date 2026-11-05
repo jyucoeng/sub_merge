@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.58";
+const VERSION = "2.4.59";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1971,14 +1971,10 @@ vless-cdn  vless-reality  vmess-argo</pre>
       });
     }
     var rows = peRows();
-    /* 只勾了几组的时候，那几条常被埋在十几台机器底下——一眼看不到自己勾了什么。
-       勾过的排到前面；再打开「只看已勾选」就只剩这些。 */
+    /* 顺序和 ② 面板 / 订阅保持一致：机器顺序 → 机器内「手动段 + 上报段（② 里排过的优先）」。
+       以前这里会把勾过的行整体提到最前面，结果列表顺序和 ②、和订阅三处各不相同，
+       还夹在机器之间乱跳。想专看勾过的，用「只看已勾选」。 */
     if (st.onlyPicked) rows = rows.filter(function (item) { return peHas(identKey(item.machine, item.node)); });
-    else rows = rows.slice().sort(function (a, b) {
-      var pa = peHas(identKey(a.machine, a.node)) ? 0 : 1;
-      var pb = peHas(identKey(b.machine, b.node)) ? 0 : 1;
-      return pa - pb;
-    });
     var onlyBtn = $("pe-only-picked");
     if (onlyBtn) {
       onlyBtn.className = st.onlyPicked ? "primary" : "";
