@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.36";
+const VERSION = "2.4.37";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -450,7 +450,11 @@ textarea:focus{border-color:var(--acc)}
 .fold{float:right;margin-left:10px;padding:7px 18px;font-size:14px;font-weight:600;letter-spacing:.02em;border-radius:8px;border:1px solid var(--accline);background:var(--accbg);color:var(--acc);cursor:pointer;vertical-align:1px;transition:background .15s,border-color .15s,color .15s}
 .fold:hover{background:var(--acc);border-color:var(--acc);color:#fff}
 .fold:active{transform:translateY(1px)}.status.ok{color:var(--ok)}.status.err{color:var(--err)}
-.machine-list{display:grid;gap:7px;margin-top:12px}.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
+.machine-list{display:grid;gap:7px;margin-top:12px}/* 点不动的东西要让人一眼看出点不动：禁用态统一给禁停手势。
+   尤其是「临时排序视图下不许调位置」这种上下文禁用，灰掉但鼠标还是手型最迷惑。 */
+.machine.sorted input.idx-input,.machine.sorted button:disabled,.node button:disabled,button:disabled{cursor:not-allowed}
+.machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
+.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 .mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
 .mlist-head .lab{color:var(--sub);opacity:.85}
 .sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
