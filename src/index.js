@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.79";
+const VERSION = "2.4.80";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -1156,7 +1156,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     link.onblur = function () {
       if (String(state.nodes[index].name || "").trim()) return;
       var auto = nameFromLink(link.value);
-      if (auto) { state.nodes[index].name = auto; name.value = auto; }
+      /* 自动填的名字也是「未保存的改动」：不置脏的话离开页面不会有提示，
+         用户以为名字已经跟着库里了。 */
+      if (auto) { state.nodes[index].name = auto; name.value = auto; markDirty(); syncDirty(); }
     };
     name.oninput = function () { state.nodes[index].name = name.value; markDirty(); };
     row.appendChild(idx); row.appendChild(link); row.appendChild(name); row.appendChild(topN); row.appendChild(up); row.appendChild(down); row.appendChild(del);
@@ -3172,6 +3174,11 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
   $("pe-save").onclick = function () { busy(this, function () { return savePresetEdit(); }); };
   /* 取消不需要留痕：面板收起来本身就是反馈，再挂一句「已取消」既占位置，
      又会和刚点过的保存/失败提示抢同一个位置。 */
+  /* 改名/换格式也是「未保存的改动」，但以前没有任何监听：
+     界面上「未保存 N 处」的角标要等到勾选变化才更新，看着像没改。 */
+  if ($("pe-label")) $("pe-label").oninput = function () { cancelPresetClose(); peBadge(); };
+  if ($("pe-format")) $("pe-format").onchange = function () { cancelPresetClose(); peBadge(); };
+  if ($("pe-name")) $("pe-name").oninput = function () { cancelPresetClose(); peBadge(); };
   $("pe-cancel").onclick = function () {
     /* 改过勾选/名字/格式就直接收起，等于悄悄丢掉这次编辑——问一句更省事 */
     if (peDirty() && !window.confirm("这个档案有没保存的改动，确定放弃？")) return;
@@ -3370,7 +3377,9 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
     if (!state.dirty) return;
     state.nodes = JSON.parse(JSON.stringify(state.saved || []));
     state.dirty = false;
-    render();
+    /* 用 renderManual()：② 那边的「已在 ① 手动」标记是按链接算的，
+       撤销之后手动层变了，只刷 ① 会让 ② 一直挂着过期的「已复制到手动」。 */
+    renderManual();
     endMachineEditing();
     setStatus("已撤销未保存的修改", true);
   };
