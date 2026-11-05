@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.74";
+const VERSION = "2.4.75";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -694,36 +694,35 @@ body.locked .wrap{display:none}
 <div class="sr-h">第二层 · 机器里的节点</div>
 <div>同一台机器里也分两层：<b>① 手动段整段在前，② 上报段在后</b>，两段各自排各自的，永远不会混在一起。</div>
 <div><b>① 手动节点</b>　完全按你在「① 手动节点」里排的顺序 —— 粘贴的先后，加上 <b>↑↓</b> 拖动。这一层永远在最前面，任何规则都不会动它。</div>
-<div><b>② 上报节点</b>　脚本给的，顺序由下面两条规则决定。</div>
+<div><b>② 上报节点</b>　脚本给的，顺序见下面三条规则。</div>
 <div class="sr-h">上报段的规则</div>
-<div>1. 默认就是<b>脚本上报的顺序</b>——脚本先打印哪条，这里就排哪条，和面板、订阅完全一致</div>
-<div>2. 在 <b>② 自动上报的节点</b>里拖过并点了保存的，按你排的顺序置顶，没排过的（含新上报的）接在后面</div>
-<div class="sr-h">例子</div>
-<div>上报进来 8 条，按顺序是：</div>
-<pre>anytls  hysteria2  trojan-argo  trojan-cdn  tuic
-vless-cdn  vless-reality  vmess-argo</pre>
-<div>排完变成这样：</div>
-<pre>[Argo]     trojan-argo  vmess-argo
-[CDN]      trojan-cdn   vless-cdn
-[Reality]  vless-reality
-[普通]     anytls  hysteria2  tuic</pre>
-<div>同名协议按字母站在自己组里（trojan 在 vless 前），不会跨组乱跑。</div>
-<div class="sr-h">② 里自己排过的顺序</div>
-<div>上面那套分组是<b>没排过顺序时的默认</b>。在 ② 里用 <b>顶 / ↑ / ↓ / 底</b> 挪过位置、并点了「保存顺序」之后，这台机器的上报段就<b>完全按你排的来</b>，订阅里也是这个顺序（新上报进来、还没拖过的节点排在末尾）。</div>
+<div>1. <b>默认就是脚本上报的顺序</b>：脚本先打印哪条，就排哪条。以前按「Argo → CDN → Reality → 普通」重新分组，会出现面板一个顺序、档案另一个顺序，已经去掉。</div>
+<div>2. 在 <b>② 自动上报的节点</b>里拖动 / 点 <b>Top ↑ ↓</b> 挪过位置、并点了 <b>保存顺序</b> 的，按你排的序号<b>置顶</b>。</div>
+<div>3. 没排过的（包括之后新上报的）接在你排过的<b>后面</b>，彼此仍按上报顺序，不会被打乱。</div>
+<div class="sr-h">例子 · 没排过顺序</div>
+<div>脚本按这个顺序打印 8 条：</div>
+<pre>hy2-IPv6  hy2  tuic  vless-reality  anytls  vmess  vless  trojan-argo</pre>
+<div>那么 ② 面板、③ 清单、④ 档案、订阅内容<b>都是这个顺序</b>，一条不差。</div>
+<div class="sr-h">例子 · 排过顺序</div>
+<div>把 tuic 拖到第 1、hy2-IPv6 拖到第 2，点「保存顺序」：</div>
+<pre>tuic  hy2-IPv6   ← 你排的，按序号置顶
+hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在后面</pre>
+<div>以后再上报，新出现的节点也接在这 6 条后面，不会插进前两条之间。</div>
+<div class="sr-h">四处同序</div>
+<div>· <b>② 面板</b>、<b>③ 订阅中的节点</b>、<b>④ 档案里列出的节点</b>、<b>客户端拉到的订阅内容</b>，用的是同一个顺序函数，保存后四处同时变，不用刷新页面。</div>
 <div>· 只影响<b>这一台机器</b>的上报段；机器之间谁先谁后仍由第一层的机器顺序决定。</div>
-<div>· 点「清掉上报节点自定顺序」→ 立即清库，面板和订阅都回到脚本上报的顺序。</div>
-<div>· 手动段不受影响：它永远整段在最前面。</div>
+<div>· 点「清掉上报节点自定顺序」→ 立刻清库，四处都回到脚本上报的顺序。</div>
+<div>· 手动段不受影响：它永远整段在最前面，而且按你在 ① 里排的顺序。</div>
 <div class="sr-h">几个判定细节</div>
-<div>· <b>security=reality</b> 的节点算 Reality 组，即使 path 里带 argo</div>
-<div>· path 里同时带 <b>-cdn</b> 和 <b>argo</b> 的，算 CDN 组（cdn 优先于 argo）</div>
-<div>· 一个节点只会落进一个组，不会重复出现</div>
-<div>· 手动节点<b>不参与</b>这套分组：你把 hysteria2 拖到 vless-reality 前面，它就一直在前面</div>
-<div>· 上报段保存过自定顺序时，上面这套「Argo → CDN → Reality → 普通」不再生效，按你排的来</div>
+<div>· 手动段和上报段按<b>链接</b>去重（只比 <code>#</code> 前面那部分），同一条链接两边都有时留手动那条。</div>
+<div>· 同一台机器里同协议的多个节点（例如 <b>hy2 的 IPv4 与 IPv6 两条</b>）是<b>两条独立节点</b>，一起显示、各自排序；但 ④ 档案的勾选粒度是「机器 + 协议」，这两条算<b>一组</b>，勾选时同进同出。</div>
+<div>· 分类标签（VLESS-Reality / Trojan-Argo / VLESS-CDN）仍按 <code>security=reality</code> 和 <code>path</code> 判定，用于显示和筛选，<b>不再参与排序</b>。</div>
+<div>· 一把节点只会出现一次，不会因为同名或同协议重复。</div>
 <div>· 同一台机器里认不出地区的，机器名照样参与排序，只是落在 100 那一档</div>
 <div>· 只放了手动节点、从没上报过的机器，照样按地区 / 序号排，不会因为「没上报」被挪到后面</div>
 <div class="sr-h">把上报节点「转 ① 手动」之后会怎样</div>
 <div>1. 等于把这条<b>复制</b>一份进手动层，从此名字可以改。原上报那条不会消失、脚本照旧上报，但订阅里按链接去重只留手动这条，不会出现两遍。</div>
-<div>2. 位置跟着变：从「上报段按 Argo / CDN / Reality 分组」跳进「手动段」，整段排在最前面 —— 不再受下面那两条上报规则管。</div>
+<div>2. 位置跟着变：从「上报段」跳进「手动段」，整段排在最前面 —— 不再受上报段的自定顺序管。</div>
 <div>3. <b>不再跟随上报更新</b>。机器换了端口、域名、uuid 之后再上报，变的是上报段；手动这条还是转过去时的旧参数，会连不上。到时要么在 ① 里改，要么删掉重新转一次。</div>
 <div>4. 换过地址的机器，旧手动条目和新的上报条目链接已经不同，<b>会同时出现在订阅里</b>，看着像两个节点 —— 旧那条其实连不上了，记得删。</div>
 <div>5. 转完只是加进编辑区，还得点 ① 的「保存配置」才写库；不保存刷新就没了。想撤销就在 ① 里删掉那条再保存。</div>
