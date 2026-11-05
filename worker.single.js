@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.40";
+const VERSION = "2.4.41";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -468,7 +468,8 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .h:hover{background:var(--chip);color:var(--ink)}
 .mlist-head .h.on{color:var(--acc);font-weight:600}
 .mlist-head .c-idx{opacity:.7;cursor:default}
-.mlist-head .c-name{display:flex;gap:2px;align-items:center;min-width:0}
+.mlist-head .c-name{display:flex;gap:8px;align-items:center;min-width:0;width:100%}
+.mlist-head .c-name .h[data-k="region"]{margin-left:auto}
 .mlist-head .c-meta{display:flex;gap:2px;justify-content:flex-end;align-items:center}
 .mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font:inherit;font-size:12px;color:var(--sub);cursor:pointer}
 .mlist-head .c-reset:hover{border-color:var(--acc);color:var(--acc)}
