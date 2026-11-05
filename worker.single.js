@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.75";
+const VERSION = "2.4.76";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -466,9 +466,9 @@ textarea:focus{border-color:var(--acc)}
 .node button.edge{font-weight:600;letter-spacing:0;font-size:11px;padding-left:0;padding-right:0}
 .node button.jump:hover:not(:disabled){color:var(--acc);border-color:var(--acc);background:var(--accbg)}
 .machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
-.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
+.machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
 /* 机器列表的表头：和机器行同一套栅格，像真表格的一行表头，而不是一排胶囊按钮 */
-.mlist-head{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;margin-top:12px;padding:5px 10px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:var(--soft);font-size:12px;color:var(--sub);letter-spacing:.02em}
+.mlist-head{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 34px 72px 44px;gap:8px;align-items:center;margin-top:12px;padding:5px 10px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:var(--soft);font-size:12px;color:var(--sub);letter-spacing:.02em}
 .mlist-head .h{background:none;border:0;padding:2px 4px;font:inherit;font-size:12px;color:inherit;cursor:pointer;border-radius:6px;text-align:left;white-space:nowrap}
 .mlist-head .h:hover{background:var(--chip);color:var(--ink)}
 .mlist-head .h.on{color:var(--acc);font-weight:600}
@@ -481,7 +481,7 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .c-meta{display:flex;gap:12px;justify-content:space-between;align-items:center;width:100%}
 /* 这是「退出排序 + 解锁调整」的动作按钮，不是又一个排序键。
    表头其他键是次要色的字，这里给实心强调底色，一眼就分得开。 */
-.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:linear-gradient(#f9a63a,#e8820a);border:1px solid #c9700a;border-radius:999px;padding:5px 14px;font:inherit;font-size:12px;font-weight:700;line-height:1.2;letter-spacing:.02em;color:#3a1f00;cursor:pointer;box-shadow:0 2px 10px rgba(232,130,10,.42),inset 0 1px 0 rgba(255,255,255,.4);text-shadow:0 1px 0 rgba(255,255,255,.25)}
+.mlist-head .c-reset{grid-column:5 / -1;justify-self:end;background:linear-gradient(#f9a63a,#e8820a);border:1px solid #c9700a;border-radius:999px;padding:5px 14px;font:inherit;font-size:12px;font-weight:700;line-height:1.2;letter-spacing:.02em;color:#3a1f00;cursor:pointer;box-shadow:0 2px 10px rgba(232,130,10,.42),inset 0 1px 0 rgba(255,255,255,.4);text-shadow:0 1px 0 rgba(255,255,255,.25)}
 .mlist-head .c-reset:hover{filter:brightness(1.06);box-shadow:0 3px 14px rgba(232,130,10,.6),inset 0 1px 0 rgba(255,255,255,.4)}
 .mlist-head .c-reset:active{transform:translateY(1px)}
 [data-theme="dark"] .mlist-head .c-reset{color:#2a1700;box-shadow:0 2px 12px rgba(232,130,10,.55),inset 0 1px 0 rgba(255,255,255,.35)}
@@ -513,6 +513,7 @@ textarea:focus{border-color:var(--acc)}
 .mrank-note .mn-text{flex:1 1 0;min-width:0}
 .mlist-head button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
+.machine .m-top{font-size:11px;font-weight:600;letter-spacing:0;padding-left:0;padding-right:0}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
 .clash-head{display:grid;gap:7px;font-size:11px;color:#8b98a5;padding:0 2px 4px}
 .clash-head.group-head{grid-template-columns:1.1fr 96px 1.1fr 1.2fr 34px}
@@ -691,6 +692,7 @@ body.locked .wrap{display:none}
 <div>两层按链接去重，<b>手动优先</b>：同一条链接两边都有时，只用手动那条，上报那条自动让位。</div>
 <div class="sr-h">第一层 · 机器之间</div>
 <div>· <b>保存过</b>「保存机器顺序」→ 完全按你排的来，序号 1 在最前；之后才上报进来的新机器，排在最后。</div>
+<div>· 每行右边是 <b>Top</b> / <b>↑</b> / <b>↓</b> 和序号输入框：<b>Top</b> 一步挪到第 1 位，↑↓ 一次挪一位，序号可以填「想去的第几位」。改完都要点「保存机器顺序」才写库。</div>
 <div>· <b>恢复默认排序</b>→ 丢掉保存过的顺序，回到上面那套按地区 rk 自动排（不用先点保存，点完立即生效）。</div>
 <div>· <b>从没保存过</b> → 按机器名里认出的地区排，数字小的在前：</div>
 <pre>香港 10   韩国 20   日本 30    新加坡 40   亚洲其他 50
@@ -2716,6 +2718,20 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         + " · 进订阅 " + (m.nodes || 0) + " 条"
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
       var at0 = machineIndexOf(m);
+      /* 和 ② 上报节点那颗「Top」同款：机器多的时候一下挪到第一位，不用点十几次 ↑ */
+      var topM = document.createElement("button"); topM.type = "button"; topM.className = "m-top"; topM.textContent = "Top";
+      topM.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "置顶（移到第 1 位）";
+      topM.disabled = sorted || at0 <= 0;
+      topM.onclick = function () {
+        var at = machineIndexOf(m);
+        if (at <= 0) return;
+        if (!moveItem(state.machines, at, 0)) return;
+        var tip = $("order-status");
+        tip.textContent = "已把 " + m.machine + " 移到第 1 位，点「保存机器顺序」生效";
+        tip.className = "status";
+        markOrderDirty();
+        renderMachineList(); renderMachines();
+      };
       var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "上移"; up.disabled = sorted || at0 <= 0;
       var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = sorted ? "顺序锁定中：点「解除顺序锁定」后才能调位置" : "下移"; down.disabled = sorted || at0 < 0 || at0 >= state.machines.length - 1;
       var editingThis = !!state.editingMachine && state.editingMachine === m.machine;
@@ -2770,7 +2786,7 @@ hy2  vless-reality  anytls  vmess  vless  trojan-argo   ← 没排过，接在�
         loadNodes();
         scrollToNodeConfig();
       };
-      row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(up); row.appendChild(down); row.appendChild(edit); row.appendChild(delM);
+      row.appendChild(idx); row.appendChild(name); row.appendChild(count); row.appendChild(topM); row.appendChild(up); row.appendChild(down); row.appendChild(edit); row.appendChild(delM);
       box.appendChild(row);
     });
     paintSortHead();
