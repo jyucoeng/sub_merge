@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.35";
+const VERSION = "2.4.36";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -657,7 +657,7 @@ body.locked .wrap{display:none}
 <div>· <b>从没保存过</b> → 按机器名里认出的地区排，数字小的在前：</div>
 <pre>香港 10   韩国 20   日本 30    新加坡 40   亚洲其他 50
 美国 60   德国 70   欧洲其他 80  美洲其他 90  认不出 100</pre>
-<div>· 点表头「机器名 / 地区 / 节点数」只是临时换个看法，点完就变成「未保存」，要么「保存机器顺序」，要么「撤销改动」。</div>
+<div>· 点表头「机器名 / 地区 / 节点数 / 更新时间」只是<b>临时换个看法</b>（找最近或最久没上报的机器用），不改机器顺序、也不会变成「未保存」；点「原顺序」回到正常显示。</div>
 <div>· 地区是从<b>机器名</b>里认出来的，按命中强度取最高分：中文地名（香港/东京/圣何塞）&gt; 城市三字码（SJC/NRT/ICN）&gt; 机场三字码（PHX/FRA）和两字码在中间 &gt; 两字码在开头。</div>
 <div>· <b>跟手动 / 上报无关</b>：一台机器排第几，只看上面的序号和地区。它自己有没有手动节点、上报进来几条，都不影响它的位置 —— 手动和上报只决定机器<b>内部</b>节点的先后（见第二层）。</div>
 <div class="sr-h">第二层 · 机器里的节点</div>
@@ -2545,13 +2545,20 @@ vless-cdn  vless-reality  vmess-argo</pre>
       e.appendChild(t); e.appendChild(d); e.appendChild(cmd); e.appendChild(cp); e.appendChild(d2);
       box.appendChild(e); return;
     }
-    state.machines.forEach(function (m, index) {
-      var row = document.createElement("div"); row.className = "machine";
-      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1); idx.title = "输入序号直接调整这台机器的位置";
+    var sorted = !!state.sortKey;
+    machineViewList().forEach(function (m, index) {
+      var row = document.createElement("div"); row.className = sorted ? "machine sorted" : "machine";
+      var idx = document.createElement("input"); idx.className = "idx-input"; idx.type = "number"; idx.min = "1"; idx.max = String(state.machines.length); idx.value = String(index + 1);
+      idx.disabled = sorted;
+      idx.title = sorted
+        ? "现在是临时排序视图，位置不代表机器顺序；想调整先点「原顺序」"
+        : "输入序号直接调整这台机器的位置";
       idx.onchange = function () {
+        var at = machineIndexOf(m);
+        if (at < 0) return;
         var want = parseInt(idx.value, 10);
-        var to = Math.max(1, Math.min(state.machines.length, isNaN(want) ? index + 1 : want)) - 1;
-        if (!moveItem(state.machines, index, to)) { idx.value = String(index + 1); return; }
+        var to = Math.max(1, Math.min(state.machines.length, isNaN(want) ? at + 1 : want)) - 1;
+        if (!moveItem(state.machines, at, to)) { idx.value = String(at + 1); return; }
         var tip = $("order-status"); tip.textContent = "顺序已改，点「保存顺序」生效"; tip.className = "status";
         markOrderDirty();
         renderMachineList(); renderMachines();
@@ -2612,8 +2619,9 @@ vless-cdn  vless-reality  vmess-argo</pre>
         + (((m.manual_nodes || 0) + (m.auto_nodes || 0) > (m.nodes || 0)) ? "，合并时按链接去重" : "")
         + " · 进订阅 " + (m.nodes || 0) + " 条"
         + ((m.sources && m.sources.length) ? " · 来源 " + m.sources.join("、") : "");
-      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = "上移"; up.disabled = index === 0;
-      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = "下移"; down.disabled = index === state.machines.length - 1;
+      var at0 = machineIndexOf(m);
+      var up = document.createElement("button"); up.type = "button"; up.textContent = "↑"; up.title = sorted ? "临时排序视图下不能调位置（先点「原顺序」）" : "上移"; up.disabled = sorted || at0 <= 0;
+      var down = document.createElement("button"); down.type = "button"; down.textContent = "↓"; down.title = sorted ? "临时排序视图下不能调位置（先点「原顺序」）" : "下移"; down.disabled = sorted || at0 < 0 || at0 >= state.machines.length - 1;
       var editingThis = !!state.editingMachine && state.editingMachine === m.machine;
       var edit = document.createElement("button"); edit.type = "button";
       edit.className = editingThis ? "edit editing" : "edit";
@@ -2621,8 +2629,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
       edit.title = editingThis
         ? "正在编辑这台机器的节点，改完点下面的「保存配置」或「撤销修改」"
         : "编辑这台机器的节点，会跳到下面的节点配置";
-      up.onclick = function () { if (index > 0) { var t = state.machines[index - 1]; state.machines[index - 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
-      down.onclick = function () { if (index < state.machines.length - 1) { var t = state.machines[index + 1]; state.machines[index + 1] = state.machines[index]; state.machines[index] = t; renderMachineList(); renderMachines(); markOrderDirty(); } };
+      up.onclick = function () {
+        var at = machineIndexOf(m);
+        if (at <= 0) return;
+        var t = state.machines[at - 1]; state.machines[at - 1] = state.machines[at]; state.machines[at] = t;
+        renderMachineList(); renderMachines(); markOrderDirty();
+      };
+      down.onclick = function () {
+        var at = machineIndexOf(m);
+        if (at < 0 || at >= state.machines.length - 1) return;
+        var t = state.machines[at + 1]; state.machines[at + 1] = state.machines[at]; state.machines[at] = t;
+        renderMachineList(); renderMachines(); markOrderDirty();
+      };
       /* 一个 34px 的「×」紧挨着「编辑节点」，两个都是小按钮、其中一个不可逆，
          误触太容易。换成带文字的「删除」，宽度也放开一点。 */
       var delM = document.createElement("button"); delM.type = "button"; delM.className = "danger del-machine";
@@ -2832,10 +2850,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
     if (state.dirty && !window.confirm("① 手动节点有未保存的修改，切换机器会丢掉，继续？")) { this.value = state.current || ""; return; }
     state.current = this.value; loadNodes(); endMachineEditing();
   };
-  function applyMachineSort() {
+  /* 表头的「机器名 / 地区 / 节点数 / 更新时间」只是**看**：返回排好序的副本，
+     绝不改 state.machines，也不把顺序标成「未保存」。目的就是找最近/最久没上报的机器，
+     为此改掉机器顺序属于副作用。 */
+  function machineIndexOf(m) {
+    for (var i = 0; i < state.machines.length; i += 1) if (state.machines[i] === m) return i;
+    return -1;
+  }
+  function machineViewList() {
     var key = state.sortKey, dir = state.sortDir || 1;
-    if (!key) return;
-    state.machines.sort(function (a, b) {
+    var list = state.machines.slice();
+    if (!key) return list;
+    list.sort(function (a, b) {
       var r = 0;
       if (key === "name") r = String(a.machine).localeCompare(String(b.machine));
       else if (key === "region") r = String(a.country || "\uffff").localeCompare(String(b.country || "\uffff"));
@@ -2845,6 +2871,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
       if (!r) r = String(a.machine).localeCompare(String(b.machine));
       return r * dir;
     });
+    return list;
   }
   var SORT_FIELDS = [["name", "机器名"], ["region", "地区"], ["nodes", "节点数"], ["updated", "更新时间"]];
   function paintSortHead() {
@@ -2856,24 +2883,29 @@ vless-cdn  vless-reality  vmess-argo</pre>
       for (var f = 0; f < SORT_FIELDS.length; f += 1) {
         var b = document.createElement("button");
         b.type = "button"; b.setAttribute("data-k", SORT_FIELDS[f][0]); b.textContent = SORT_FIELDS[f][1];
-        b.title = "按" + SORT_FIELDS[f][1] + "重排；再点一次反过来排。顺序会变成「未保存」，确认无误后点「保存机器顺序」";
+        b.title = "只是按" + SORT_FIELDS[f][1] + "换个看法（再点一次反过来），找最近/最久没上报的机器用；不动机器顺序，也不会变成未保存";
         b.onclick = function () {
           var k = this.getAttribute("data-k");
           if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
           else { state.sortKey = k; state.sortDir = k === "updated" ? -1 : 1; }
-          applyMachineSort();
           paintSortHead();
           renderMachineList();
-          markOrderDirty();
         };
         box.appendChild(b);
       }
-      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "点一次切换升降序";
+      var clear = document.createElement("button");
+      clear.type = "button"; clear.textContent = "原顺序"; clear.setAttribute("data-clear", "1");
+      clear.title = "回到按机器顺序（保存过的顺序 / 地区默认）显示";
+      clear.onclick = function () { state.sortKey = ""; state.sortDir = 1; paintSortHead(); renderMachineList(); };
+      box.appendChild(clear);
+      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "按表头只是换个看法，不动机器顺序";
       box.appendChild(tip);
     }
     var kids = box.children;
     for (var i = 0; i < kids.length; i += 1) {
-      var el = kids[i], kk = el.getAttribute && el.getAttribute("data-k");
+      var el = kids[i];
+      if (el.getAttribute && el.getAttribute("data-clear")) continue;
+      var kk = el.getAttribute && el.getAttribute("data-k");
       if (!kk) continue;
       var base = "";
       for (var q = 0; q < SORT_FIELDS.length; q += 1) { if (SORT_FIELDS[q][0] === kk) base = SORT_FIELDS[q][1]; }
