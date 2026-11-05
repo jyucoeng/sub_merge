@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.47";
+const VERSION = "2.4.48";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -476,8 +476,12 @@ textarea:focus{border-color:var(--acc)}
 /* 「节点数」和「最近上报」在视觉上不属于一回事，中间拉开：左一个右一个，
    用 space-between 把这一格填满，中间自然留出空白当分隔。 */
 .mlist-head .c-meta{display:flex;gap:12px;justify-content:space-between;align-items:center;width:100%}
-.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font:inherit;font-size:12px;color:var(--sub);cursor:pointer}
-.mlist-head .c-reset:hover{border-color:var(--acc);color:var(--acc)}
+/* 这是「退出排序 + 解锁调整」的动作按钮，不是又一个排序键。
+   表头其他键是次要色的字，这里给实心强调底色，一眼就分得开。 */
+.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:var(--acc);border:1px solid var(--acc);border-radius:999px;padding:4px 12px;font:inherit;font-size:12px;font-weight:600;line-height:1.2;color:#fff;cursor:pointer;box-shadow:0 1px 0 rgba(0,0,0,.06),0 2px 8px rgba(37,99,235,.28)}
+.mlist-head .c-reset:hover{filter:brightness(1.08)}
+.mlist-head .c-reset:active{transform:translateY(1px)}
+[data-theme="dark"] .mlist-head .c-reset{color:#04101f}
 .mlist-head .c-reset[hidden]{display:none}
 .mlist-head + #machine-list .machine:first-child{border-top-left-radius:0;border-top-right-radius:0}
 .sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
