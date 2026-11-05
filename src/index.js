@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.62";
+const VERSION = "2.4.64";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -456,7 +456,7 @@ textarea:focus{border-color:var(--acc)}
 /* 置顶/置底是「跳」，上移/下移是「挪一步」：描边和颜色各走一套，扫一眼就分得开 */
 /* 「顶/底」和「↑/↓」是同一件事的两种跨度，样式别搞成两套；
    只把字重压一点，让人看出这是「一步到位」而不是「挪一格」。 */
-.node button.edge{font-weight:600;letter-spacing:.02em;font-size:14px;line-height:1;padding:0 2px;font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Segoe UI Symbol",system-ui,sans-serif}
+.node button.edge{font-weight:800;font-size:15px;line-height:1;padding:0 2px;border-radius:6px;border:1px solid #1d4ed8;background:linear-gradient(#3b82f6,#1d4ed8);color:#fff;box-shadow:0 1px 6px rgba(29,78,216,.35)}.node button.edge:hover:not(:disabled){background:linear-gradient(#60a5fa,#2563eb)}
 .node button.jump:hover:not(:disabled){color:var(--acc);border-color:var(--acc);background:var(--accbg)}
 .machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
 .machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
@@ -2499,7 +2499,7 @@ vless-cdn  vless-reality  vmess-argo</pre>
         b.onclick = function () { moveAutoNodeTo(here, typeof target === "number" ? target : off); };
         return b;
       };
-      var topBtn = mkMove("\ud83d\udd1d", "置顶（移到第 1 位）", 0, null, "edge");
+      var topBtn = mkMove("\u21c8", "置顶（移到第 1 位）", 0, null, "edge");
       var upBtn = mkMove("\u2191", "上移一位", null, viewIndex - 1);
       var downBtn = mkMove("\u2193", "下移一位", null, viewIndex + 1);
       upBtn.disabled = viewIndex === 0;
