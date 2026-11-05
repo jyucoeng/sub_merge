@@ -26,7 +26,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.38";
+const VERSION = "2.4.39";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -455,8 +455,17 @@ textarea:focus{border-color:var(--acc)}
 .machine.sorted input.idx-input,.machine.sorted button:disabled,.node button:disabled,button:disabled{cursor:not-allowed}
 .machine.sorted .idx-input{cursor:not-allowed;opacity:.55}
 .machine{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);content-visibility:auto;contain-intrinsic-size:auto 46px}
-.mlist-head{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;padding:0 4px;font-size:12px;color:var(--sub)}
-.mlist-head .lab{color:var(--sub);opacity:.85}
+/* 机器列表的表头：和机器行同一套栅格，像真表格的一行表头，而不是一排胶囊按钮 */
+.mlist-head{display:grid;grid-template-columns:46px minmax(0,1fr) minmax(104px,auto) 34px 34px 72px 44px;gap:8px;align-items:center;margin-top:12px;padding:5px 10px;border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;background:var(--soft);font-size:12px;color:var(--sub);letter-spacing:.02em}
+.mlist-head .h{background:none;border:0;padding:2px 4px;font:inherit;font-size:12px;color:inherit;cursor:pointer;border-radius:6px;text-align:left;white-space:nowrap}
+.mlist-head .h:hover{background:var(--chip);color:var(--ink)}
+.mlist-head .h.on{color:var(--acc);font-weight:600}
+.mlist-head .c-idx{opacity:.7;cursor:default}
+.mlist-head .c-meta{display:flex;gap:2px;justify-content:flex-end;align-items:center}
+.mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font:inherit;font-size:12px;color:var(--sub);cursor:pointer}
+.mlist-head .c-reset:hover{border-color:var(--acc);color:var(--acc)}
+.mlist-head .c-reset[hidden]{display:none}
+.mlist-head + #machine-list .machine:first-child{border-top-left-radius:0;border-top-right-radius:0}
 .sort-help-btn{float:none;margin:0;padding:5px 13px;font-size:12.5px;line-height:1.4;white-space:nowrap;flex:0 0 auto;background:transparent;border:1px solid var(--autoline);color:var(--autoink);font-weight:600}
 .sort-help-btn:hover{background:var(--autoline);border-color:var(--autoline);color:var(--ink)}
 @media(max-width:560px){.mrank-note .mn-text{flex:1 1 100%}.sort-help-btn{flex:1 1 100%;justify-content:center;white-space:normal}.preset .pname{flex:1 1 100%;max-width:100%}}
@@ -468,9 +477,7 @@ textarea:focus{border-color:var(--acc)}
 .sort-rules pre{margin:7px 0 0;padding:9px 11px;background:var(--code);border:1px solid var(--line);border-radius:8px;font:12px/1.8 ui-monospace,Consolas,monospace;color:var(--ink);overflow-x:auto}
 .mrank-note{margin-top:8px;font-size:12.5px;line-height:1.75;color:var(--autoink);background:var(--autobg);border:1px solid var(--autoline);border-left:3px solid var(--autoink);border-radius:8px;padding:8px 11px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .mrank-note .mn-text{flex:1 1 0;min-width:0}
-.mlist-head button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;color:var(--sub);cursor:pointer}
-.mlist-head button:hover{border-color:var(--acc);color:var(--acc)}
-.mlist-head button.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+.mlist-head button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .machine .mname{font-weight:600}.machine .mcount{font-size:12px;color:var(--sub);white-space:nowrap;text-align:right}.machine button{padding:5px 7px}.machine .edit{font-size:12px;padding:5px 8px}
 .clash-table{display:grid;gap:7px;margin-top:10px}.clash-row{display:grid;gap:7px;align-items:center}
 .clash-head{display:grid;gap:7px;font-size:11px;color:#8b98a5;padding:0 2px 4px}
@@ -2875,41 +2882,46 @@ vless-cdn  vless-reality  vmess-argo</pre>
     var box = $("mlist-head");
     if (!box) return;
     if (!box.children.length) {
-      var lab = document.createElement("span"); lab.className = "lab"; lab.textContent = "排序：";
-      box.appendChild(lab);
-      for (var f = 0; f < SORT_FIELDS.length; f += 1) {
+      box.title = "表头只换看法：排序不动机器顺序，也不会变成「未保存」";
+      var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "#";
+      box.appendChild(ix);
+      var nm = document.createElement("button");
+      nm.type = "button"; nm.className = "h"; nm.setAttribute("data-k", "name"); nm.setAttribute("data-lab", "机器名");
+      nm.title = "按机器名排（再点一次反过来）；只换看法，不动机器顺序";
+      nm.onclick = function () { toggleMachineSort("name"); };
+      box.appendChild(nm);
+      var meta = document.createElement("div"); meta.className = "c-meta";
+      [["nodes", "节点数"], ["updated", "最近上报"], ["region", "地区"]].forEach(function (f) {
         var b = document.createElement("button");
-        b.type = "button"; b.setAttribute("data-k", SORT_FIELDS[f][0]); b.textContent = SORT_FIELDS[f][1];
-        b.title = "只是按" + SORT_FIELDS[f][1] + "换个看法（再点一次反过来），找最近/最久没上报的机器用；不动机器顺序，也不会变成未保存";
-        b.onclick = function () {
-          var k = this.getAttribute("data-k");
-          if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
-          else { state.sortKey = k; state.sortDir = k === "updated" ? -1 : 1; }
-          paintSortHead();
-          renderMachineList();
-        };
-        box.appendChild(b);
-      }
-      var clear = document.createElement("button");
-      clear.type = "button"; clear.textContent = "原顺序"; clear.setAttribute("data-clear", "1");
-      clear.title = "回到按机器顺序（保存过的顺序 / 地区默认）显示";
-      clear.onclick = function () { state.sortKey = ""; state.sortDir = 1; paintSortHead(); renderMachineList(); };
-      box.appendChild(clear);
-      var tip = document.createElement("span"); tip.className = "lab"; tip.textContent = "按表头只是换个看法，不动机器顺序";
-      box.appendChild(tip);
+        b.type = "button"; b.className = "h"; b.setAttribute("data-k", f[0]); b.setAttribute("data-lab", f[1]);
+        b.title = "按" + f[1] + "排（再点一次反过来）；只换看法，不动机器顺序";
+        b.onclick = function () { toggleMachineSort(f[0]); };
+        meta.appendChild(b);
+      });
+      box.appendChild(meta);
+      var rst = document.createElement("button");
+      rst.type = "button"; rst.className = "c-reset"; rst.setAttribute("data-clear", "1"); rst.textContent = "原顺序";
+      rst.title = "回到按机器顺序（保存过的顺序 / 地区默认）显示";
+      rst.onclick = function () { state.sortKey = ""; state.sortDir = 1; paintSortHead(); renderMachineList(); };
+      box.appendChild(rst);
     }
-    var kids = box.children;
+    var kids = box.querySelectorAll("[data-k]");
     for (var i = 0; i < kids.length; i += 1) {
       var el = kids[i];
-      if (el.getAttribute && el.getAttribute("data-clear")) continue;
-      var kk = el.getAttribute && el.getAttribute("data-k");
-      if (!kk) continue;
-      var base = "";
-      for (var q = 0; q < SORT_FIELDS.length; q += 1) { if (SORT_FIELDS[q][0] === kk) base = SORT_FIELDS[q][1]; }
+      var kk = el.getAttribute("data-k");
+      var lab = el.getAttribute("data-lab") || "";
       var on = !!state.sortKey && kk === state.sortKey;
-      el.className = on ? "on" : "";
-      el.textContent = base + (on ? (state.sortDir === 1 ? " \u2191" : " \u2193") : "");
+      el.classList.toggle("on", on);
+      el.textContent = lab + (on ? (state.sortDir === 1 ? " \u2191" : " \u2193") : "");
     }
+    var rstBtn = box.querySelector(".c-reset");
+    if (rstBtn) rstBtn.hidden = !state.sortKey;
+  }
+  function toggleMachineSort(k) {
+    if (state.sortKey === k) state.sortDir = state.sortDir === 1 ? -1 : 1;
+    else { state.sortKey = k; state.sortDir = k === "updated" ? -1 : 1; }
+    paintSortHead();
+    renderMachineList();
   }
   function syncOrderButtons() {
     var save = $("save-machine-order");
