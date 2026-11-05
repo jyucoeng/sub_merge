@@ -33,7 +33,7 @@
  *     目前只存 machine_order -> JSON 数组
  */
 
-const VERSION = "2.4.39";
+const VERSION = "2.4.40";
 const MAX_BODY = 512 * 1024;
 /* 单条节点 link 的长度上限：和 putNodeConfig 里 parseLink 的 8192 保持一致。
    旧版档案成员用 2000，vless-reality 带 pqv（后量子参数）时一条 link 就 2.9KB，
@@ -468,6 +468,7 @@ textarea:focus{border-color:var(--acc)}
 .mlist-head .h:hover{background:var(--chip);color:var(--ink)}
 .mlist-head .h.on{color:var(--acc);font-weight:600}
 .mlist-head .c-idx{opacity:.7;cursor:default}
+.mlist-head .c-name{display:flex;gap:2px;align-items:center;min-width:0}
 .mlist-head .c-meta{display:flex;gap:2px;justify-content:flex-end;align-items:center}
 .mlist-head .c-reset{grid-column:4 / -1;justify-self:end;background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font:inherit;font-size:12px;color:var(--sub);cursor:pointer}
 .mlist-head .c-reset:hover{border-color:var(--acc);color:var(--acc)}
@@ -2892,13 +2893,18 @@ vless-cdn  vless-reality  vmess-argo</pre>
       box.title = "表头只换看法：排序不动机器顺序，也不会变成「未保存」";
       var ix = document.createElement("span"); ix.className = "h c-idx"; ix.textContent = "#";
       box.appendChild(ix);
-      var nm = document.createElement("button");
-      nm.type = "button"; nm.className = "h"; nm.setAttribute("data-k", "name"); nm.setAttribute("data-lab", "机器名");
-      nm.title = "按机器名排（再点一次反过来）；只换看法，不动机器顺序";
-      nm.onclick = function () { toggleMachineSort("name"); };
-      box.appendChild(nm);
+      /* 机器名和地区是同一列里的两个维度，挨着放；节点数/最近上报属于右边那块 */
+      var nwrap = document.createElement("div"); nwrap.className = "c-name";
+      [["name", "机器名"], ["region", "地区"]].forEach(function (f) {
+        var b = document.createElement("button");
+        b.type = "button"; b.className = "h"; b.setAttribute("data-k", f[0]); b.setAttribute("data-lab", f[1]);
+        b.title = "按" + f[1] + "排（再点一次反过来）；只换看法，不动机器顺序";
+        b.onclick = function () { toggleMachineSort(f[0]); };
+        nwrap.appendChild(b);
+      });
+      box.appendChild(nwrap);
       var meta = document.createElement("div"); meta.className = "c-meta";
-      [["nodes", "节点数"], ["updated", "最近上报"], ["region", "地区"]].forEach(function (f) {
+      [["nodes", "节点数"], ["updated", "最近上报"]].forEach(function (f) {
         var b = document.createElement("button");
         b.type = "button"; b.className = "h"; b.setAttribute("data-k", f[0]); b.setAttribute("data-lab", f[1]);
         b.title = "按" + f[1] + "排（再点一次反过来）；只换看法，不动机器顺序";
